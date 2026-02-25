@@ -1,0 +1,103 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+type Column = {
+  id: string;
+  name: string;
+  dataType: string;
+  required: boolean;
+  order: number;
+};
+
+type Schema = {
+  id: string;
+  name: string;
+  description: string | null;
+  columns: Column[];
+  _count: { assignments: number; uploads: number };
+};
+
+export default function SchemaListClient({
+  initialSchemas,
+}: {
+  initialSchemas: Schema[];
+}) {
+  const router = useRouter();
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Delete schema "${name}"? This cannot be undone.`)) return;
+    await fetch(`/api/schemas/${id}`, { method: "DELETE" });
+    router.refresh();
+  }
+
+  if (initialSchemas.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+        <p className="text-gray-400 text-sm">No schemas yet.</p>
+        <Link
+          href="/admin/schemas/new"
+          className="mt-3 inline-block text-sm text-blue-600 hover:underline"
+        >
+          Create your first schema →
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {initialSchemas.map((schema) => (
+        <div
+          key={schema.id}
+          className="bg-white rounded-xl border border-gray-200 p-5"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-gray-900 truncate">
+                {schema.name}
+              </h3>
+              {schema.description && (
+                <p className="mt-0.5 text-sm text-gray-500 line-clamp-1">
+                  {schema.description}
+                </p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {schema.columns.map((col) => (
+                  <span
+                    key={col.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                  >
+                    <span className="font-medium">{col.name}</span>
+                    <span className="text-gray-400">{col.dataType}</span>
+                    {col.required && (
+                      <span className="text-red-400 font-bold">*</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center gap-4 text-xs text-gray-400">
+              <span>{schema._count.assignments} users</span>
+              <span>{schema._count.uploads} uploads</span>
+              <Link
+                href={`/admin/schemas/${schema.id}`}
+                className="text-blue-600 hover:underline font-medium"
+              >
+                Edit
+              </Link>
+              <button
+                onClick={() => handleDelete(schema.id, schema.name)}
+                className="text-red-500 hover:underline font-medium"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

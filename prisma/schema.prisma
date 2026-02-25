@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String?
+  password    String?
+  role        Role     @default(UPLOADER)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments UserSchemaAssignment[]
+  uploads     FileUpload[]
+}
+
+model Schema {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  columns     SchemaColumn[]
+  assignments UserSchemaAssignment[]
+  uploads     FileUpload[]
+}
+
+model SchemaColumn {
+  id       String   @id @default(cuid())
+  schemaId String
+  name     String
+  dataType DataType
+  required Boolean  @default(true)
+  order    Int      @default(0)
+
+  schema   Schema   @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+}
+
+model UserSchemaAssignment {
+  userId     String
+  schemaId   String
+  assignedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schema Schema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@id([userId, schemaId])
+}
+
+model FileUpload {
+  id         String       @id @default(cuid())
+  userId     String
+  schemaId   String
+  fileName   String
+  blobUrl    String?
+  status     UploadStatus @default(PENDING)
+  errorCount Int          @default(0)
+  createdAt  DateTime     @default(now())
+
+  user    User               @relation(fields: [userId], references: [id])
+  schema  Schema             @relation(fields: [schemaId], references: [id])
+  results ValidationResult[]
+}
+
+model ValidationResult {
+  id       String @id @default(cuid())
+  uploadId String
+  row      Int
+  column   String
+  value    String?
+  error    String
+
+  upload FileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+}
+
+enum Role {
+  ADMIN
+  UPLOADER
+}
+
+enum DataType {
+  TEXT
+  NUMBER
+  INTEGER
+  BOOLEAN
+  DATE
+  EMAIL
+}
+
+enum UploadStatus {
+  PENDING
+  VALID
+  INVALID
+}
