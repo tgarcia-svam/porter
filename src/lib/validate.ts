@@ -121,11 +121,15 @@ export function validateFile(
     return { errors: [], rowCount: 0, missingColumns: [] };
   }
 
-  const fileHeaders = new Set(Object.keys(rows[0]));
+  // Build a case-insensitive map: lowercased header → actual header in file
+  const headerMap = new Map<string, string>();
+  for (const h of Object.keys(rows[0])) {
+    headerMap.set(h.toLowerCase(), h);
+  }
 
-  // Check for missing required columns
+  // Check for missing required columns (case-insensitive)
   const missingColumns = columns
-    .filter((col) => col.required && !fileHeaders.has(col.name))
+    .filter((col) => col.required && !headerMap.has(col.name.toLowerCase()))
     .map((col) => col.name);
 
   const errors: ValidationError[] = [];
@@ -135,7 +139,8 @@ export function validateFile(
     const rowNumber = rowIdx + 2; // 1-based + header row
 
     for (const col of columns) {
-      const rawValue = row[col.name];
+      const actualHeader = headerMap.get(col.name.toLowerCase());
+      const rawValue = actualHeader !== undefined ? row[actualHeader] : undefined;
 
       // Column not present — already tracked as missing, skip per-row errors
       if (rawValue === undefined) continue;

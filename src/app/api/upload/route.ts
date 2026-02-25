@@ -47,6 +47,26 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = file.type || "application/octet-stream";
 
+  // Build blob path: schemaName/username/datetime/filename
+  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
+  const username = sanitize(session.user.name ?? session.user.email ?? userId);
+  const schemaSegment = sanitize(schema.name);
+  const now = new Date();
+  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
+  const blobName = `${schemaSegment}/${username}/${datetime}/${file.name}`;
+
+  // Upload to Azure — required before DB write
+  let blobUrl: string;
+  try {
+    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
+  } catch (err) {
+    console.error("Azure upload failed:", err);
+    return NextResponse.json(
+      { error: "Failed to upload file to storage. Please try again or contact an administrator." },
+      { status: 502 }
+    );
+  }
+
   // Run validation
   const { errors, rowCount, missingColumns } = validateFile(
     buffer,
@@ -66,15 +86,6 @@ export async function POST(req: NextRequest) {
   ];
 
   const isValid = allErrors.length === 0;
-
-  // Upload original file to Azure (non-fatal if it fails)
-  let blobUrl: string | null = null;
-  try {
-    const blobName = `${userId}/${Date.now()}_${file.name}`;
-    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
-  } catch (err) {
-    console.error("Azure upload failed:", err);
-  }
 
   // Persist to DB in a transaction
   const upload = await prisma.$transaction(async (tx) => {

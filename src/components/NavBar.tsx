@@ -19,6 +19,7 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
     { href: "/admin", label: "Dashboard" },
     { href: "/admin/schemas", label: "Schemas" },
     { href: "/admin/users", label: "Users" },
+    { href: "/admin/settings", label: "Settings" },
   ];
 
   const uploaderLinks: NavLink[] = [{ href: "/upload", label: "Upload" }];

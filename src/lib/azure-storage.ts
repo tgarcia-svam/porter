@@ -1,22 +1,30 @@
-import { BlobServiceClient, ContainerClient } from "@azure/storage-blob";
+import { BlobServiceClient } from "@azure/storage-blob";
+import { prisma } from "@/lib/prisma";
 
-let _containerClient: ContainerClient | null = null;
+async function getContainerClient() {
+  const settings = await prisma.appSetting.findMany({
+    where: {
+      key: { in: ["AZURE_STORAGE_CONNECTION_STRING", "AZURE_STORAGE_CONTAINER"] },
+    },
+  });
 
-function getContainerClient(): ContainerClient {
-  if (_containerClient) return _containerClient;
+  const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
 
-  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const connectionString =
+    settingsMap["AZURE_STORAGE_CONNECTION_STRING"] ??
+    process.env.AZURE_STORAGE_CONNECTION_STRING;
+
   const containerName =
-    process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
+    settingsMap["AZURE_STORAGE_CONTAINER"] ??
+    process.env.AZURE_STORAGE_CONTAINER ??
+    "porter-uploads";
 
   if (!connectionString) {
-    throw new Error("AZURE_STORAGE_CONNECTION_STRING is not set");
+    throw new Error("Azure Storage connection string is not configured");
   }
 
-  const blobServiceClient =
-    BlobServiceClient.fromConnectionString(connectionString);
-  _containerClient = blobServiceClient.getContainerClient(containerName);
-  return _containerClient;
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  return blobServiceClient.getContainerClient(containerName);
 }
 
 export async function uploadToBlob(
@@ -24,7 +32,7 @@ export async function uploadToBlob(
   blobName: string,
   contentType: string
 ): Promise<string> {
-  const containerClient = getContainerClient();
+  const containerClient = await getContainerClient();
 
   // Ensure container exists
   await containerClient.createIfNotExists({ access: "blob" });

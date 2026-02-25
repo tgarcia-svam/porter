@@ -80,6 +80,12 @@ model ValidationResult {
   upload FileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 }
 
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 enum Role {
   ADMIN
   UPLOADER
