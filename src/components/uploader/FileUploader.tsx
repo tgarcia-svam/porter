@@ -61,6 +61,7 @@ export default function FileUploader({
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>(initialUploads);
 
   const selectedSchema = assignedSchemas.find((s) => s.id === selectedSchemaId);
@@ -78,6 +79,7 @@ export default function FileUploader({
     }
     setSelectedFile(file);
     setResult(null);
+    setUploadError(null);
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -91,6 +93,7 @@ export default function FileUploader({
     if (!selectedFile || !selectedSchemaId) return;
     setUploading(true);
     setResult(null);
+    setUploadError(null);
 
     try {
       const formData = new FormData();
@@ -98,8 +101,14 @@ export default function FileUploader({
       formData.append("schemaId", selectedSchemaId);
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data: UploadResult = await res.json();
-      setResult(data);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUploadError(data?.error ?? "An unexpected error occurred. Please try again.");
+        return;
+      }
+
+      setResult(data as UploadResult);
 
       // Refresh upload history
       const historyRes = await fetch("/api/upload");
@@ -256,6 +265,13 @@ export default function FileUploader({
           {uploading ? "Validating & uploading…" : "Upload and validate"}
         </button>
       </div>
+
+      {/* Upload error */}
+      {uploadError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+          {uploadError}
+        </div>
+      )}
 
       {/* Validation result */}
       {result && <ValidationResults result={result} />}
