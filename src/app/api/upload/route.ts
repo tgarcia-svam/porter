@@ -47,27 +47,7 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = file.type || "application/octet-stream";
 
-  // Build blob path: schemaName/username/datetime/filename
-  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const username = sanitize(session.user.name ?? session.user.email ?? userId);
-  const schemaSegment = sanitize(schema.name);
-  const now = new Date();
-  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
-  const blobName = `${schemaSegment}/${username}/${datetime}/${file.name}`;
-
-  // Upload to Azure — required before DB write
-  let blobUrl: string;
-  try {
-    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
-  } catch (err) {
-    console.error("Azure upload failed:", err);
-    return NextResponse.json(
-      { error: "Failed to upload file to storage. Please try again or contact an administrator." },
-      { status: 502 }
-    );
-  }
-
-  // Run validation
+  // Run validation first so the blob path prefix reflects the result
   const { errors, rowCount, missingColumns } = validateFile(
     buffer,
     mimeType,
@@ -86,6 +66,27 @@ export async function POST(req: NextRequest) {
   ];
 
   const isValid = allErrors.length === 0;
+
+  // Build blob path: {valid|error}/schemaName/username/datetime/filename
+  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
+  const username = sanitize(session.user.name ?? session.user.email ?? userId);
+  const schemaSegment = sanitize(schema.name);
+  const now = new Date();
+  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
+  const prefix = isValid ? "valid" : "error";
+  const blobName = `${prefix}/${schemaSegment}/${username}/${datetime}/${file.name}`;
+
+  // Upload to Azure — required before DB write
+  let blobUrl: string;
+  try {
+    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
+  } catch (err) {
+    console.error("Azure upload failed:", err);
+    return NextResponse.json(
+      { error: "Failed to upload file to storage. Please try again or contact an administrator." },
+      { status: 502 }
+    );
+  }
 
   // Persist to DB in a transaction
   const upload = await prisma.$transaction(async (tx) => {
