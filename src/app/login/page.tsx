@@ -2,7 +2,9 @@
 
 import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+
+type AvailableProviders = { google: boolean; microsoft: boolean };
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -13,6 +15,17 @@ function LoginContent() {
   const [password, setPassword] = useState("");
   const [credError, setCredError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [providers, setProviders] = useState<AvailableProviders>({
+    google: false,
+    microsoft: false,
+  });
+
+  useEffect(() => {
+    fetch("/api/settings/sso/providers")
+      .then((r) => r.json())
+      .then((data: AvailableProviders) => setProviders(data))
+      .catch(() => { /* leave defaults — no SSO buttons shown */ });
+  }, []);
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
@@ -41,6 +54,8 @@ function LoginContent() {
       : error
       ? "Sign-in failed. Please try again."
       : null;
+
+  const showSSO = providers.google || providers.microsoft;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -127,36 +142,43 @@ function LoginContent() {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-xs text-gray-400">
-                or continue with
-              </span>
-            </div>
-          </div>
+          {/* SSO buttons — only shown when at least one provider is configured */}
+          {showSSO && (
+            <>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white px-3 text-xs text-gray-400">
+                    or continue with
+                  </span>
+                </div>
+              </div>
 
-          {/* SSO buttons */}
-          <div className="space-y-2">
-            <button
-              onClick={() => signIn("google", { callbackUrl: "/" })}
-              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              <GoogleIcon />
-              Google
-            </button>
+              <div className="space-y-2">
+                {providers.google && (
+                  <button
+                    onClick={() => signIn("google", { callbackUrl: "/" })}
+                    className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    <GoogleIcon />
+                    Google
+                  </button>
+                )}
 
-            <button
-              onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}
-              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              <MicrosoftIcon />
-              Microsoft
-            </button>
-          </div>
+                {providers.microsoft && (
+                  <button
+                    onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}
+                    className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    <MicrosoftIcon />
+                    Microsoft
+                  </button>
+                )}
+              </div>
+            </>
+          )}
 
           <p className="text-center text-xs text-gray-400">
             Access is by invitation only. Contact your administrator if you
