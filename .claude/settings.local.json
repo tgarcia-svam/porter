@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma db push)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma db push --accept-data-loss)"
     ]
   }
 }

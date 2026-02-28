@@ -2,16 +2,14 @@ import { prisma } from "@/lib/prisma";
 import UserManager from "@/components/admin/UserManager";
 
 export default async function UsersPage() {
-  const [users, schemas] = await Promise.all([
+  const [users, organizations] = await Promise.all([
     prisma.user.findMany({
       include: {
-        assignments: {
-          include: { schema: { select: { id: true, name: true } } },
-        },
+        organization: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.schema.findMany({
+    prisma.organization.findMany({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -32,7 +30,7 @@ export default async function UsersPage() {
           createdAt: u.createdAt.toISOString(),
           role: u.role as "ADMIN" | "UPLOADER",
         }))}
-        allSchemas={schemas}
+        allOrganizations={organizations}
       />
     </div>
   );

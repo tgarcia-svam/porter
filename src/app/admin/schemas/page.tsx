@@ -6,7 +6,8 @@ export default async function SchemasPage() {
   const schemas = await prisma.schema.findMany({
     include: {
       columns: { orderBy: { order: "asc" } },
-      _count: { select: { assignments: true, uploads: true } },
+      projects: { include: { project: { select: { id: true, name: true } } } },
+      _count: { select: { uploads: true } },
     },
     orderBy: { createdAt: "desc" },
   });

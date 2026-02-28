@@ -3,19 +3,15 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const UpdateUserBody = z.object({
-  role: z.enum(["ADMIN", "UPLOADER"]).optional(),
-  name: z.string().optional(),
-  organizationId: z.string().nullable().optional(),
-});
-
 async function requireAdmin() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
   return session;
 }
 
-export async function PUT(
+const AssignBody = z.object({ schemaId: z.string() });
+
+export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -24,27 +20,39 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const parsed = UpdateUserBody.safeParse(body);
+  const parsed = AssignBody.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: parsed.data,
+  const assignment = await prisma.schemaProject.upsert({
+    where: {
+      schemaId_projectId: { schemaId: parsed.data.schemaId, projectId: id },
+    },
+    create: { schemaId: parsed.data.schemaId, projectId: id },
+    update: {},
   });
 
-  return NextResponse.json(user);
+  return NextResponse.json(assignment, { status: 201 });
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
-  await prisma.user.delete({ where: { id } });
+  const { searchParams } = new URL(req.url);
+  const schemaId = searchParams.get("schemaId");
+  if (!schemaId) {
+    return NextResponse.json({ error: "schemaId required" }, { status: 400 });
+  }
+
+  await prisma.schemaProject.delete({
+    where: { schemaId_projectId: { schemaId, projectId: id } },
+  });
+
   return new NextResponse(null, { status: 204 });
 }

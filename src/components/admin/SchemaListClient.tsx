@@ -16,7 +16,8 @@ type Schema = {
   name: string;
   description: string | null;
   columns: Column[];
-  _count: { assignments: number; uploads: number };
+  projects: { project: { id: string; name: string } }[];
+  _count: { uploads: number };
 };
 
 export default function SchemaListClient({
@@ -64,6 +65,14 @@ export default function SchemaListClient({
                 </p>
               )}
               <div className="mt-2 flex flex-wrap gap-1.5">
+                {schema.projects.map(({ project }) => (
+                  <span
+                    key={project.id}
+                    className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20"
+                  >
+                    {project.name}
+                  </span>
+                ))}
                 {schema.columns.map((col) => (
                   <span
                     key={col.id}
@@ -80,7 +89,6 @@ export default function SchemaListClient({
             </div>
 
             <div className="shrink-0 flex items-center gap-4 text-xs text-gray-400">
-              <span>{schema._count.assignments} users</span>
               <span>{schema._count.uploads} uploads</span>
               <Link
                 href={`/admin/schemas/${schema.id}`}

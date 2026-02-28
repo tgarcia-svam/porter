@@ -9,10 +9,19 @@ export default async function EditSchemaPage({
 }) {
   const { id } = await params;
 
-  const schema = await prisma.schema.findUnique({
-    where: { id },
-    include: { columns: { orderBy: { order: "asc" } } },
-  });
+  const [schema, allProjects] = await Promise.all([
+    prisma.schema.findUnique({
+      where: { id },
+      include: {
+        columns: { orderBy: { order: "asc" } },
+        projects: { select: { projectId: true } },
+      },
+    }),
+    prisma.project.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   if (!schema) notFound();
 
@@ -29,12 +38,14 @@ export default async function EditSchemaPage({
           id: schema.id,
           name: schema.name,
           description: schema.description ?? "",
+          projectIds: schema.projects.map((p) => p.projectId),
           columns: schema.columns.map((c) => ({
             name: c.name,
             dataType: c.dataType as "TEXT" | "NUMBER" | "INTEGER" | "BOOLEAN" | "DATE" | "EMAIL",
             required: c.required,
           })),
         }}
+        allProjects={allProjects}
       />
     </div>
   );

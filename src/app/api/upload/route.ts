@@ -22,22 +22,42 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Verify schema is assigned to this user
-  const assignment = await prisma.userSchemaAssignment.findUnique({
-    where: { userId_schemaId: { userId, schemaId } },
+  // Verify access: user must belong to an org linked to a project that contains this schema
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { organization: { select: { name: true } } },
   });
 
-  if (!assignment) {
+  if (!user?.organization) {
     return NextResponse.json(
-      { error: "Schema not assigned to your account" },
+      { error: "You must belong to an organization to upload files" },
       { status: 403 }
     );
   }
 
-  // Fetch schema with columns separately (avoids nested-include type issues)
+  const access = await prisma.schemaProject.findFirst({
+    where: {
+      schemaId,
+      project: {
+        organizations: { some: { organizationId: user.organizationId! } },
+      },
+    },
+  });
+
+  if (!access) {
+    return NextResponse.json(
+      { error: "Schema not accessible to your organization" },
+      { status: 403 }
+    );
+  }
+
+  // Fetch schema with columns and projects
   const schema = await prisma.schema.findUnique({
     where: { id: schemaId },
-    include: { columns: { orderBy: { order: "asc" } } },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      projects: { include: { project: { select: { name: true } } } },
+    },
   });
 
   if (!schema) {
@@ -67,14 +87,16 @@ export async function POST(req: NextRequest) {
 
   const isValid = allErrors.length === 0;
 
-  // Build blob path: {valid|error}/schemaName/username/datetime/filename
+  // Build blob path: {valid|error}/project/organization/schema/datetime/filename
   const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const username = sanitize(session.user.name ?? session.user.email ?? userId);
+  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
+  const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
+  const orgSegment = sanitize(user?.organization?.name ?? "no-organization");
   const schemaSegment = sanitize(schema.name);
   const now = new Date();
   const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
   const prefix = isValid ? "valid" : "error";
-  const blobName = `${prefix}/${schemaSegment}/${username}/${datetime}/${file.name}`;
+  const blobName = `${prefix}/${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${file.name}`;
 
   // Upload to Azure — required before DB write
   let blobUrl: string;

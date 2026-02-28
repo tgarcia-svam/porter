@@ -11,10 +11,13 @@ type ColumnDef = {
   required: boolean;
 };
 
+type ProjectRef = { id: string; name: string };
+
 type InitialData = {
   id: string;
   name: string;
   description: string;
+  projectIds: string[];
   columns: ColumnDef[];
 };
 
@@ -29,12 +32,21 @@ const DATA_TYPES: { value: DataType; label: string; description: string }[] = [
 
 export default function SchemaEditor({
   initialData,
+  allProjects = [],
 }: {
   initialData?: InitialData;
+  allProjects?: ProjectRef[];
 }) {
   const router = useRouter();
   const [name, setName] = useState(initialData?.name ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
+  const [projectIds, setProjectIds] = useState<string[]>(initialData?.projectIds ?? []);
+
+  function toggleProject(id: string) {
+    setProjectIds((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  }
   const [columns, setColumns] = useState<ColumnDef[]>(
     initialData?.columns ?? [{ name: "", dataType: "TEXT", required: true }]
   );
@@ -73,7 +85,7 @@ export default function SchemaEditor({
 
     setSaving(true);
     try {
-      const body = { name: name.trim(), description: description.trim(), columns };
+      const body = { name: name.trim(), description: description.trim(), projectIds, columns };
       const url = initialData
         ? `/api/schemas/${initialData.id}`
         : "/api/schemas";
@@ -128,6 +140,29 @@ export default function SchemaEditor({
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        {allProjects.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Projects
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {allProjects.map((p) => (
+                <label
+                  key={p.id}
+                  className="flex items-center gap-2 cursor-pointer rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={projectIds.includes(p.id)}
+                    onChange={() => toggleProject(p.id)}
+                    className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Column definitions */}

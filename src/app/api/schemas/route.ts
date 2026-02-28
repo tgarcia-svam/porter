@@ -13,6 +13,7 @@ const ColumnSchema = z.object({
 const CreateSchemaBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1),
 });
 
@@ -23,7 +24,10 @@ export async function GET() {
   }
 
   const schemas = await prisma.schema.findMany({
-    include: { columns: { orderBy: { order: "asc" } } },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      projects: { include: { project: { select: { id: true, name: true } } } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -42,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, description, columns } = parsed.data;
+  const { name, description, projectIds, columns } = parsed.data;
 
   const schema = await prisma.schema.create({
     data: {
@@ -51,8 +55,14 @@ export async function POST(req: NextRequest) {
       columns: {
         create: columns.map((col, i) => ({ ...col, order: i })),
       },
+      ...(projectIds?.length && {
+        projects: { create: projectIds.map((projectId) => ({ projectId })) },
+      }),
     },
-    include: { columns: { orderBy: { order: "asc" } } },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      projects: { include: { project: { select: { id: true, name: true } } } },
+    },
   });
 
   return NextResponse.json(schema, { status: 201 });

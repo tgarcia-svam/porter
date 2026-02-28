@@ -1,6 +1,12 @@
+import { prisma } from "@/lib/prisma";
 import SchemaEditor from "@/components/admin/SchemaEditor";
 
-export default function NewSchemaPage() {
+export default async function NewSchemaPage() {
+  const allProjects = await prisma.project.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -9,7 +15,7 @@ export default function NewSchemaPage() {
           Define column names and required data types.
         </p>
       </div>
-      <SchemaEditor />
+      <SchemaEditor allProjects={allProjects} />
     </div>
   );
 }

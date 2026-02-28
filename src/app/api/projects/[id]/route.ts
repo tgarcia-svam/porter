@@ -3,17 +3,16 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const UpdateUserBody = z.object({
-  role: z.enum(["ADMIN", "UPLOADER"]).optional(),
-  name: z.string().optional(),
-  organizationId: z.string().nullable().optional(),
-});
-
 async function requireAdmin() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
   return session;
 }
+
+const UpdateBody = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+});
 
 export async function PUT(
   req: NextRequest,
@@ -24,17 +23,28 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const parsed = UpdateUserBody.safeParse(body);
+  const parsed = UpdateBody.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const user = await prisma.user.update({
+  const project = await prisma.project.update({
     where: { id },
-    data: parsed.data,
+    data: {
+      ...(parsed.data.name && { name: parsed.data.name.trim() }),
+      ...(parsed.data.description !== undefined && {
+        description: parsed.data.description.trim() || null,
+      }),
+    },
+    include: {
+      organizations: {
+        include: { organization: { select: { id: true, name: true } } },
+      },
+      _count: { select: { schemas: true } },
+    },
   });
 
-  return NextResponse.json(user);
+  return NextResponse.json(project);
 }
 
 export async function DELETE(
@@ -45,6 +55,6 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
-  await prisma.user.delete({ where: { id } });
+  await prisma.project.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });
 }

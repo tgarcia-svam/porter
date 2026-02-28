@@ -3,23 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Schema = { id: string; name: string };
-type Assignment = { schema: Schema };
+type OrgRef = { id: string; name: string };
 type User = {
   id: string;
   email: string;
   name: string | null;
   role: "ADMIN" | "UPLOADER";
   createdAt: string;
-  assignments: Assignment[];
+  organization: OrgRef | null;
 };
 
 export default function UserManager({
   initialUsers,
-  allSchemas,
+  allOrganizations,
 }: {
   initialUsers: User[];
-  allSchemas: Schema[];
+  allOrganizations: OrgRef[];
 }) {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>(initialUsers);
@@ -27,7 +26,6 @@ export default function UserManager({
   const [newRole, setNewRole] = useState<"ADMIN" | "UPLOADER">("UPLOADER");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
   async function refreshUsers() {
     const res = await fetch("/api/users");
@@ -76,22 +74,12 @@ export default function UserManager({
     await refreshUsers();
   }
 
-  async function toggleSchemaAssignment(
-    userId: string,
-    schemaId: string,
-    assigned: boolean
-  ) {
-    if (assigned) {
-      await fetch(`/api/users/${userId}/schemas?schemaId=${schemaId}`, {
-        method: "DELETE",
-      });
-    } else {
-      await fetch(`/api/users/${userId}/schemas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schemaId }),
-      });
-    }
+  async function handleOrgChange(id: string, organizationId: string | null) {
+    await fetch(`/api/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationId }),
+    });
     await refreshUsers();
   }
 
@@ -152,131 +140,59 @@ export default function UserManager({
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-6 py-3 font-medium text-gray-500">User</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Role</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Schemas</th>
+                <th className="px-6 py-3 font-medium text-gray-500">Organization</th>
                 <th className="px-6 py-3 font-medium text-gray-500" />
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => {
-                const assignedIds = new Set(user.assignments.map((a) => a.schema.id));
-                const isExpanded = expandedUser === user.id;
-
-                return (
-                  <>
-                    <tr
-                      key={user.id}
-                      className="border-b border-gray-50 last:border-0"
-                    >
-                      <td className="px-6 py-3">
-                        <div className="font-medium text-gray-900">
-                          {user.name ?? user.email}
-                        </div>
-                        {user.name && (
-                          <div className="text-xs text-gray-400">{user.email}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-3">
-                        <select
-                          value={user.role}
-                          onChange={(e) =>
-                            handleRoleChange(
-                              user.id,
-                              e.target.value as "ADMIN" | "UPLOADER"
-                            )
-                          }
-                          className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="UPLOADER">Uploader</option>
-                          <option value="ADMIN">Admin</option>
-                        </select>
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {user.assignments.length === 0 ? (
-                            <span className="text-gray-400 text-xs">None assigned</span>
-                          ) : (
-                            user.assignments.slice(0, 3).map((a) => (
-                              <span
-                                key={a.schema.id}
-                                className="inline-block rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs"
-                              >
-                                {a.schema.name}
-                              </span>
-                            ))
-                          )}
-                          {user.assignments.length > 3 && (
-                            <span className="text-xs text-gray-400">
-                              +{user.assignments.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            onClick={() =>
-                              setExpandedUser(isExpanded ? null : user.id)
-                            }
-                            className="text-xs text-blue-600 hover:underline"
-                          >
-                            {isExpanded ? "Close" : "Assign schemas"}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user.id, user.email)}
-                            className="text-xs text-red-500 hover:underline"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Schema assignment panel */}
-                    {isExpanded && (
-                      <tr key={`${user.id}-schemas`} className="bg-blue-50/30">
-                        <td colSpan={4} className="px-6 py-4">
-                          <p className="text-xs font-medium text-gray-600 mb-3">
-                            Schema access for {user.name ?? user.email}:
-                          </p>
-                          {allSchemas.length === 0 ? (
-                            <p className="text-xs text-gray-400">
-                              No schemas defined yet.
-                            </p>
-                          ) : (
-                            <div className="flex flex-wrap gap-3">
-                              {allSchemas.map((schema) => {
-                                const assigned = assignedIds.has(schema.id);
-                                return (
-                                  <label
-                                    key={schema.id}
-                                    className="flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={assigned}
-                                      onChange={() =>
-                                        toggleSchemaAssignment(
-                                          user.id,
-                                          schema.id,
-                                          assigned
-                                        )
-                                      }
-                                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <span className="text-sm text-gray-700">
-                                      {schema.name}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
+              {users.map((user) => (
+                <tr key={user.id} className="border-b border-gray-50 last:border-0">
+                  <td className="px-6 py-3">
+                    <div className="font-medium text-gray-900">
+                      {user.name ?? user.email}
+                    </div>
+                    {user.name && (
+                      <div className="text-xs text-gray-400">{user.email}</div>
                     )}
-                  </>
-                );
-              })}
+                  </td>
+                  <td className="px-6 py-3">
+                    <select
+                      value={user.role}
+                      onChange={(e) =>
+                        handleRoleChange(user.id, e.target.value as "ADMIN" | "UPLOADER")
+                      }
+                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="UPLOADER">Uploader</option>
+                      <option value="ADMIN">Admin</option>
+                    </select>
+                  </td>
+                  <td className="px-6 py-3">
+                    <select
+                      value={user.organization?.id ?? ""}
+                      onChange={(e) =>
+                        handleOrgChange(user.id, e.target.value || null)
+                      }
+                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[160px]"
+                    >
+                      <option value="">No organization</option>
+                      {allOrganizations.map((org) => (
+                        <option key={org.id} value={org.id}>{org.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-6 py-3">
+                    <div className="flex items-center justify-end">
+                      <button
+                        onClick={() => handleDeleteUser(user.id, user.email)}
+                        className="text-xs text-red-500 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

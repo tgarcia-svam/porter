@@ -3,12 +3,6 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const CreateUserBody = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  role: z.enum(["ADMIN", "UPLOADER"]).default("UPLOADER"),
-});
-
 async function requireAdmin() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
@@ -19,33 +13,32 @@ export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const users = await prisma.user.findMany({
-    include: {
-      organization: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: "asc" },
+  const organizations = await prisma.organization.findMany({
+    include: { _count: { select: { users: true } } },
+    orderBy: { name: "asc" },
   });
 
-  return NextResponse.json(users);
+  return NextResponse.json(organizations);
 }
+
+const CreateBody = z.object({
+  name: z.string().min(1),
+});
 
 export async function POST(req: NextRequest) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
-  const parsed = CreateUserBody.safeParse(body);
+  const parsed = CreateBody.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const existing = await prisma.user.findUnique({
-    where: { email: parsed.data.email },
+  const organization = await prisma.organization.create({
+    data: { name: parsed.data.name.trim() },
+    include: { _count: { select: { users: true } } },
   });
-  if (existing) {
-    return NextResponse.json({ error: "User already exists" }, { status: 409 });
-  }
 
-  const user = await prisma.user.create({ data: parsed.data });
-  return NextResponse.json(user, { status: 201 });
+  return NextResponse.json(organization, { status: 201 });
 }

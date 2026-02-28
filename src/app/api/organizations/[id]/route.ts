@@ -3,17 +3,15 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const UpdateUserBody = z.object({
-  role: z.enum(["ADMIN", "UPLOADER"]).optional(),
-  name: z.string().optional(),
-  organizationId: z.string().nullable().optional(),
-});
-
 async function requireAdmin() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
   return session;
 }
+
+const UpdateBody = z.object({
+  name: z.string().min(1),
+});
 
 export async function PUT(
   req: NextRequest,
@@ -24,17 +22,18 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const parsed = UpdateUserBody.safeParse(body);
+  const parsed = UpdateBody.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const user = await prisma.user.update({
+  const organization = await prisma.organization.update({
     where: { id },
-    data: parsed.data,
+    data: { name: parsed.data.name.trim() },
+    include: { _count: { select: { users: true } } },
   });
 
-  return NextResponse.json(user);
+  return NextResponse.json(organization);
 }
 
 export async function DELETE(
@@ -45,6 +44,6 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
-  await prisma.user.delete({ where: { id } });
+  await prisma.organization.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });
 }

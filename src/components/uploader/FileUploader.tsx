@@ -19,6 +19,12 @@ type Schema = {
   columns: Column[];
 };
 
+type Project = {
+  id: string;
+  name: string;
+  schemas: Schema[];
+};
+
 type UploadRecord = {
   id: string;
   fileName: string;
@@ -45,17 +51,20 @@ type UploadResult = {
 };
 
 export default function FileUploader({
-  assignedSchemas,
+  projects,
   initialUploads,
 }: {
-  assignedSchemas: Schema[];
+  projects: Project[];
   initialUploads: UploadRecord[];
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    projects[0]?.id ?? ""
+  );
   const [selectedSchemaId, setSelectedSchemaId] = useState(
-    assignedSchemas[0]?.id ?? ""
+    projects[0]?.schemas[0]?.id ?? ""
   );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -64,7 +73,18 @@ export default function FileUploader({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>(initialUploads);
 
-  const selectedSchema = assignedSchemas.find((s) => s.id === selectedSchemaId);
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const availableSchemas = selectedProject?.schemas ?? [];
+  const selectedSchema = availableSchemas.find((s) => s.id === selectedSchemaId);
+
+  function handleProjectChange(projectId: string) {
+    const project = projects.find((p) => p.id === projectId);
+    setSelectedProjectId(projectId);
+    setSelectedSchemaId(project?.schemas[0]?.id ?? "");
+    setSelectedFile(null);
+    setResult(null);
+    setUploadError(null);
+  }
 
   function handleFileSelect(file: File) {
     const allowed = [
@@ -143,13 +163,13 @@ export default function FileUploader({
     }
   }
 
-  if (assignedSchemas.length === 0) {
+  if (projects.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-        <p className="text-gray-500 text-sm font-medium">No schemas assigned</p>
+        <p className="text-gray-500 text-sm font-medium">No projects available</p>
         <p className="mt-1 text-gray-400 text-sm">
-          An administrator needs to assign a file schema to your account before you
-          can upload files.
+          An administrator needs to assign your organization to a project with
+          schemas before you can upload files.
         </p>
       </div>
     );
@@ -159,6 +179,24 @@ export default function FileUploader({
     <div className="space-y-8">
       {/* Upload card */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+        {/* Project selector */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Project
+          </label>
+          <select
+            value={selectedProjectId}
+            onChange={(e) => handleProjectChange(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Schema selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -173,7 +211,7 @@ export default function FileUploader({
             }}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {assignedSchemas.map((s) => (
+            {availableSchemas.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>

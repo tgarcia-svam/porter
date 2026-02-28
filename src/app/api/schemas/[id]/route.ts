@@ -13,6 +13,7 @@ const ColumnSchema = z.object({
 const UpdateSchemaBody = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1).optional(),
 });
 
@@ -32,7 +33,10 @@ export async function GET(
   const { id } = await params;
   const schema = await prisma.schema.findUnique({
     where: { id },
-    include: { columns: { orderBy: { order: "asc" } } },
+    include: {
+      columns: { orderBy: { order: "asc" } },
+      projects: { include: { project: { select: { id: true, name: true } } } },
+    },
   });
 
   if (!schema) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -53,9 +57,9 @@ export async function PUT(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, description, columns } = parsed.data;
+  const { name, description, projectIds, columns } = parsed.data;
 
-  // Replace columns atomically
+  // Replace columns and project assignments atomically
   const schema = await prisma.$transaction(async (tx) => {
     if (columns) {
       await tx.schemaColumn.deleteMany({ where: { schemaId: id } });
@@ -63,10 +67,24 @@ export async function PUT(
         data: columns.map((col, i) => ({ ...col, schemaId: id, order: i })),
       });
     }
+    if (projectIds !== undefined) {
+      await tx.schemaProject.deleteMany({ where: { schemaId: id } });
+      if (projectIds.length > 0) {
+        await tx.schemaProject.createMany({
+          data: projectIds.map((projectId) => ({ schemaId: id, projectId })),
+        });
+      }
+    }
     return tx.schema.update({
       where: { id },
-      data: { ...(name && { name }), ...(description !== undefined && { description }) },
-      include: { columns: { orderBy: { order: "asc" } } },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+      },
+      include: {
+        columns: { orderBy: { order: "asc" } },
+        projects: { include: { project: { select: { id: true, name: true } } } },
+      },
     });
   });
 

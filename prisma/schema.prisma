@@ -7,17 +7,50 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users    User[]
+  projects ProjectOrganization[]
+}
+
+model Project {
   id          String   @id @default(cuid())
-  email       String   @unique
-  name        String?
-  password    String?
-  role        Role     @default(UPLOADER)
+  name        String
+  description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  assignments UserSchemaAssignment[]
-  uploads     FileUpload[]
+  schemas       SchemaProject[]
+  organizations ProjectOrganization[]
+}
+
+model ProjectOrganization {
+  projectId      String
+  organizationId String
+  assignedAt     DateTime @default(now())
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, organizationId])
+}
+
+model User {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  name           String?
+  password       String?
+  role           Role          @default(UPLOADER)
+  organizationId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  uploads      FileUpload[]
 }
 
 model Schema {
@@ -27,9 +60,20 @@ model Schema {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  projects    SchemaProject[]
   columns     SchemaColumn[]
-  assignments UserSchemaAssignment[]
   uploads     FileUpload[]
+}
+
+model SchemaProject {
+  schemaId   String
+  projectId  String
+  assignedAt DateTime @default(now())
+
+  schema  Schema  @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([schemaId, projectId])
 }
 
 model SchemaColumn {
@@ -41,17 +85,6 @@ model SchemaColumn {
   order    Int      @default(0)
 
   schema   Schema   @relation(fields: [schemaId], references: [id], onDelete: Cascade)
-}
-
-model UserSchemaAssignment {
-  userId     String
-  schemaId   String
-  assignedAt DateTime @default(now())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  schema Schema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
-
-  @@id([userId, schemaId])
 }
 
 model FileUpload {
