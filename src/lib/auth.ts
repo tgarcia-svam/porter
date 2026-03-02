@@ -26,11 +26,14 @@ const callbacks: NextAuthConfig["callbacks"] = {
     const email = profile?.email;
     if (!email) return false;
 
-    const dbUser = await prisma.user.findUnique({ where: { email } });
-    if (!dbUser) return "/unauthorized";
-
-    // Backfill name on first OAuth sign-in
-    if (!dbUser.name && profile?.name) {
+    let dbUser = await prisma.user.findUnique({ where: { email } });
+    if (!dbUser) {
+      // Auto-provision new OAuth users with default UPLOADER role
+      dbUser = await prisma.user.create({
+        data: { email, name: profile?.name ?? null },
+      });
+    } else if (!dbUser.name && profile?.name) {
+      // Backfill name on first OAuth sign-in
       await prisma.user.update({ where: { email }, data: { name: profile.name } });
     }
     return true;
