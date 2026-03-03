@@ -155,7 +155,7 @@ export default function ProjectManager({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-gray-900 text-sm">{project.name}</span>
                       <span className="text-xs text-gray-400">
-                        {project._count.schemas} {project._count.schemas === 1 ? "schema" : "schemas"}
+                        {project._count.schemas} {project._count.schemas === 1 ? "file format" : "file formats"}
                       </span>
                     </div>
                     {project.description && (
@@ -200,7 +200,7 @@ export default function ProjectManager({
                         }}
                         className="text-xs text-purple-600 hover:underline font-medium"
                       >
-                        {isSchemaExpanded ? "Done" : "Assign schemas"}
+                        {isSchemaExpanded ? "Done" : "Assign file formats"}
                       </button>
                     )}
                     {allOrganizations.length > 0 && (
@@ -227,10 +227,10 @@ export default function ProjectManager({
                 {isSchemaExpanded && (
                   <div className="border-t border-gray-100 px-5 py-4">
                     <p className="text-xs font-medium text-gray-500 mb-3">
-                      Schemas in this project
+                      File formats in this project
                     </p>
                     {allSchemas.length === 0 ? (
-                      <p className="text-xs text-gray-400">No schemas defined yet.</p>
+                      <p className="text-xs text-gray-400">No file formats defined yet.</p>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {allSchemas.map((schema) => {

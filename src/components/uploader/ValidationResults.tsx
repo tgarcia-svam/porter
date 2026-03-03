@@ -58,7 +58,7 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
           <p className={`mt-0.5 text-xs ${isValid ? "text-green-600" : "text-red-600"}`}>
             {result.rowCount} row{result.rowCount !== 1 ? "s" : ""} processed
             {isValid
-              ? " — all values meet the schema requirements."
+              ? " — all values meet the file format requirements."
               : " — fix the errors below and re-upload."}
           </p>
         </div>

@@ -210,7 +210,7 @@ export default function FileUploader({
         {/* Schema selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Schema
+            File Format
           </label>
           <select
             value={selectedSchemaId}
@@ -367,7 +367,7 @@ export default function FileUploader({
             <thead>
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-6 py-3 font-medium text-gray-500">File</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Schema</th>
+                <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Errors</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Date</th>

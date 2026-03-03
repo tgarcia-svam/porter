@@ -28,7 +28,7 @@ export default function SchemaListClient({
   const router = useRouter();
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete schema "${name}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete file format "${name}"? This cannot be undone.`)) return;
     await fetch(`/api/schemas/${id}`, { method: "DELETE" });
     router.refresh();
   }
@@ -36,12 +36,12 @@ export default function SchemaListClient({
   if (initialSchemas.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-        <p className="text-gray-400 text-sm">No schemas yet.</p>
+        <p className="text-gray-400 text-sm">No file formats yet.</p>
         <Link
           href="/admin/schemas/new"
           className="mt-3 inline-block text-sm text-blue-600 hover:underline"
         >
-          Create your first schema →
+          Create your first file format →
         </Link>
       </div>
     );

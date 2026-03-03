@@ -117,7 +117,7 @@ export default function SchemaEditor({
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Schema name <span className="text-red-500">*</span>
+            File format name <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -256,7 +256,7 @@ export default function SchemaEditor({
           disabled={saving}
           className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          {saving ? "Saving…" : initialData ? "Save changes" : "Create schema"}
+          {saving ? "Saving…" : initialData ? "Save changes" : "Create file format"}
         </button>
         <button
           type="button"

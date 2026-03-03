@@ -19,7 +19,7 @@ export default async function AdminDashboard() {
 
   const stats = [
     { label: "Users", value: userCount, href: "/admin/users" },
-    { label: "Schemas", value: schemaCount, href: "/admin/schemas" },
+    { label: "File Formats", value: schemaCount, href: "/admin/schemas" },
     { label: "Total Uploads", value: uploadCount, href: null },
   ];
 
@@ -68,7 +68,7 @@ export default async function AdminDashboard() {
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-6 py-3 font-medium text-gray-500">File</th>
                 <th className="px-6 py-3 font-medium text-gray-500">User</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Schema</th>
+                <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Date</th>
               </tr>

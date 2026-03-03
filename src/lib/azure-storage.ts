@@ -27,6 +27,20 @@ async function getContainerClient() {
   return blobServiceClient.getContainerClient(containerName);
 }
 
+export async function downloadFromBlob(blobUrl: string): Promise<Buffer> {
+  const containerClient = await getContainerClient();
+
+  // Extract blob name from URL: strip scheme + host + "/{containerName}/"
+  const url = new URL(blobUrl);
+  const blobName = url.pathname.replace(
+    `/${containerClient.containerName}/`,
+    ""
+  );
+
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  return await blockBlobClient.downloadToBuffer();
+}
+
 export async function uploadToBlob(
   buffer: Buffer,
   blobName: string,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { downloadFromBlob } from "@/lib/azure-storage";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 
@@ -15,8 +16,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "schemaId is required" }, { status: 400 });
   }
 
+  // Find the current user's organizationId
+  const currentUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { organizationId: true },
+  });
+
+  if (!currentUser?.organizationId) {
+    return NextResponse.json({ rows: [] });
+  }
+
+  // Fetch schema columns so we can normalize row keys to their exact names
+  const schema = await prisma.schema.findUnique({
+    where: { id: schemaId },
+    select: { columns: { select: { name: true }, orderBy: { order: "asc" } } },
+  });
+
+  if (!schema) {
+    return NextResponse.json({ rows: [] });
+  }
+
+  // Latest *valid* upload by anyone in the same org for this schema
   const upload = await prisma.fileUpload.findFirst({
-    where: { userId: session.user.id, schemaId, blobUrl: { not: null } },
+    where: {
+      schemaId,
+      status: "VALID",
+      blobUrl: { not: null },
+      user: { organizationId: currentUser.organizationId },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -25,18 +52,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const blobRes = await fetch(upload.blobUrl);
-    if (!blobRes.ok) return NextResponse.json({ rows: [] });
-
-    const buffer = Buffer.from(await blobRes.arrayBuffer());
+    const buffer = await downloadFromBlob(upload.blobUrl);
     const isExcel = /\.(xlsx|xls)$/i.test(upload.fileName);
 
-    let rows: Record<string, string>[];
+    let rawRows: Record<string, string>[];
 
     if (isExcel) {
       const workbook = XLSX.read(buffer, { type: "buffer" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      rows = XLSX.utils
+      rawRows = XLSX.utils
         .sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false })
         .map((row) =>
           Object.fromEntries(
@@ -51,8 +75,19 @@ export async function GET(req: NextRequest) {
         transformHeader: (h) => h.trim(),
         transform: (v) => v.trim(),
       });
-      rows = result.data;
+      rawRows = result.data;
     }
+
+    // Normalize each row's keys to match the schema column names exactly
+    // (case-insensitive lookup so uploaded files with any casing work correctly)
+    const rows = rawRows.map((raw) => {
+      const byLower = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => [k.toLowerCase(), v])
+      );
+      return Object.fromEntries(
+        schema.columns.map((col) => [col.name, byLower[col.name.toLowerCase()] ?? ""])
+      );
+    });
 
     return NextResponse.json({ rows });
   } catch {
