@@ -392,7 +392,11 @@ export default function FileUploader({
 
       {/* Manual entry tab */}
       {activeTab === "entry" && selectedSchema && (
-        <DataEntryTable schema={selectedSchema} onSubmitSuccess={refreshHistory} />
+        <DataEntryTable
+          schema={selectedSchema}
+          projectId={selectedProjectId}
+          onSubmitSuccess={refreshHistory}
+        />
       )}
 
       {/* Upload history — always visible */}

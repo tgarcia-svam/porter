@@ -12,6 +12,7 @@ export type ValidationReport = {
   errors: ValidationError[];
   rowCount: number;
   missingColumns: string[];
+  rows: Record<string, string>[];
 };
 
 type ColumnDef = {
@@ -118,11 +119,12 @@ export function validateFile(
       errors: [{ row: 0, column: "", value: "", error: "Could not parse file" }],
       rowCount: 0,
       missingColumns: [],
+      rows: [],
     };
   }
 
   if (rows.length === 0) {
-    return { errors: [], rowCount: 0, missingColumns: [] };
+    return { errors: [], rowCount: 0, missingColumns: [], rows: [] };
   }
 
   // Build a case-insensitive map: lowercased header → actual header in file
@@ -172,5 +174,22 @@ export function validateFile(
     }
   });
 
-  return { errors, rowCount: rows.length, missingColumns };
+  // Normalize DATE column values to ISO 8601 format for DB storage
+  const normalizedRows = rows.map((row) => {
+    const out: Record<string, string> = { ...row };
+    for (const col of columns) {
+      if (col.dataType !== "DATE") continue;
+      const actualHeader = headerMap.get(col.name.toLowerCase());
+      if (actualHeader === undefined) continue;
+      const v = String(row[actualHeader] ?? "").trim();
+      if (!v) continue;
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) {
+        out[actualHeader] = d.toISOString();
+      }
+    }
+    return out;
+  });
+
+  return { errors, rowCount: rows.length, missingColumns, rows: normalizedRows };
 }
