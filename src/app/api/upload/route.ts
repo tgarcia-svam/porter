@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const schemaId = formData.get("schemaId") as string | null;
+  const sheetName = (formData.get("sheetName") as string | null) ?? undefined;
 
   if (!file || !schemaId) {
     return NextResponse.json(
@@ -71,7 +72,8 @@ export async function POST(req: NextRequest) {
   const { errors, rowCount, missingColumns } = validateFile(
     buffer,
     mimeType,
-    schema.columns
+    schema.columns,
+    sheetName
   );
 
   // Header-level errors for missing columns (row = 0)

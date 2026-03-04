@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
 
@@ -69,6 +70,8 @@ export default function FileUploader({
   );
   const [activeTab, setActiveTab] = useState<"upload" | "entry">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -79,23 +82,27 @@ export default function FileUploader({
   const availableSchemas = selectedProject?.schemas ?? [];
   const selectedSchema = availableSchemas.find((s) => s.id === selectedSchemaId);
 
-  function handleTabChange(tab: "upload" | "entry") {
-    setActiveTab(tab);
+  function clearFileState() {
     setSelectedFile(null);
+    setSheetNames([]);
+    setSelectedSheet("");
     setResult(null);
     setUploadError(null);
+  }
+
+  function handleTabChange(tab: "upload" | "entry") {
+    setActiveTab(tab);
+    clearFileState();
   }
 
   function handleProjectChange(projectId: string) {
     const project = projects.find((p) => p.id === projectId);
     setSelectedProjectId(projectId);
     setSelectedSchemaId(project?.schemas[0]?.id ?? "");
-    setSelectedFile(null);
-    setResult(null);
-    setUploadError(null);
+    clearFileState();
   }
 
-  function handleFileSelect(file: File) {
+  async function handleFileSelect(file: File) {
     const allowed = [
       "text/csv",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -106,9 +113,21 @@ export default function FileUploader({
       alert("Only CSV and Excel files are supported.");
       return;
     }
-    setSelectedFile(file);
     setResult(null);
     setUploadError(null);
+
+    const isExcel = ext === "xlsx" || ext === "xls";
+    if (isExcel) {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
+      setSheetNames(workbook.SheetNames);
+      setSelectedSheet(workbook.SheetNames[0] ?? "");
+    } else {
+      setSheetNames([]);
+      setSelectedSheet("");
+    }
+
+    setSelectedFile(file);
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -155,6 +174,7 @@ export default function FileUploader({
       const formData = new FormData();
       formData.append("file", selectedFile);
       formData.append("schemaId", selectedSchemaId);
+      if (selectedSheet) formData.append("sheetName", selectedSheet);
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
@@ -216,9 +236,7 @@ export default function FileUploader({
             value={selectedSchemaId}
             onChange={(e) => {
               setSelectedSchemaId(e.target.value);
-              setSelectedFile(null);
-              setResult(null);
-              setUploadError(null);
+              clearFileState();
             }}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
@@ -333,9 +351,29 @@ export default function FileUploader({
               )}
             </div>
 
+            {/* Worksheet selector — Excel only */}
+            {sheetNames.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Worksheet
+                </label>
+                <select
+                  value={selectedSheet}
+                  onChange={(e) => setSelectedSheet(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {sheetNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <button
               onClick={handleUpload}
-              disabled={!selectedFile || uploading}
+              disabled={!selectedFile || uploading || (sheetNames.length > 0 && !selectedSheet)}
               className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {uploading ? "Validating & uploading…" : "Upload and validate"}

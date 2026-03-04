@@ -76,10 +76,13 @@ function parseCsv(buffer: Buffer): Record<string, string>[] {
   return result.data;
 }
 
-function parseExcel(buffer: Buffer): Record<string, string>[] {
+function parseExcel(buffer: Buffer, sheetName?: string): Record<string, string>[] {
   const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
+  const name =
+    sheetName && workbook.SheetNames.includes(sheetName)
+      ? sheetName
+      : workbook.SheetNames[0];
+  const sheet = workbook.Sheets[name];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
     defval: "",
     raw: false,
@@ -98,7 +101,8 @@ function parseExcel(buffer: Buffer): Record<string, string>[] {
 export function validateFile(
   buffer: Buffer,
   mimeType: string,
-  columns: ColumnDef[]
+  columns: ColumnDef[],
+  sheetName?: string
 ): ValidationReport {
   let rows: Record<string, string>[];
 
@@ -108,7 +112,7 @@ export function validateFile(
     mimeType === "application/octet-stream";
 
   try {
-    rows = isExcel ? parseExcel(buffer) : parseCsv(buffer);
+    rows = isExcel ? parseExcel(buffer, sheetName) : parseCsv(buffer);
   } catch {
     return {
       errors: [{ row: 0, column: "", value: "", error: "Could not parse file" }],
