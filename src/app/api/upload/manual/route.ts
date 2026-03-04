@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   });
   const buffer = Buffer.from(csv, "utf-8");
 
-  const { errors, rowCount, missingColumns } = validateFile(
+  const { errors, rowCount, missingColumns, rows: validatedRows } = validateFile(
     buffer,
     "text/csv",
     schema.columns
@@ -129,6 +129,16 @@ export async function POST(req: NextRequest) {
     if (allErrors.length > 0) {
       await tx.validationResult.createMany({
         data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
+      });
+    }
+
+    if (isValid && validatedRows.length > 0) {
+      await tx.uploadRow.createMany({
+        data: validatedRows.map((row, idx) => ({
+          uploadId: record.id,
+          rowIndex: idx + 1,
+          data: row,
+        })),
       });
     }
 

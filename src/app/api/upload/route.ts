@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   const mimeType = file.type || "application/octet-stream";
 
   // Run validation first so the blob path prefix reflects the result
-  const { errors, rowCount, missingColumns } = validateFile(
+  const { errors, rowCount, missingColumns, rows } = validateFile(
     buffer,
     mimeType,
     schema.columns,
@@ -128,6 +128,16 @@ export async function POST(req: NextRequest) {
     if (allErrors.length > 0) {
       await tx.validationResult.createMany({
         data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
+      });
+    }
+
+    if (isValid && rows.length > 0) {
+      await tx.uploadRow.createMany({
+        data: rows.map((row, idx) => ({
+          uploadId: record.id,
+          rowIndex: idx + 1,
+          data: row,
+        })),
       });
     }
 

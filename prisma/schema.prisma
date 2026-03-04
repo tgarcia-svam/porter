@@ -100,6 +100,17 @@ model FileUpload {
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id])
   results ValidationResult[]
+  rows    UploadRow[]
+}
+
+model UploadRow {
+  id        String     @id @default(cuid())
+  uploadId  String
+  rowIndex  Int
+  data      Json
+  createdAt DateTime   @default(now())
+
+  upload FileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 }
 
 model ValidationResult {
