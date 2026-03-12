@@ -103,6 +103,11 @@ export default function FileUploader({
   }
 
   async function handleFileSelect(file: File) {
+    if (file.size > 100 * 1024 * 1024) {
+      alert("File exceeds the 100 MB size limit.");
+      return;
+    }
+
     const allowed = [
       "text/csv",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
