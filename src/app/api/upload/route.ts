@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
-import { uploadToBlob } from "@/lib/azure-storage";
+import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -68,7 +68,40 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = file.type || "application/octet-stream";
 
-  // Run validation first so the blob path prefix reflects the result
+  // Build blob path: project/organization/schema/datetime/filename
+  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
+  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
+  const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
+  const orgSegment = sanitize(user?.organization?.name ?? "no-organization");
+  const schemaSegment = sanitize(schema.name);
+  const now = new Date();
+  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
+  const blobName = `${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${file.name}`;
+
+  // Upload to Azure first; malware scanning is handled by Azure Defender for Storage
+  let blobUrl: string;
+  try {
+    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
+  } catch (err: unknown) {
+    console.error("Azure upload failed:", err);
+    return NextResponse.json(
+      { error: "File storage is not configured. Please contact an administrator." },
+      { status: 503 }
+    );
+  }
+
+  // Wait for Defender for Storage malware scan result
+  const scanResult = await waitForMalwareScanResult(blobName);
+  if (scanResult === "malicious") {
+    await deleteBlobByName(blobName);
+    return NextResponse.json(
+      { error: "File rejected: malware detected." },
+      { status: 422 }
+    );
+  }
+  // "clean" or "pending" (Defender not configured) — proceed
+
+  // Validate file contents
   const { errors, rowCount, missingColumns, rows } = validateFile(
     buffer,
     mimeType,
@@ -76,7 +109,6 @@ export async function POST(req: NextRequest) {
     sheetName
   );
 
-  // Header-level errors for missing columns (row = 0)
   const allErrors = [
     ...missingColumns.map((col) => ({
       row: 0,
@@ -88,29 +120,6 @@ export async function POST(req: NextRequest) {
   ];
 
   const isValid = allErrors.length === 0;
-
-  // Build blob path: {valid|error}/project/organization/schema/datetime/filename
-  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
-  const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
-  const orgSegment = sanitize(user?.organization?.name ?? "no-organization");
-  const schemaSegment = sanitize(schema.name);
-  const now = new Date();
-  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
-  const prefix = isValid ? "valid" : "error";
-  const blobName = `${prefix}/${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${file.name}`;
-
-  // Upload to Azure — required before DB write
-  let blobUrl: string;
-  try {
-    blobUrl = await uploadToBlob(buffer, blobName, mimeType);
-  } catch (err) {
-    console.error("Azure upload failed:", err);
-    return NextResponse.json(
-      { error: "Failed to upload file to storage. Please try again or contact an administrator." },
-      { status: 502 }
-    );
-  }
 
   // Persist to DB in a transaction
   const upload = await prisma.$transaction(async (tx) => {

@@ -27,6 +27,30 @@ async function getContainerClient() {
   return blobServiceClient.getContainerClient(containerName);
 }
 
+export async function waitForMalwareScanResult(
+  blobName: string,
+  timeoutMs = 30_000,
+  pollIntervalMs = 2_000
+): Promise<"clean" | "malicious" | "pending"> {
+  const containerClient = await getContainerClient();
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { tags } = await blockBlobClient.getTags();
+    const result = tags["Malware Scanning.scan results"];
+    if (result === "No threats found") return "clean";
+    if (result === "Malicious") return "malicious";
+    await new Promise<void>((r) => setTimeout(r, pollIntervalMs));
+  }
+  return "pending";
+}
+
+export async function deleteBlobByName(blobName: string): Promise<void> {
+  const containerClient = await getContainerClient();
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  await blockBlobClient.deleteIfExists();
+}
+
 export async function downloadFromBlob(blobUrl: string): Promise<Buffer> {
   const containerClient = await getContainerClient();
 
