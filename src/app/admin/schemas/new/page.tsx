@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import SchemaEditor from "@/components/admin/SchemaEditor";
 
+export const dynamic = 'force-dynamic';
+
 export default async function NewSchemaPage() {
   const allProjects = await prisma.project.findMany({
     select: { id: true, name: true },

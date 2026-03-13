@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import OrganizationManager from "@/components/admin/OrganizationManager";
 
+export const dynamic = 'force-dynamic';
+
 export default async function OrganizationsPage() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
