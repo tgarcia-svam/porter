@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import SchemaListClient from "@/components/admin/SchemaListClient";
 
+export const dynamic = 'force-dynamic';
+
 export default async function SchemasPage() {
   const schemas = await prisma.schema.findMany({
     include: {

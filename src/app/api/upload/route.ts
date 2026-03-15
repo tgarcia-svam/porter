@@ -65,6 +65,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Schema not found" }, { status: 404 });
   }
 
+  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+  if (file.size > MAX_FILE_SIZE) {
+    return NextResponse.json(
+      { error: "File exceeds the 100 MB size limit." },
+      { status: 413 }
+    );
+  }
+
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  const allowedExts = ["csv", "xlsx", "xls"];
+  const allowedMimes = [
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+  ];
+  if (!allowedExts.includes(ext ?? "") && !allowedMimes.includes(file.type)) {
+    return NextResponse.json(
+      { error: "Only CSV and Excel files (.csv, .xlsx, .xls) are allowed." },
+      { status: 415 }
+    );
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = file.type || "application/octet-stream";
 

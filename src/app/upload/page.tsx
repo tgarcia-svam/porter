@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import FileUploader from "@/components/uploader/FileUploader";
 
+export const dynamic = 'force-dynamic';
+
 export default async function UploadPage() {
   const session = await auth();
   if (!session?.user) return null;
