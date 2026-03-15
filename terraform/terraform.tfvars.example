@@ -1,0 +1,22 @@
+# Copy this file to terraform.tfvars and fill in the values.
+# terraform.tfvars is gitignored — never commit secrets.
+
+location            = "eastus"
+resource_group_name = "porter-rg"
+app_name            = "porter"
+app_service_sku     = "P1v3"
+
+# Generate with: openssl rand -base64 32
+nextauth_secret = ""
+
+postgres_admin_username = "porteradmin"
+postgres_admin_password = ""
+
+# Optional: Google OAuth SSO
+google_client_id     = ""
+google_client_secret = ""
+
+# Optional: Microsoft Entra ID SSO
+azure_ad_client_id     = ""
+azure_ad_client_secret = ""
+azure_ad_tenant_id     = "common"
