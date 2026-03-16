@@ -1,29 +1,30 @@
 import { BlobServiceClient } from "@azure/storage-blob";
+import { DefaultAzureCredential } from "@azure/identity";
 import { prisma } from "@/lib/prisma";
 
 async function getContainerClient() {
   const settings = await prisma.appSetting.findMany({
     where: {
-      key: { in: ["AZURE_STORAGE_CONNECTION_STRING", "AZURE_STORAGE_CONTAINER"] },
+      key: { in: ["AZURE_STORAGE_ACCOUNT_URL", "AZURE_STORAGE_CONTAINER"] },
     },
   });
 
   const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
 
-  const connectionString =
-    settingsMap["AZURE_STORAGE_CONNECTION_STRING"] ??
-    process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const accountUrl =
+    settingsMap["AZURE_STORAGE_ACCOUNT_URL"] ??
+    process.env.AZURE_STORAGE_ACCOUNT_URL;
 
   const containerName =
     settingsMap["AZURE_STORAGE_CONTAINER"] ??
     process.env.AZURE_STORAGE_CONTAINER ??
     "porter-uploads";
 
-  if (!connectionString) {
-    throw new Error("Azure Storage connection string is not configured");
+  if (!accountUrl) {
+    throw new Error("Azure Storage account URL is not configured");
   }
 
-  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
   return blobServiceClient.getContainerClient(containerName);
 }
 

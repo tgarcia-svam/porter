@@ -7,8 +7,8 @@ type SettingSource = "db" | "env" | "default" | null;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type AzureStatus = {
-  connectionStringConfigured: boolean;
-  connectionStringSource: SettingSource;
+  accountUrlConfigured: boolean;
+  accountUrlSource: SettingSource;
   containerName: string;
   containerNameSource: SettingSource;
 };
@@ -101,7 +101,7 @@ const saveBtnCls =
 
 function AzureSection() {
   const [status, setStatus] = useState<AzureStatus | null>(null);
-  const [connectionString, setConnectionString] = useState("");
+  const [accountUrl, setAccountUrl] = useState("");
   const [containerName, setContainerName] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
@@ -123,13 +123,13 @@ function AzureSection() {
       const res = await fetch("/api/settings/azure", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionString, containerName }),
+        body: JSON.stringify({ accountUrl, containerName }),
       });
       if (!res.ok) { setFeedback({ ok: false, message: "Failed to save settings." }); return; }
       const updated: AzureStatus = await res.json();
       setStatus(updated);
       setContainerName(updated.containerName);
-      setConnectionString("");
+      setAccountUrl("");
       setFeedback({ ok: true, message: "Settings saved." });
     } catch {
       setFeedback({ ok: false, message: "An error occurred while saving." });
@@ -142,22 +142,22 @@ function AzureSection() {
     <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
       <SectionHeader
         title="Azure Blob Storage"
-        description="Files uploaded by users are stored in Azure Blob Storage."
+        description="Files uploaded by users are stored in Azure Blob Storage. Access is granted via managed identity — no connection string required."
       />
       <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
         <Field
-          label="Connection String"
-          source={status?.connectionStringSource}
+          label="Storage Account URL"
+          source={status?.accountUrlSource}
           hint="Leave blank to keep the existing value unchanged."
         >
           <input
-            type="password"
-            value={connectionString}
-            onChange={(e) => setConnectionString(e.target.value)}
+            type="text"
+            value={accountUrl}
+            onChange={(e) => setAccountUrl(e.target.value)}
             placeholder={
-              status?.connectionStringConfigured
+              status?.accountUrlConfigured
                 ? "Enter new value to update (currently configured)"
-                : "DefaultEndpointsProtocol=https;AccountName=..."
+                : "https://youraccount.blob.core.windows.net"
             }
             className={inputCls}
           />

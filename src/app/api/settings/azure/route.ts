@@ -8,17 +8,17 @@ type SettingSource = "db" | "env" | "default" | null;
 async function getAzureStatus() {
   const settings = await prisma.appSetting.findMany({
     where: {
-      key: { in: ["AZURE_STORAGE_CONNECTION_STRING", "AZURE_STORAGE_CONTAINER"] },
+      key: { in: ["AZURE_STORAGE_ACCOUNT_URL", "AZURE_STORAGE_CONTAINER"] },
     },
   });
   const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
 
-  const connInDb = "AZURE_STORAGE_CONNECTION_STRING" in settingsMap;
-  const connInEnv = !!process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const urlInDb = "AZURE_STORAGE_ACCOUNT_URL" in settingsMap;
+  const urlInEnv = !!process.env.AZURE_STORAGE_ACCOUNT_URL;
 
-  let connectionStringSource: SettingSource = null;
-  if (connInDb) connectionStringSource = "db";
-  else if (connInEnv) connectionStringSource = "env";
+  let accountUrlSource: SettingSource = null;
+  if (urlInDb) accountUrlSource = "db";
+  else if (urlInEnv) accountUrlSource = "env";
 
   const containerInDb = "AZURE_STORAGE_CONTAINER" in settingsMap;
   const containerInEnv = !!process.env.AZURE_STORAGE_CONTAINER;
@@ -33,8 +33,8 @@ async function getAzureStatus() {
     "porter-uploads";
 
   return {
-    connectionStringConfigured: connInDb || connInEnv,
-    connectionStringSource,
+    accountUrlConfigured: urlInDb || urlInEnv,
+    accountUrlSource,
     containerName,
     containerNameSource,
   };
@@ -50,7 +50,7 @@ export async function GET() {
 }
 
 const UpdateBody = z.object({
-  connectionString: z.string().optional(),
+  accountUrl: z.string().optional(),
   containerName: z.string().optional(),
 });
 
@@ -66,17 +66,16 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { connectionString, containerName } = parsed.data;
+  const { accountUrl, containerName } = parsed.data;
 
-  // Only upsert fields that were provided with a non-empty value
   const upserts: Promise<unknown>[] = [];
 
-  if (connectionString && connectionString.trim() !== "") {
+  if (accountUrl && accountUrl.trim() !== "") {
     upserts.push(
       prisma.appSetting.upsert({
-        where: { key: "AZURE_STORAGE_CONNECTION_STRING" },
-        update: { value: connectionString.trim() },
-        create: { key: "AZURE_STORAGE_CONNECTION_STRING", value: connectionString.trim() },
+        where: { key: "AZURE_STORAGE_ACCOUNT_URL" },
+        update: { value: accountUrl.trim() },
+        create: { key: "AZURE_STORAGE_ACCOUNT_URL", value: accountUrl.trim() },
       })
     );
   }

@@ -19,6 +19,9 @@ terraform {
 
 provider "azurerm" {
   features {}
+  # Use Azure AD authentication for storage data-plane operations
+  # (required when shared_access_key_enabled = false on the storage account).
+  storage_use_azuread = true
 }
 
 provider "azapi" {}

@@ -17,9 +17,9 @@ variable "app_name" {
 }
 
 variable "app_service_sku" {
-  description = "App Service Plan SKU. Must be P-series or higher for VNet integration."
+  description = "App Service Plan SKU (e.g. F1 for free, B1 for basic, P1v3 for production)."
   type        = string
-  default     = "P1v3"
+  default     = "F1"
 }
 
 variable "nextauth_secret" {

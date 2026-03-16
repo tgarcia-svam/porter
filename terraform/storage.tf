@@ -11,42 +11,26 @@ resource "azurerm_storage_account" "main" {
   # are not supported on HNS-enabled accounts.
   is_hns_enabled = false
 
-  # Block all public internet access.
-  # The App Service accesses storage exclusively through the private endpoint.
-  public_network_access_enabled   = false
   allow_nested_items_to_be_public = false
+  min_tls_version                 = "TLS1_2"
 
-  min_tls_version = "TLS1_2"
+  # Disable shared key access — all access must go through Azure AD (managed identity).
+  shared_access_key_enabled = false
 
   tags = var.tags
+}
+
+# Grant the App Service managed identity read/write access to blobs.
+resource "azurerm_role_assignment" "storage_blob_contributor" {
+  scope                = azurerm_storage_account.main.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_linux_web_app.main.identity[0].principal_id
 }
 
 resource "azurerm_storage_container" "uploads" {
   name                  = "porter-uploads"
   storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
-}
-
-# Private endpoint — restricts blob storage access to within the VNet only.
-# The App Service reaches storage via its VNet integration + this private endpoint.
-resource "azurerm_private_endpoint" "storage" {
-  name                = "${var.app_name}-storage-pe"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  subnet_id           = azurerm_subnet.private_endpoints.id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "${var.app_name}-storage-psc"
-    private_connection_resource_id = azurerm_storage_account.main.id
-    subresource_names              = ["blob"]
-    is_manual_connection           = false
-  }
-
-  private_dns_zone_group {
-    name                 = "blob-dns-zone-group"
-    private_dns_zone_ids = [azurerm_private_dns_zone.blob.id]
-  }
 }
 
 # Microsoft Defender for Storage v2 with malware scanning on upload.

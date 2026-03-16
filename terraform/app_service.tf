@@ -25,18 +25,12 @@ resource "azurerm_linux_web_app" "main" {
   https_only          = true
   tags                = var.tags
 
-  # VNet integration — all outbound traffic routed through the VNet,
-  # enabling access to the storage private endpoint and PostgreSQL.
-  virtual_network_subnet_id = azurerm_subnet.app_service.id
-
   # System-assigned managed identity for ACR authentication
   identity {
     type = "SystemAssigned"
   }
 
   site_config {
-    vnet_route_all_enabled = true
-
     application_stack {
       docker_image_name   = "${azurerm_container_registry.main.login_server}/${var.app_name}:latest"
       docker_registry_url = "https://${azurerm_container_registry.main.login_server}"
@@ -61,16 +55,15 @@ resource "azurerm_linux_web_app" "main" {
     AZURE_AD_CLIENT_SECRET = var.azure_ad_client_secret
     AZURE_AD_TENANT_ID     = var.azure_ad_tenant_id
 
-    # Azure Blob Storage (private endpoint — accessible via VNet only)
-    AZURE_STORAGE_CONNECTION_STRING = azurerm_storage_account.main.primary_connection_string
-    AZURE_STORAGE_CONTAINER         = azurerm_storage_container.uploads.name
+    # Azure Blob Storage — accessed via managed identity (no shared key)
+    AZURE_STORAGE_ACCOUNT_URL = "https://${azurerm_storage_account.main.name}.blob.core.windows.net"
+    AZURE_STORAGE_CONTAINER   = azurerm_storage_container.uploads.name
 
     # Tell App Service to authenticate to ACR using managed identity
     DOCKER_REGISTRY_SERVER_URL = "https://${azurerm_container_registry.main.login_server}"
   }
 
   depends_on = [
-    azurerm_private_endpoint.storage,
     azurerm_postgresql_flexible_server.main,
   ]
 }
