@@ -38,14 +38,17 @@ export default async function UploadPage() {
     }))
     .filter((p) => p.schemas.length > 0);
 
-  const recentUploads = await prisma.fileUpload.findMany({
-    where: { userId: session.user.id! },
-    include: {
-      schema: { select: { name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
+  const recentUploads = user?.organizationId
+    ? await prisma.fileUpload.findMany({
+        where: { user: { organizationId: user.organizationId } },
+        include: {
+          schema: { select: { name: true } },
+          user: { select: { name: true, email: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      })
+    : [];
 
   return (
     <div className="space-y-8">
@@ -67,6 +70,7 @@ export default async function UploadPage() {
           errorCount: u.errorCount,
           createdAt: u.createdAt.toISOString(),
           blobUrl: u.blobUrl ?? null,
+          uploadedBy: u.user?.name ?? u.user?.email ?? "Unknown",
         }))}
       />
     </div>

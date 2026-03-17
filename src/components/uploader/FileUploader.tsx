@@ -35,6 +35,7 @@ type UploadRecord = {
   errorCount: number;
   createdAt: string;
   blobUrl: string | null;
+  uploadedBy: string;
 };
 
 type ValidationError = {
@@ -155,6 +156,7 @@ export default function FileUploader({
           errorCount: number;
           createdAt: string;
           blobUrl: string | null;
+          user?: { name: string | null; email: string };
         }) => ({
           id: u.id,
           fileName: u.fileName,
@@ -163,6 +165,7 @@ export default function FileUploader({
           errorCount: u.errorCount,
           createdAt: u.createdAt,
           blobUrl: u.blobUrl,
+          uploadedBy: u.user?.name ?? u.user?.email ?? "Unknown",
         }))
       );
     }
@@ -415,6 +418,7 @@ export default function FileUploader({
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-6 py-3 font-medium text-gray-500">File</th>
                 <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
+                <th className="px-6 py-3 font-medium text-gray-500">Uploaded By</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Errors</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Date</th>
@@ -438,6 +442,7 @@ export default function FileUploader({
                     )}
                   </td>
                   <td className="px-6 py-3 text-gray-500">{u.schemaName}</td>
+                  <td className="px-6 py-3 text-gray-500">{u.uploadedBy}</td>
                   <td className="px-6 py-3">
                     <StatusBadge status={u.status} />
                   </td>
