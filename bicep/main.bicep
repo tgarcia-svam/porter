@@ -17,18 +17,9 @@ param storageAccountName string
 @description('Name of the existing Storage container for uploads')
 param storageContainerName string = 'porter-uploads'
 
-@description('PostgreSQL server hostname (FQDN)')
-param postgresHost string
-
-@description('PostgreSQL database name')
-param postgresDatabase string = 'porter'
-
-@description('PostgreSQL admin username')
-param postgresUsername string
-
-@description('PostgreSQL admin password')
+@description('Full PostgreSQL connection URL. Special characters in the password (e.g. # → %23, @ → %40) must be percent-encoded.')
 @secure()
-param postgresPassword string
+param databaseUrl string
 
 @description('NextAuth.js secret — generate with: openssl rand -base64 32')
 @secure()
@@ -54,6 +45,9 @@ param azureAdClientSecret string = ''
 @description('Microsoft Entra ID tenant ID')
 param azureAdTenantId string = 'common'
 
+@description('Azure region of the existing App Service, e.g. eastus')
+param location string = resourceGroup().location
+
 @description('Docker image tag to deploy')
 param containerTag string = 'latest'
 
@@ -75,7 +69,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing 
 
 resource appServiceIdentity 'Microsoft.Web/sites@2023-12-01' = {
   name: appServiceName
-  location: appService.location
+  location: location
   identity: {
     type: 'SystemAssigned'
   }
@@ -94,7 +88,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: appServiceIdentity
   name: 'appsettings'
   properties: {
-    DATABASE_URL: 'postgresql://${postgresUsername}:${postgresPassword}@${postgresHost}:5432/${postgresDatabase}?sslmode=require'
+    DATABASE_URL: databaseUrl
 
     NEXTAUTH_URL: nextauthUrl
     NEXTAUTH_SECRET: nextauthSecret
@@ -117,7 +111,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 // ── Role assignments on existing resources ───────────────────────────────────
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 
 resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, appServiceName, acrPullRoleId)
@@ -130,10 +124,10 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 }
 
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, appServiceName, storageBlobDataContributorRoleId)
+  name: guid(storageAccount.id, appServiceName, storageBlobDataOwnerRoleId)
   scope: storageAccount
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
     principalId: appServiceIdentity.identity.principalId
     principalType: 'ServicePrincipal'
   }
