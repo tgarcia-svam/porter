@@ -190,11 +190,19 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const currentUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { organizationId: true },
+  });
+
   const uploads = await prisma.fileUpload.findMany({
-    where: { userId: session.user.id },
+    where: currentUser?.organizationId
+      ? { user: { organizationId: currentUser.organizationId } }
+      : { userId: session.user.id },
     include: {
       schema: { select: { name: true } },
       results: true,
+      user: { select: { name: true, email: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 50,

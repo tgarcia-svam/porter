@@ -1,12 +1,12 @@
 # ── Stage 1: install dependencies ────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci
 
 # ── Stage 2: build ────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # Dummy build-time env vars so Next.js static analysis doesn't fail
@@ -26,7 +26,7 @@ RUN NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma generate
 RUN mkdir -p /app/public && npm run build
 
 # ── Stage 3: production runner ────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

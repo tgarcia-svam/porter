@@ -35,6 +35,7 @@ type UploadRecord = {
   errorCount: number;
   createdAt: string;
   blobUrl: string | null;
+  uploadedBy: string;
 };
 
 type ValidationError = {
@@ -73,7 +74,8 @@ export default function FileUploader({
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<"uploading" | "scanning" | "validating" | null>(null);
+  const uploading = uploadPhase !== null;
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>(initialUploads);
@@ -155,6 +157,7 @@ export default function FileUploader({
           errorCount: number;
           createdAt: string;
           blobUrl: string | null;
+          user?: { name: string | null; email: string };
         }) => ({
           id: u.id,
           fileName: u.fileName,
@@ -163,6 +166,7 @@ export default function FileUploader({
           errorCount: u.errorCount,
           createdAt: u.createdAt,
           blobUrl: u.blobUrl,
+          uploadedBy: u.user?.name ?? u.user?.email ?? "Unknown",
         }))
       );
     }
@@ -171,9 +175,12 @@ export default function FileUploader({
 
   async function handleUpload() {
     if (!selectedFile || !selectedSchemaId) return;
-    setUploading(true);
+    setUploadPhase("uploading");
     setResult(null);
     setUploadError(null);
+
+    const scanTimer = setTimeout(() => setUploadPhase("scanning"), 3_000);
+    const validateTimer = setTimeout(() => setUploadPhase("validating"), 28_000);
 
     try {
       const formData = new FormData();
@@ -194,7 +201,9 @@ export default function FileUploader({
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
     } finally {
-      setUploading(false);
+      clearTimeout(scanTimer);
+      clearTimeout(validateTimer);
+      setUploadPhase(null);
     }
   }
 
@@ -381,8 +390,10 @@ export default function FileUploader({
               disabled={!selectedFile || uploading || (sheetNames.length > 0 && !selectedSheet)}
               className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {uploading ? "Validating & uploading…" : "Upload and validate"}
+              {uploading ? "Processing…" : "Upload and validate"}
             </button>
+
+            {uploadPhase && <UploadProgressBanner phase={uploadPhase} />}
           </div>
 
           {uploadError && (
@@ -415,6 +426,7 @@ export default function FileUploader({
               <tr className="border-b border-gray-100 text-left">
                 <th className="px-6 py-3 font-medium text-gray-500">File</th>
                 <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
+                <th className="px-6 py-3 font-medium text-gray-500">Uploaded By</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Errors</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Date</th>
@@ -438,6 +450,7 @@ export default function FileUploader({
                     )}
                   </td>
                   <td className="px-6 py-3 text-gray-500">{u.schemaName}</td>
+                  <td className="px-6 py-3 text-gray-500">{u.uploadedBy}</td>
                   <td className="px-6 py-3">
                     <StatusBadge status={u.status} />
                   </td>
@@ -473,6 +486,53 @@ function StatusBadge({ status }: { status: string }) {
     >
       {status}
     </span>
+  );
+}
+
+function UploadProgressBanner({ phase }: { phase: "uploading" | "scanning" | "validating" }) {
+  const steps: { key: typeof phase; label: string }[] = [
+    { key: "uploading", label: "Uploading file" },
+    { key: "scanning",  label: "Scanning for malware" },
+    { key: "validating", label: "Validating file" },
+  ];
+  const currentIndex = steps.findIndex((s) => s.key === phase);
+
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+      <div className="flex flex-col gap-2">
+        {steps.map((step, i) => {
+          const isDone = i < currentIndex;
+          const isActive = i === currentIndex;
+          return (
+            <div key={step.key} className="flex items-center gap-2.5">
+              <div className="w-4 h-4 flex items-center justify-center shrink-0">
+                {isDone ? (
+                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : isActive ? (
+                  <Spinner />
+                ) : (
+                  <div className="w-3 h-3 rounded-full border-2 border-gray-300" />
+                )}
+              </div>
+              <span className={`text-sm ${isActive ? "text-blue-700 font-medium" : isDone ? "text-blue-400" : "text-gray-400"}`}>
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="w-4 h-4 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
   );
 }
 

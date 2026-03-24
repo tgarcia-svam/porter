@@ -7,8 +7,8 @@ type SettingSource = "db" | "env" | "default" | null;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type AzureStatus = {
-  connectionStringConfigured: boolean;
-  connectionStringSource: SettingSource;
+  accountUrlConfigured: boolean;
+  accountUrl: string | null;
   containerName: string;
   containerNameSource: SettingSource;
 };
@@ -101,83 +101,48 @@ const saveBtnCls =
 
 function AzureSection() {
   const [status, setStatus] = useState<AzureStatus | null>(null);
-  const [connectionString, setConnectionString] = useState("");
-  const [containerName, setContainerName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/settings/azure")
       .then((r) => r.json())
-      .then((data: AzureStatus) => {
-        setStatus(data);
-        setContainerName(data.containerName);
-      });
+      .then((data: AzureStatus) => setStatus(data));
   }, []);
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setFeedback(null);
-    try {
-      const res = await fetch("/api/settings/azure", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionString, containerName }),
-      });
-      if (!res.ok) { setFeedback({ ok: false, message: "Failed to save settings." }); return; }
-      const updated: AzureStatus = await res.json();
-      setStatus(updated);
-      setContainerName(updated.containerName);
-      setConnectionString("");
-      setFeedback({ ok: true, message: "Settings saved." });
-    } catch {
-      setFeedback({ ok: false, message: "An error occurred while saving." });
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
       <SectionHeader
         title="Azure Blob Storage"
-        description="Files uploaded by users are stored in Azure Blob Storage."
+        description="Storage is configured via environment variables. Access uses managed identity — no connection string is required."
       />
-      <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
-        <Field
-          label="Connection String"
-          source={status?.connectionStringSource}
-          hint="Leave blank to keep the existing value unchanged."
-        >
-          <input
-            type="password"
-            value={connectionString}
-            onChange={(e) => setConnectionString(e.target.value)}
-            placeholder={
-              status?.connectionStringConfigured
-                ? "Enter new value to update (currently configured)"
-                : "DefaultEndpointsProtocol=https;AccountName=..."
-            }
-            className={inputCls}
-          />
-        </Field>
-        <Field label="Container Name" source={status?.containerNameSource}>
-          <input
-            type="text"
-            value={containerName}
-            onChange={(e) => setContainerName(e.target.value)}
-            placeholder="porter-uploads"
-            className={inputCls}
-          />
-        </Field>
-        <Feedback value={feedback} />
-        <div>
-          <button type="submit" disabled={saving || !status} className={saveBtnCls}>
-            {saving ? "Saving…" : "Save"}
-          </button>
+      <div className="px-6 py-5 space-y-4">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Storage Account URL</span>
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                status?.accountUrlConfigured
+                  ? "bg-green-50 text-green-700 ring-green-600/20"
+                  : "bg-red-50 text-red-700 ring-red-600/20"
+              }`}
+            >
+              {status === null ? "Loading…" : status.accountUrlConfigured ? "Configured" : "Not set"}
+            </span>
+          </div>
+          {status?.accountUrl && (
+            <p className="text-sm text-gray-500 font-mono break-all">{status.accountUrl}</p>
+          )}
+          {status && !status.accountUrlConfigured && (
+            <p className="text-xs text-gray-400">Set <code>AZURE_STORAGE_ACCOUNT_URL</code> in your environment to enable blob storage.</p>
+          )}
         </div>
-      </form>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Container Name</span>
+            <SourceBadge source={status?.containerNameSource ?? null} />
+          </div>
+          <p className="text-sm text-gray-500">{status?.containerName ?? "porter-uploads"}</p>
+        </div>
+      </div>
     </div>
   );
 }

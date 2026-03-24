@@ -37,3 +37,14 @@ npm-debug.log*
 
 # Misc
 .vercel
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfplan
+
+# Bicep
+bicep/main.bicepparam
