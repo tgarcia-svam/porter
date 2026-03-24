@@ -230,9 +230,9 @@ export default function DataEntryTable({
       )}
 
       {/* Scrollable table */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <div className="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-gray-200">
         <table className="min-w-full text-sm border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="px-3 py-2 w-10 text-left font-medium text-gray-400 text-xs">#</th>
               {schema.columns.map((col) => (

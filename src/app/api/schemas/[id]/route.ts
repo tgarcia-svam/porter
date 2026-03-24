@@ -15,6 +15,8 @@ const UpdateSchemaBody = z.object({
   description: z.string().optional(),
   projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1).optional(),
+  timeSeriesColumn: z.string().nullable().optional(),
+  timeSeriesGranularity: z.enum(["DAY", "MONTH", "YEAR"]).nullable().optional(),
 });
 
 async function requireAdmin() {
@@ -57,7 +59,7 @@ export async function PUT(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, description, projectIds, columns } = parsed.data;
+  const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
 
   // Replace columns and project assignments atomically
   const schema = await prisma.$transaction(async (tx) => {
@@ -80,6 +82,8 @@ export async function PUT(
       data: {
         ...(name && { name }),
         ...(description !== undefined && { description }),
+        ...(timeSeriesColumn !== undefined && { timeSeriesColumn }),
+        ...(timeSeriesGranularity !== undefined && { timeSeriesGranularity }),
       },
       include: {
         columns: { orderBy: { order: "asc" } },

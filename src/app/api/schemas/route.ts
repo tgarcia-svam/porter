@@ -15,6 +15,8 @@ const CreateSchemaBody = z.object({
   description: z.string().optional(),
   projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1),
+  timeSeriesColumn: z.string().nullable().optional(),
+  timeSeriesGranularity: z.enum(["DAY", "MONTH", "YEAR"]).nullable().optional(),
 });
 
 export async function GET() {
@@ -46,12 +48,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, description, projectIds, columns } = parsed.data;
+  const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
 
   const schema = await prisma.schema.create({
     data: {
       name,
       description,
+      timeSeriesColumn: timeSeriesColumn ?? null,
+      timeSeriesGranularity: timeSeriesGranularity ?? null,
       columns: {
         create: columns.map((col, i) => ({ ...col, order: i })),
       },

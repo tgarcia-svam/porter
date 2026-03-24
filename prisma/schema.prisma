@@ -54,15 +54,17 @@ model User {
 }
 
 model Schema {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String       @id @default(cuid())
+  name                  String
+  description           String?
+  timeSeriesColumn      String?
+  timeSeriesGranularity Granularity?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
-  projects    SchemaProject[]
-  columns     SchemaColumn[]
-  uploads     FileUpload[]
+  projects SchemaProject[]
+  columns  SchemaColumn[]
+  uploads  FileUpload[]
 }
 
 model SchemaProject {
@@ -148,4 +150,10 @@ enum UploadStatus {
   PENDING
   VALID
   INVALID
+}
+
+enum Granularity {
+  DAY
+  MONTH
+  YEAR
 }

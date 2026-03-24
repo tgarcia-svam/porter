@@ -13,12 +13,16 @@ type ColumnDef = {
 
 type ProjectRef = { id: string; name: string };
 
+type Granularity = "DAY" | "MONTH" | "YEAR";
+
 type InitialData = {
   id: string;
   name: string;
   description: string;
   projectIds: string[];
   columns: ColumnDef[];
+  timeSeriesColumn: string | null;
+  timeSeriesGranularity: Granularity | null;
 };
 
 const DATA_TYPES: { value: DataType; label: string; description: string }[] = [
@@ -49,6 +53,12 @@ export default function SchemaEditor({
   }
   const [columns, setColumns] = useState<ColumnDef[]>(
     initialData?.columns ?? [{ name: "", dataType: "TEXT", required: true }]
+  );
+  const [timeSeriesColumn, setTimeSeriesColumn] = useState<string>(
+    initialData?.timeSeriesColumn ?? ""
+  );
+  const [timeSeriesGranularity, setTimeSeriesGranularity] = useState<Granularity>(
+    initialData?.timeSeriesGranularity ?? "MONTH"
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +95,14 @@ export default function SchemaEditor({
 
     setSaving(true);
     try {
-      const body = { name: name.trim(), description: description.trim(), projectIds, columns };
+      const body = {
+        name: name.trim(),
+        description: description.trim(),
+        projectIds,
+        columns,
+        timeSeriesColumn: timeSeriesColumn || null,
+        timeSeriesGranularity: timeSeriesColumn ? timeSeriesGranularity : null,
+      };
       const url = initialData
         ? `/api/schemas/${initialData.id}`
         : "/api/schemas";
@@ -242,6 +259,57 @@ export default function SchemaEditor({
         <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-400">
           <span className="text-red-400 font-bold">*</span> Required fields will reject empty values
         </div>
+      </div>
+
+      {/* Time series configuration */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-900">Statistics</h2>
+          <p className="mt-0.5 text-sm text-gray-500">
+            Optional. Configure a date column to show a time series chart to uploaders.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Date column for time series
+          </label>
+          <select
+            value={timeSeriesColumn}
+            onChange={(e) => setTimeSeriesColumn(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">— None —</option>
+            {columns
+              .filter((c) => c.dataType === "DATE" && c.name.trim())
+              .map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+          </select>
+        </div>
+        {timeSeriesColumn && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Group by
+            </label>
+            <div className="flex gap-3">
+              {(["DAY", "MONTH", "YEAR"] as Granularity[]).map((g) => (
+                <label key={g} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="granularity"
+                    value={g}
+                    checked={timeSeriesGranularity === g}
+                    onChange={() => setTimeSeriesGranularity(g)}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700 capitalize">{g.toLowerCase()}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
