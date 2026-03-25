@@ -44,6 +44,8 @@ export default async function EditSchemaPage({
             dataType: c.dataType as "TEXT" | "NUMBER" | "INTEGER" | "BOOLEAN" | "DATE" | "EMAIL",
             required: c.required,
           })),
+          timeSeriesColumn: schema.timeSeriesColumn ?? null,
+          timeSeriesGranularity: schema.timeSeriesGranularity as "DAY" | "MONTH" | "YEAR" | null ?? null,
         }}
         allProjects={allProjects}
       />

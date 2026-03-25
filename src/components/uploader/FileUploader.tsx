@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
+import StatsPanel from "./StatsPanel";
 
 type Column = {
   id: string;
@@ -19,6 +20,8 @@ type Schema = {
   name: string;
   description: string | null;
   columns: Column[];
+  timeSeriesColumn: string | null;
+  timeSeriesGranularity: string | null;
 };
 
 type Project = {
@@ -63,13 +66,25 @@ export default function FileUploader({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedProjectId, setSelectedProjectId] = useState(
-    projects[0]?.id ?? ""
-  );
+  function resolveInitialProject(): string {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("porter:projectId") : null;
+    if (saved && projects.some((p) => p.id === saved)) return saved;
+    return projects[0]?.id ?? "";
+  }
+
+  function resolveInitialSchema(projectId: string): string {
+    const schemas = projects.find((p) => p.id === projectId)?.schemas ?? [];
+    const saved = typeof window !== "undefined" ? localStorage.getItem("porter:schemaId") : null;
+    if (saved && schemas.some((s) => s.id === saved)) return saved;
+    return schemas[0]?.id ?? "";
+  }
+
+  const initialProjectId = resolveInitialProject();
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const [selectedSchemaId, setSelectedSchemaId] = useState(
-    projects[0]?.schemas[0]?.id ?? ""
+    resolveInitialSchema(initialProjectId)
   );
-  const [activeTab, setActiveTab] = useState<"upload" | "entry">("upload");
+  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "stats">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -92,15 +107,18 @@ export default function FileUploader({
     setUploadError(null);
   }
 
-  function handleTabChange(tab: "upload" | "entry") {
+  function handleTabChange(tab: "upload" | "entry" | "stats") {
     setActiveTab(tab);
-    clearFileState();
+    if (tab !== "stats") clearFileState();
   }
 
   function handleProjectChange(projectId: string) {
     const project = projects.find((p) => p.id === projectId);
+    const schemaId = project?.schemas[0]?.id ?? "";
     setSelectedProjectId(projectId);
-    setSelectedSchemaId(project?.schemas[0]?.id ?? "");
+    setSelectedSchemaId(schemaId);
+    localStorage.setItem("porter:projectId", projectId);
+    localStorage.setItem("porter:schemaId", schemaId);
     clearFileState();
   }
 
@@ -219,13 +237,19 @@ export default function FileUploader({
     );
   }
 
+  const tabs: { key: "upload" | "entry" | "stats"; label: string }[] = [
+    { key: "upload", label: "File Upload" },
+    { key: "entry",  label: "Manual Entry" },
+    { key: "stats",  label: "Statistics" },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Shared context: project + schema selectors */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        {/* Project selector */}
+    <div className="flex flex-col lg:flex-row gap-6 items-start">
+
+      {/* ── Left sidebar: project + schema selectors ── */}
+      <div className="w-full lg:w-56 shrink-0 bg-white rounded-xl border border-gray-200 p-5 space-y-5">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
             Project
           </label>
           <select
@@ -234,242 +258,217 @@ export default function FileUploader({
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
+              <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </div>
 
-        {/* Schema selector */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
             File Format
           </label>
           <select
             value={selectedSchemaId}
             onChange={(e) => {
-              setSelectedSchemaId(e.target.value);
-              clearFileState();
-            }}
+                setSelectedSchemaId(e.target.value);
+                localStorage.setItem("porter:schemaId", e.target.value);
+                clearFileState();
+              }}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {availableSchemas.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
           {selectedSchema?.description && (
-            <p className="mt-1 text-xs text-gray-400">{selectedSchema.description}</p>
+            <p className="mt-1.5 text-xs text-gray-400 leading-snug">{selectedSchema.description}</p>
           )}
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-1">
-          {(["upload", "entry"] as const).map((tab) => {
-            const labels = { upload: "File Upload", entry: "Manual Entry" };
-            const active = activeTab === tab;
-            return (
+      {/* ── Main panel ── */}
+      <div className="flex-1 min-w-0 space-y-5">
+
+        {/* Tab bar */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex gap-1">
+            {tabs.map(({ key, label }) => (
               <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
+                key={key}
+                onClick={() => handleTabChange(key)}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  active
+                  activeTab === key
                     ? "border-blue-600 text-blue-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}
               >
-                {labels[tab]}
+                {label}
               </button>
-            );
-          })}
-        </nav>
-      </div>
+            ))}
+          </nav>
+        </div>
 
-      {/* File upload tab */}
-      {activeTab === "upload" && (
-        <>
-          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-            {/* Schema column preview */}
-            {selectedSchema && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">
-                  Expected columns:
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedSchema.columns.map((col) => (
-                    <span
-                      key={col.id}
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs"
-                    >
-                      <span className="font-medium font-mono text-gray-700">
-                        {col.name}
+        {/* File Upload tab */}
+        {activeTab === "upload" && (
+          <>
+            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+              {selectedSchema && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">Expected columns:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedSchema.columns.map((col) => (
+                      <span
+                        key={col.id}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs"
+                      >
+                        <span className="font-medium font-mono text-gray-700">{col.name}</span>
+                        <span className="text-gray-400">{col.dataType}</span>
+                        {col.required && <span className="text-red-400 font-bold">*</span>}
                       </span>
-                      <span className="text-gray-400">{col.dataType}</span>
-                      {col.required && (
-                        <span className="text-red-400 font-bold">*</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Drop zone */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                dragging
-                  ? "border-blue-400 bg-blue-50"
-                  : selectedFile
-                  ? "border-green-400 bg-green-50"
-                  : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileSelect(file);
-                }}
-              />
-              {selectedFile ? (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-center gap-2">
-                    <FileIcon />
-                    <span className="text-sm font-medium text-gray-900">
-                      {selectedFile.name}
-                    </span>
+                    ))}
                   </div>
-                  <p className="text-xs text-gray-400">
-                    {(selectedFile.size / 1024).toFixed(1)} KB — click to change
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <UploadIcon />
-                  <p className="text-sm font-medium text-gray-600">
-                    Drop a CSV or Excel file here
-                  </p>
-                  <p className="text-xs text-gray-400">or click to browse</p>
                 </div>
               )}
+
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                  dragging ? "border-blue-400 bg-blue-50"
+                  : selectedFile ? "border-green-400 bg-green-50"
+                  : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }}
+                />
+                {selectedFile ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-center gap-2">
+                      <FileIcon />
+                      <span className="text-sm font-medium text-gray-900">{selectedFile.name}</span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      {(selectedFile.size / 1024).toFixed(1)} KB — click to change
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <UploadIcon />
+                    <p className="text-sm font-medium text-gray-600">Drop a CSV or Excel file here</p>
+                    <p className="text-xs text-gray-400">or click to browse</p>
+                  </div>
+                )}
+              </div>
+
+              {sheetNames.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Worksheet</label>
+                  <select
+                    value={selectedSheet}
+                    onChange={(e) => setSelectedSheet(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {sheetNames.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button
+                onClick={handleUpload}
+                disabled={!selectedFile || uploading || (sheetNames.length > 0 && !selectedSheet)}
+                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {uploading ? "Processing…" : "Upload and validate"}
+              </button>
+
+              {uploadPhase && <UploadProgressBanner phase={uploadPhase} />}
             </div>
 
-            {/* Worksheet selector — Excel only */}
-            {sheetNames.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Worksheet
-                </label>
-                <select
-                  value={selectedSheet}
-                  onChange={(e) => setSelectedSheet(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {sheetNames.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
+            {uploadError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+                {uploadError}
               </div>
             )}
 
-            <button
-              onClick={handleUpload}
-              disabled={!selectedFile || uploading || (sheetNames.length > 0 && !selectedSheet)}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {uploading ? "Processing…" : "Upload and validate"}
-            </button>
+            {result && <ValidationResults result={result} />}
 
-            {uploadPhase && <UploadProgressBanner phase={uploadPhase} />}
-          </div>
+            {/* Upload history */}
+            {uploads.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200">
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-900">Upload history</h2>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left">
+                      <th className="px-6 py-3 font-medium text-gray-500">File</th>
+                      <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
+                      <th className="px-6 py-3 font-medium text-gray-500">Uploaded By</th>
+                      <th className="px-6 py-3 font-medium text-gray-500">Status</th>
+                      <th className="px-6 py-3 font-medium text-gray-500">Errors</th>
+                      <th className="px-6 py-3 font-medium text-gray-500">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploads.map((u) => (
+                      <tr key={u.id} className="border-b border-gray-50 last:border-0">
+                        <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
+                          {u.blobUrl ? (
+                            <a href={u.blobUrl} className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
+                              {u.fileName}
+                            </a>
+                          ) : u.fileName}
+                        </td>
+                        <td className="px-6 py-3 text-gray-500">{u.schemaName}</td>
+                        <td className="px-6 py-3 text-gray-500">{u.uploadedBy}</td>
+                        <td className="px-6 py-3"><StatusBadge status={u.status} /></td>
+                        <td className="px-6 py-3 text-gray-500">
+                          {u.errorCount > 0
+                            ? <span className="text-red-600 font-medium">{u.errorCount}</span>
+                            : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="px-6 py-3 text-gray-400 text-xs">
+                          {new Date(u.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
 
-          {uploadError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-              {uploadError}
-            </div>
-          )}
+        {/* Manual Entry tab */}
+        {activeTab === "entry" && selectedSchema && (
+          <DataEntryTable
+            schema={selectedSchema}
+            projectId={selectedProjectId}
+            onSubmitSuccess={refreshHistory}
+          />
+        )}
 
-          {result && <ValidationResults result={result} />}
-        </>
-      )}
+        {/* Statistics tab */}
+        {activeTab === "stats" && (
+          selectedSchemaId && selectedProjectId
+            ? <StatsPanel schemaId={selectedSchemaId} projectId={selectedProjectId} />
+            : (
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+                Select a project and file format to view statistics.
+              </div>
+            )
+        )}
 
-      {/* Manual entry tab */}
-      {activeTab === "entry" && selectedSchema && (
-        <DataEntryTable
-          schema={selectedSchema}
-          projectId={selectedProjectId}
-          onSubmitSuccess={refreshHistory}
-        />
-      )}
-
-      {/* Upload history — always visible */}
-      {uploads.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Upload history</h2>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-left">
-                <th className="px-6 py-3 font-medium text-gray-500">File</th>
-                <th className="px-6 py-3 font-medium text-gray-500">File Format</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Uploaded By</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Errors</th>
-                <th className="px-6 py-3 font-medium text-gray-500">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {uploads.map((u) => (
-                <tr key={u.id} className="border-b border-gray-50 last:border-0">
-                  <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
-                    {u.blobUrl ? (
-                      <a
-                        href={u.blobUrl}
-                        className="text-blue-600 hover:underline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {u.fileName}
-                      </a>
-                    ) : (
-                      u.fileName
-                    )}
-                  </td>
-                  <td className="px-6 py-3 text-gray-500">{u.schemaName}</td>
-                  <td className="px-6 py-3 text-gray-500">{u.uploadedBy}</td>
-                  <td className="px-6 py-3">
-                    <StatusBadge status={u.status} />
-                  </td>
-                  <td className="px-6 py-3 text-gray-500">
-                    {u.errorCount > 0 ? (
-                      <span className="text-red-600 font-medium">{u.errorCount}</span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-3 text-gray-400 text-xs">
-                    {new Date(u.createdAt).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

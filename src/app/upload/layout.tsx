@@ -20,7 +20,7 @@ export default async function UploadLayout({
         userName={session.user.name}
         role={session.user.role}
       />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
     </div>
