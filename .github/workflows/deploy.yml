@@ -6,9 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  ACR_NAME: portercontainerregistry
   RESOURCE_GROUP: porter-setup
-  APP_SERVICE_NAME: porter
 
 jobs:
   deploy:
@@ -24,37 +22,31 @@ jobs:
 
       - name: Build and push image to ACR
         run: |
-          az acr login --name ${{ env.ACR_NAME }}
+          ACR_NAME=$(cat bicep/main.bicepparam | grep 'acrName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          az acr login --name $ACR_NAME
           docker build \
-            -t ${{ env.ACR_NAME }}.azurecr.io/porter:${{ github.sha }} \
-            -t ${{ env.ACR_NAME }}.azurecr.io/porter:latest \
+            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
+            -t $ACR_NAME.azurecr.io/porter:latest \
             .
-          docker push ${{ env.ACR_NAME }}.azurecr.io/porter:${{ github.sha }}
-          docker push ${{ env.ACR_NAME }}.azurecr.io/porter:latest
+          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
+          docker push $ACR_NAME.azurecr.io/porter:latest
 
       - name: Deploy Bicep
         run: |
           az deployment group create \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --template-file bicep/main.bicep \
+            --parameters bicep/main.bicepparam \
             --parameters \
-              appServiceName=${{ env.APP_SERVICE_NAME }} \
-              acrName=${{ env.ACR_NAME }} \
-              location=${{ vars.AZURE_LOCATION }} \
-              storageAccountName=${{ vars.STORAGE_ACCOUNT_NAME }} \
-              storageContainerName=porter-uploads \
-              databaseUrl=${{ secrets.DATABASE_URL }} \
-              nextauthUrl=${{ vars.NEXTAUTH_URL }} \
               nextauthSecret=${{ secrets.NEXTAUTH_SECRET }} \
-              azureAdClientId=${{ vars.AZURE_AD_CLIENT_ID }} \
+              dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
               azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
-              azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
-              googleClientId=${{ vars.GOOGLE_CLIENT_ID }} \
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
               containerTag=${{ github.sha }}
 
       - name: Restart App Service
         run: |
+          APP_SERVICE_NAME=$(cat bicep/main.bicepparam | grep 'appServiceName' | sed "s/.*= '\\(.*\\)'/\\1/")
           az webapp restart \
-            --name ${{ env.APP_SERVICE_NAME }} \
+            --name $APP_SERVICE_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }}
