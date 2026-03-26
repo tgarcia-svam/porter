@@ -2,21 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { auditStore, clientIp } from "@/lib/audit-context";
 
 const CreateUserBody = z.object({
   email: z.string().email(),
   name: z.string().optional(),
   role: z.enum(["ADMIN", "UPLOADER"]).default("UPLOADER"),
+  organizationId: z.string().optional().nullable(),
 });
 
-async function requireAdmin() {
+async function requireAdmin(req?: NextRequest) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
+  auditStore.enterWith({
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
+    ip: req ? clientIp(req) : undefined,
+  });
   return session;
 }
 
-export async function GET() {
-  const session = await requireAdmin();
+export async function GET(req: NextRequest) {
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const users = await prisma.user.findMany({
@@ -30,7 +37,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await requireAdmin();
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();

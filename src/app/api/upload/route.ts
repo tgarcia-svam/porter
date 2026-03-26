@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
+import { auditStore, clientIp } from "@/lib/audit-context";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -10,6 +11,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId: string = session.user.id;
+  auditStore.enterWith({
+    userId,
+    userEmail: session.user.email ?? undefined,
+    ip: clientIp(req),
+  });
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;

@@ -51,6 +51,11 @@ param location string = resourceGroup().location
 @description('Docker image tag to deploy')
 param containerTag string = 'latest'
 
+// ── Derived names ─────────────────────────────────────────────────────────────
+
+var logAnalyticsName = '${appServiceName}-logs'
+var appInsightsName  = '${appServiceName}-insights'
+
 // ── Reference existing resources ─────────────────────────────────────────────
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -105,6 +110,32 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     AZURE_STORAGE_CONTAINER: storageContainerName
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
+
+    APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
+  }
+}
+
+// ── Log Analytics Workspace (1-year retention) ────────────────────────────────
+
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: logAnalyticsName
+  location: location
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 365
+  }
+}
+
+// ── Application Insights (linked to workspace) ────────────────────────────────
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: appInsightsName
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+    RetentionInDays: 365
   }
 }
 

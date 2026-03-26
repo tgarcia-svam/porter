@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth, invalidateAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { auditStore, clientIp } from "@/lib/audit-context";
 
 type SettingSource = "db" | "env" | null;
 
@@ -75,6 +76,11 @@ export async function PUT(req: NextRequest) {
   if (!session?.user || session.user.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  auditStore.enterWith({
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
+    ip: clientIp(req),
+  });
 
   const body = await req.json();
   const parsed = UpdateBody.safeParse(body);
