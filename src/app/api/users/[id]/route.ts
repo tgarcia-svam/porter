@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { auditStore, clientIp } from "@/lib/audit-context";
 
 const UpdateUserBody = z.object({
   role: z.enum(["ADMIN", "UPLOADER"]).optional(),
@@ -9,9 +10,14 @@ const UpdateUserBody = z.object({
   organizationId: z.string().nullable().optional(),
 });
 
-async function requireAdmin() {
+async function requireAdmin(req: NextRequest) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") return null;
+  auditStore.enterWith({
+    userId: session.user.id,
+    userEmail: session.user.email ?? undefined,
+    ip: clientIp(req),
+  });
   return session;
 }
 
@@ -19,7 +25,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAdmin();
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
@@ -38,10 +44,10 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAdmin();
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;

@@ -24,6 +24,7 @@ export default function UserManager({
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<"ADMIN" | "UPLOADER">("UPLOADER");
+  const [newOrgId, setNewOrgId] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -42,7 +43,11 @@ export default function UserManager({
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newEmail.trim(), role: newRole }),
+        body: JSON.stringify({
+          email: newEmail.trim(),
+          role: newRole,
+          organizationId: newOrgId || null,
+        }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -50,6 +55,7 @@ export default function UserManager({
       }
       setNewEmail("");
       setNewRole("UPLOADER");
+      setNewOrgId("");
       await refreshUsers();
       router.refresh();
     } catch (err) {
@@ -113,6 +119,21 @@ export default function UserManager({
             >
               <option value="UPLOADER">Uploader</option>
               <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Organization
+            </label>
+            <select
+              value={newOrgId}
+              onChange={(e) => setNewOrgId(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">No organization</option>
+              {allOrganizations.map((org) => (
+                <option key={org.id} value={org.id}>{org.name}</option>
+              ))}
             </select>
           </div>
           <button

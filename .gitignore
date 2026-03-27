@@ -46,5 +46,5 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/*.tfplan
 
-# Bicep
-bicep/main.bicepparam
+# Bicep — secrets.bicepparam is gitignored; main.bicepparam is safe to commit
+bicep/*.secrets.bicepparam

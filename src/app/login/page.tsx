@@ -7,7 +7,8 @@ import { Suspense, useState } from "react";
 function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const error = searchParams.get("error");
+  const error  = searchParams.get("error");
+  const reason = searchParams.get("reason");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -68,6 +69,12 @@ function LoginContent() {
               Sign in to upload and validate your data files
             </p>
           </div>
+
+          {reason === "idle" && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+              You were signed out after 30 minutes of inactivity.
+            </div>
+          )}
 
           {oauthError && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">

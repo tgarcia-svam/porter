@@ -59,10 +59,16 @@ function displayLabel(label: string, granularity: string): string {
 
 // ── SVG line chart ────────────────────────────────────────────────────────────
 
-const W = 500, H = 100;
-const PAD = { top: 8, right: 8, bottom: 20, left: 8 };
+const W = 500, H = 110;
+const PAD = { top: 8, right: 8, bottom: 20, left: 38 };
 const CW = W - PAD.left - PAD.right;
 const CH = H - PAD.top - PAD.bottom;
+
+function yLabel(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
+  return String(n);
+}
 
 function LineChart({ points, granularity }: { points: TimeSeriesPoint[]; granularity: string }) {
   if (points.length < 2) return null;
@@ -73,6 +79,10 @@ function LineChart({ points, granularity }: { points: TimeSeriesPoint[]; granula
 
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xOf(i)} ${yOf(p.count)}`).join(" ");
   const areaPath = `${linePath} L ${xOf(points.length - 1)} ${PAD.top + CH} L ${xOf(0)} ${PAD.top + CH} Z`;
+
+  // Y-axis ticks: 0, mid, max
+  const mid = Math.round(max / 2);
+  const yTicks = [0, mid, max];
 
   // Pick x-axis label indices: first, last, and up to 3 evenly spaced in between
   const labelIndices = new Set([0, points.length - 1]);
@@ -92,15 +102,36 @@ function LineChart({ points, granularity }: { points: TimeSeriesPoint[]; granula
         </linearGradient>
       </defs>
 
-      {/* Area fill */}
-      <path d={areaPath} fill="url(#area-fill)" />
+      {/* Y-axis grid lines + labels */}
+      {yTicks.map((v) => (
+        <g key={v}>
+          <line
+            x1={PAD.left} y1={yOf(v)}
+            x2={PAD.left + CW} y2={yOf(v)}
+            stroke="#e5e7eb" strokeWidth="1"
+          />
+          <text
+            x={PAD.left - 4}
+            y={yOf(v)}
+            textAnchor="end"
+            dominantBaseline="middle"
+            fontSize="9"
+            fill="#9ca3af"
+          >
+            {yLabel(v)}
+          </text>
+        </g>
+      ))}
 
-      {/* Grid line at zero */}
+      {/* Y-axis line */}
       <line
-        x1={PAD.left} y1={PAD.top + CH}
-        x2={PAD.left + CW} y2={PAD.top + CH}
+        x1={PAD.left} y1={PAD.top}
+        x2={PAD.left} y2={PAD.top + CH}
         stroke="#e5e7eb" strokeWidth="1"
       />
+
+      {/* Area fill */}
+      <path d={areaPath} fill="url(#area-fill)" />
 
       {/* Line */}
       <path d={linePath} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />

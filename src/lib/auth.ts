@@ -22,19 +22,17 @@ const callbacks: NextAuthConfig["callbacks"] = {
     // Credentials: authorize() already validated — just allow through
     if (account?.provider === "credentials") return !!user;
 
-    // OAuth: email must exist in the user whitelist
-    const email = profile?.email;
+    // OAuth: email must already exist — only admins can add users
+    const email = user?.email ?? profile?.email;
     if (!email) return false;
 
-    let dbUser = await prisma.user.findUnique({ where: { email } });
-    if (!dbUser) {
-      // Auto-provision new OAuth users with default UPLOADER role
-      dbUser = await prisma.user.create({
-        data: { email, name: profile?.name ?? null },
-      });
-    } else if (!dbUser.name && profile?.name) {
-      // Backfill name on first OAuth sign-in
-      await prisma.user.update({ where: { email }, data: { name: profile.name } });
+    const dbUser = await prisma.user.findUnique({ where: { email } });
+    if (!dbUser) return false;
+
+    // Backfill name from OAuth profile on first sign-in
+    const name = profile?.name ?? user?.name;
+    if (!dbUser.name && name) {
+      await prisma.user.update({ where: { email }, data: { name } });
     }
     return true;
   },
@@ -139,7 +137,7 @@ async function buildInstance(): Promise<AuthInstance> {
     providers,
     pages: { signIn: "/login", error: "/login" },
     callbacks,
-    session: { strategy: "jwt" },
+    session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
   });
 }
 

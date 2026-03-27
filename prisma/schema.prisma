@@ -132,6 +132,21 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+model AuditLog {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  userId    String?
+  userEmail String?
+  action    String   // create | update | delete | upsert | createMany | updateMany | deleteMany
+  model     String
+  recordId  String?
+  ipAddress String?
+
+  @@index([timestamp])
+  @@index([userId])
+  @@index([model, timestamp])
+}
+
 enum Role {
   ADMIN
   UPLOADER
