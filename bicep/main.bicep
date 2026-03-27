@@ -60,7 +60,7 @@ param dbName string = 'porter'
 @description('PostgreSQL admin username (used when dbServerName is set).')
 param dbAdminUser string = 'porteradmin'
 
-@description('PostgreSQL admin password (used when dbServerName is set). Avoid special characters — the value is embedded directly in the connection URL.')
+@description('PostgreSQL admin password (used when dbServerName is set). Special characters must be percent-encoded: # → %23, @ → %40, % → %25, : → %3A, ! → %21')
 @secure()
 param dbAdminPassword string = ''
 

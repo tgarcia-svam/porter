@@ -137,7 +137,7 @@ async function buildInstance(): Promise<AuthInstance> {
     providers,
     pages: { signIn: "/login", error: "/login" },
     callbacks,
-    session: { strategy: "jwt" },
+    session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
   });
 }
 
