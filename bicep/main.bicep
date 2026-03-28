@@ -49,6 +49,9 @@ param location string = resourceGroup().location
 @description('Docker image tag to deploy')
 param containerTag string = 'latest'
 
+@description('Email address of the initial admin user, created automatically on first container start via the seed script.')
+param seedAdminEmail string
+
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
 @description('Name of the existing PostgreSQL Flexible Server. When set, the connection URL is constructed automatically from the server hostname. Leave empty to supply a raw databaseUrl instead.')
@@ -138,6 +141,8 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     AZURE_STORAGE_CONTAINER: storageContainerName
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
+
+    SEED_ADMIN_EMAIL: seedAdminEmail
 
     APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
   }

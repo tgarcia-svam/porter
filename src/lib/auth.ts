@@ -1,8 +1,6 @@
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
@@ -23,8 +21,9 @@ const callbacks: NextAuthConfig["callbacks"] = {
     if (account?.provider === "credentials") return !!user;
 
     // OAuth: email must already exist — only admins can add users
-    const email = user?.email ?? profile?.email;
-    if (!email) return false;
+    const raw = user?.email ?? profile?.email;
+    if (!raw) return false;
+    const email = raw.toLowerCase();
 
     const dbUser = await prisma.user.findUnique({ where: { email } });
     if (!dbUser) return false;
@@ -41,7 +40,7 @@ const callbacks: NextAuthConfig["callbacks"] = {
     // user is only present on first sign-in
     if (user?.email) {
       const dbUser = await prisma.user.findUnique({
-        where: { email: user.email },
+        where: { email: user.email.toLowerCase() },
         select: { id: true, role: true },
       });
       if (dbUser) {
@@ -94,30 +93,7 @@ async function buildInstance(): Promise<AuthInstance> {
   const msSecret     = db.AZURE_AD_CLIENT_SECRET ?? process.env.AZURE_AD_CLIENT_SECRET;
   const msTenant     = db.AZURE_AD_TENANT_ID    ?? process.env.AZURE_AD_TENANT_ID ?? "common";
 
-  const providers: NextAuthConfig["providers"] = [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        const email    = credentials?.email    as string | undefined;
-        const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { email },
-          select: { id: true, email: true, name: true, password: true, role: true },
-        });
-        if (!user?.password) return null;
-
-        const valid = await bcrypt.compare(password, user.password);
-        if (!valid) return null;
-
-        return { id: user.id, email: user.email, name: user.name };
-      },
-    }),
-  ];
+  const providers: NextAuthConfig["providers"] = [];
 
   if (googleId && googleSecret) {
     providers.push(Google({ clientId: googleId, clientSecret: googleSecret }));

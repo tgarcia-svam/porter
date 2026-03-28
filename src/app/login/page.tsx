@@ -1,40 +1,13 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 function LoginContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [credError, setCredError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function handleCredentials(e: React.FormEvent) {
-    e.preventDefault();
-    setCredError(null);
-    setLoading(true);
-    try {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
-      if (result?.error) {
-        setCredError("Invalid email or password.");
-      } else {
-        router.push("/");
-        router.refresh();
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const oauthError =
     error === "AccessDenied"
@@ -66,7 +39,7 @@ function LoginContent() {
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Porter</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Sign in to upload and validate your data files
+              Sign in to share and validate your data files
             </p>
           </div>
 
@@ -82,77 +55,13 @@ function LoginContent() {
             </div>
           )}
 
-          {/* Credentials form */}
-          <form onSubmit={handleCredentials} className="space-y-3">
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {credError && (
-              <p className="text-sm text-red-600">{credError}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-
-          {/* SSO buttons */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-xs text-gray-400">
-                or continue with
-              </span>
-            </div>
-          </div>
-
           <div className="space-y-2">
             <button
               onClick={() => signIn("google", { callbackUrl: "/" })}
               className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <GoogleIcon />
-              Google
+              Continue with Google
             </button>
 
             <button
@@ -160,7 +69,7 @@ function LoginContent() {
               className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <MicrosoftIcon />
-              Microsoft
+              Continue with Microsoft
             </button>
           </div>
         </div>
