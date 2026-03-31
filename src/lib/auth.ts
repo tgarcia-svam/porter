@@ -21,31 +21,44 @@ const callbacks: NextAuthConfig["callbacks"] = {
     if (account?.provider === "credentials") return !!user;
 
     // OAuth: email must already exist — only admins can add users
-    const raw = user?.email ?? profile?.email;
+    console.log("[auth] signIn attempt — user:", JSON.stringify(user), "profile:", JSON.stringify(profile));
+    const raw = user?.email ?? (profile as Record<string, unknown>)?.preferred_username as string ?? profile?.email;
+    console.log("[auth] resolved email:", raw);
     if (!raw) return false;
     const email = raw.toLowerCase();
 
-    const dbUser = await prisma.user.findUnique({ where: { email } });
+    const dbUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
+    console.log("[auth] DB lookup for", email, "→", dbUser ? `found (id=${dbUser.id})` : "NOT FOUND");
     if (!dbUser) return false;
 
     // Backfill name from OAuth profile on first sign-in
     const name = profile?.name ?? user?.name;
     if (!dbUser.name && name) {
-      await prisma.user.update({ where: { email }, data: { name } });
+      await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
     }
     return true;
   },
 
-  async jwt({ token, user }) {
+  async jwt({ token, user, profile }) {
     // user is only present on first sign-in
-    if (user?.email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email.toLowerCase() },
-        select: { id: true, role: true },
-      });
-      if (dbUser) {
-        token["id"] = dbUser.id;
-        token["role"] = dbUser.role;
+    if (user) {
+      const email =
+        user?.email ??
+        (profile as Record<string, unknown>)?.preferred_username as string | undefined ??
+        profile?.email;
+      console.log("[auth] jwt — resolved email:", email, "token.preferred_username:", token["preferred_username"]);
+      if (email) {
+        const dbUser = await prisma.user.findFirst({
+          where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
+          select: { id: true, role: true },
+        });
+        console.log("[auth] jwt DB lookup for", email, "→", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
+        if (dbUser) {
+          token["id"] = dbUser.id;
+          token["role"] = dbUser.role;
+        }
       }
     }
     return token;

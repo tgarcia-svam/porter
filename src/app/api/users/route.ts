@@ -46,13 +46,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const existing = await prisma.user.findUnique({
-    where: { email: parsed.data.email },
-  });
+  const email = parsed.data.email.toLowerCase();
+
+  const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     return NextResponse.json({ error: "User already exists" }, { status: 409 });
   }
 
-  const user = await prisma.user.create({ data: parsed.data });
+  const user = await prisma.user.create({ data: { ...parsed.data, email } });
   return NextResponse.json(user, { status: 201 });
 }

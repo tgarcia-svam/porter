@@ -5,8 +5,7 @@ node_modules/
 .next/
 out/
 
-# Environment variables (secrets)
-.env
+# Environment variables — .env is committed (non-secret config only)
 .env.local
 .env.*.local
 

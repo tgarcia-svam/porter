@@ -1,16 +1,20 @@
 /**
  * Next.js server instrumentation hook — runs once on startup before any
- * request is handled.  Used to initialise Azure Application Insights so that
- * all HTTP requests, dependencies, exceptions, and console output are
- * automatically collected and shipped to Azure Monitor.
+ * request is handled.
+ *
+ * 1. Loads secrets from Azure Key Vault into process.env
+ * 2. Initialises Azure Application Insights for request-level telemetry
  *
  * Docs: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 export async function register() {
-  // Only run in the Node.js runtime (not Edge).  Application Insights relies
-  // on Node-specific APIs (http module patching, etc.).
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  // ── 1. Load secrets from Key Vault ──────────────────────────────────────────
+  const { loadSecretsFromKeyVault } = await import("@/lib/secrets");
+  await loadSecretsFromKeyVault();
+
+  // ── 2. Initialise Application Insights ──────────────────────────────────────
   const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
   if (!connectionString) return;
 
@@ -18,11 +22,11 @@ export async function register() {
 
   appInsights
     .setup(connectionString)
-    .setAutoCollectRequests(true)        // HTTP request durations + status codes
-    .setAutoCollectDependencies(true)    // outbound calls (DB, blob, auth)
-    .setAutoCollectExceptions(true)      // unhandled errors
-    .setAutoCollectPerformance(true, true) // CPU / memory + extended metrics
-    .setAutoCollectConsole(true)         // console.log/warn/error → traces
-    .setUseDiskRetryCaching(true)        // buffer telemetry if network is down
+    .setAutoCollectRequests(true)
+    .setAutoCollectDependencies(true)
+    .setAutoCollectExceptions(true)
+    .setAutoCollectPerformance(true, true)
+    .setAutoCollectConsole(true)
+    .setUseDiskRetryCaching(true)
     .start();
 }

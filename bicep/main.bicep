@@ -124,17 +124,25 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: appServiceIdentity
   name: 'appsettings'
   properties: {
-    DATABASE_URL: effectiveDatabaseUrl
+    DATABASE_URL: (!empty(dbServerName) || !empty(databaseUrl))
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=database-url)'
+      : ''
 
     NEXTAUTH_URL: nextauthUrl
-    NEXTAUTH_SECRET: nextauthSecret
+    NEXTAUTH_SECRET: !empty(nextauthSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=nextauth-secret)'
+      : ''
     AUTH_TRUST_HOST: 'true'
 
     GOOGLE_CLIENT_ID: googleClientId
-    GOOGLE_CLIENT_SECRET: googleClientSecret
+    GOOGLE_CLIENT_SECRET: !empty(googleClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=google-client-secret)'
+      : ''
 
     AZURE_AD_CLIENT_ID: azureAdClientId
-    AZURE_AD_CLIENT_SECRET: azureAdClientSecret
+    AZURE_AD_CLIENT_SECRET: !empty(azureAdClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=sso-porter)'
+      : ''
     AZURE_AD_TENANT_ID: azureAdTenantId
 
     AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
@@ -144,7 +152,9 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     SEED_ADMIN_EMAIL: seedAdminEmail
 
-    APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
+    APPLICATIONINSIGHTS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=appinsights-connection-string)'
+
+    KEY_VAULT_URL: 'https://${keyVault.name}${environment().suffixes.keyvaultDns}/'
   }
 }
 
@@ -172,10 +182,72 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+// ── Key Vault ─────────────────────────────────────────────────────────────────
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: 'porter-keys'
+  location: location
+  properties: {
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 90
+  }
+}
+
+// ── Key Vault secrets ─────────────────────────────────────────────────────────
+// Secrets are written here during deployment and referenced by the App Service
+// at runtime via @Microsoft.KeyVault(...) app setting syntax.
+// The app registration client secret must be seeded before first deploy:
+//   az ad app create --display-name Porter
+//   SECRET=$(az ad app credential reset --id <appId> --display-name sso_porter --query password -o tsv)
+//   az keyvault secret set --vault-name porter-keys --name sso-porter --value "$SECRET"
+
+resource kvSsoPorter 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(azureAdClientSecret)) {
+  parent: keyVault
+  name: 'sso-porter'
+  properties: { value: azureAdClientSecret }
+}
+
+resource kvNextauthSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(nextauthSecret)) {
+  parent: keyVault
+  name: 'nextauth-secret'
+  properties: { value: nextauthSecret }
+}
+
+resource kvDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbAdminPassword)) {
+  parent: keyVault
+  name: 'db-admin-password'
+  properties: { value: dbAdminPassword }
+}
+
+resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbServerName) || !empty(databaseUrl)) {
+  parent: keyVault
+  name: 'database-url'
+  properties: { value: effectiveDatabaseUrl }
+}
+
+resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(googleClientSecret)) {
+  parent: keyVault
+  name: 'google-client-secret'
+  properties: { value: googleClientSecret }
+}
+
+resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'appinsights-connection-string'
+  properties: { value: appInsights.properties.ConnectionString }
+}
+
 // ── Role assignments ──────────────────────────────────────────────────────────
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var keyVaultSecretsUserRoleId  = '4633458b-17de-408a-b874-0445c86b69e6'
 
 resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, appServiceName, acrPullRoleId)
@@ -192,6 +264,16 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: appServiceIdentity.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, appServiceName, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
     principalId: appServiceIdentity.identity.principalId
     principalType: 'ServicePrincipal'
   }

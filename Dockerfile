@@ -21,7 +21,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Generate Prisma client (no DB connection needed at build time)
-RUN NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma generate
+RUN npx prisma generate
 
 RUN mkdir -p /app/public && npm run build
 
