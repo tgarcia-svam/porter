@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "6601064949566407373"
+      "templateHash": "17895030421624085590"
     }
   },
   "parameters": {
@@ -141,6 +141,7 @@
   "variables": {
     "logAnalyticsName": "[format('{0}-logs', parameters('appServiceName'))]",
     "appInsightsName": "[format('{0}-insights', parameters('appServiceName'))]",
+    "vnetName": "[format('{0}-vnet', parameters('appServiceName'))]",
     "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
     "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
     "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6"
@@ -158,7 +159,9 @@
         "httpsOnly": true,
         "siteConfig": {
           "linuxFxVersion": "[format('DOCKER|{0}/porter:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').loginServer, parameters('containerTag'))]",
-          "acrUseManagedIdentityCreds": true
+          "acrUseManagedIdentityCreds": true,
+          "minTlsVersion": "1.2",
+          "scmMinTlsVersion": "1.2"
         }
       }
     },
@@ -301,6 +304,156 @@
       "dependsOn": [
         "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
         "[resourceId('Microsoft.KeyVault/vaults', 'porter-keys')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "app-subnet",
+            "properties": {
+              "addressPrefix": "10.0.1.0/24",
+              "delegations": [
+                {
+                  "name": "app-service-delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "postgres-subnet",
+            "properties": {
+              "addressPrefix": "10.0.2.0/24",
+              "delegations": [
+                {
+                  "name": "postgres-delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.DBforPostgreSQL/flexibleServers"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "endpoints-subnet",
+            "properties": {
+              "addressPrefix": "10.0.3.0/24",
+              "privateEndpointNetworkPolicies": "Disabled"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2020-06-01",
+      "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+      "location": "global"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2020-06-01",
+      "name": "privatelink.postgres.database.azure.com",
+      "location": "global"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2020-06-01",
+      "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), format('{0}-blob-link', variables('vnetName')))]",
+      "location": "global",
+      "properties": {
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        },
+        "registrationEnabled": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2020-06-01",
+      "name": "[format('{0}/{1}', 'privatelink.postgres.database.azure.com', format('{0}-postgres-link', variables('vnetName')))]",
+      "location": "global",
+      "properties": {
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        },
+        "registrationEnabled": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.postgres.database.azure.com')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-pe', parameters('storageAccountName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'endpoints-subnet')]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "[format('{0}-blob-connection', parameters('storageAccountName'))]",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+              "groupIds": [
+                "blob"
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}/{1}', format('{0}-pe', parameters('storageAccountName')), 'default')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "blob",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-pe', parameters('storageAccountName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/networkConfig",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', parameters('appServiceName'), 'virtualNetwork')]",
+      "properties": {
+        "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'app-subnet')]",
+        "swiftSupported": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('appServiceName'))]"
       ]
     },
     {

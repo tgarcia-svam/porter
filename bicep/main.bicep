@@ -114,6 +114,8 @@ resource appServiceIdentity 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
       acrUseManagedIdentityCreds: true
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
     }
   }
 }
@@ -242,6 +244,141 @@ resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-0
   name: 'appinsights-connection-string'
   properties: { value: appInsights.properties.ConnectionString }
 }
+
+// ── Virtual Network ───────────────────────────────────────────────────────────
+
+var vnetName = '${appServiceName}-vnet'
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+  name: vnetName
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: ['10.0.0.0/16'] }
+    subnets: [
+      {
+        // App Service outbound VNet integration
+        name: 'app-subnet'
+        properties: {
+          addressPrefix: '10.0.1.0/24'
+          delegations: [{
+            name: 'app-service-delegation'
+            properties: { serviceName: 'Microsoft.Web/serverFarms' }
+          }]
+        }
+      }
+      {
+        // PostgreSQL Flexible Server (VNet-injected) — used when recreating the DB server
+        name: 'postgres-subnet'
+        properties: {
+          addressPrefix: '10.0.2.0/24'
+          delegations: [{
+            name: 'postgres-delegation'
+            properties: { serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers' }
+          }]
+        }
+      }
+      {
+        // Private endpoints (Storage, Key Vault, etc.)
+        name: 'endpoints-subnet'
+        properties: {
+          addressPrefix: '10.0.3.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
+    ]
+  }
+}
+
+// ── Private DNS Zones ─────────────────────────────────────────────────────────
+
+resource blobPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+}
+
+resource postgresPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.postgres.database.azure.com'
+  location: 'global'
+}
+
+resource blobDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: blobPrivateDns
+  name: '${vnetName}-blob-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+resource postgresDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: postgresPrivateDns
+  name: '${vnetName}-postgres-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+// ── Storage Account Private Endpoint ─────────────────────────────────────────
+// Creates a private path from the VNet to Blob Storage.
+// After deploying, disable public access on the storage account:
+//   az storage account update \
+//     --name <storageAccountName> --resource-group <rg> \
+//     --default-action Deny --bypass AzureServices
+
+resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
+  name: '${storageAccountName}-pe'
+  location: location
+  dependsOn: [vnet]
+  properties: {
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'endpoints-subnet') }
+    privateLinkServiceConnections: [{
+      name: '${storageAccountName}-blob-connection'
+      properties: {
+        privateLinkServiceId: storageAccount.id
+        groupIds: ['blob']
+      }
+    }]
+  }
+}
+
+resource storagePrivateDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {
+  parent: storagePrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [{
+      name: 'blob'
+      properties: { privateDnsZoneId: blobPrivateDns.id }
+    }]
+  }
+}
+
+// ── App Service VNet Integration ──────────────────────────────────────────────
+// Routes all outbound App Service traffic through the VNet so it can reach
+// private endpoints (Storage, PostgreSQL) without traversing the public internet.
+
+resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
+  parent: appServiceIdentity
+  name: 'virtualNetwork'
+  properties: {
+    subnetResourceId: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'app-subnet')
+    swiftSupported: true
+  }
+}
+
+// NOTE: PostgreSQL Flexible Server VNet integration cannot be added to an existing server.
+// To move the database onto the VNet:
+//   1. Export data:  pg_dump -h <host> -U <user> <db> > backup.sql
+//   2. Delete the existing server in the portal
+//   3. Recreate it referencing postgres-subnet:
+//        az postgres flexible-server create \
+//          --name <dbServerName> --resource-group <rg> \
+//          --vnet ${vnetName} --subnet postgres-subnet \
+//          --private-dns-zone privatelink.postgres.database.azure.com \
+//          ...other params...
+//   4. Restore data:  psql -h <new-host> -U <user> <db> < backup.sql
 
 // ── Role assignments ──────────────────────────────────────────────────────────
 

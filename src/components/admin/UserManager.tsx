@@ -11,6 +11,8 @@ type User = {
   role: "ADMIN" | "UPLOADER";
   createdAt: string;
   organization: OrgRef | null;
+  lockedUntil: string | null;
+  failedLoginAttempts: number;
 };
 
 export default function UserManager({
@@ -63,6 +65,15 @@ export default function UserManager({
     } finally {
       setAdding(false);
     }
+  }
+
+  async function handleUnlock(id: string) {
+    await fetch(`/api/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unlock: true }),
+    });
+    await refreshUsers();
   }
 
   async function handleDeleteUser(id: string, email: string) {
@@ -169,12 +180,21 @@ export default function UserManager({
               {users.map((user) => (
                 <tr key={user.id} className="border-b border-gray-50 last:border-0">
                   <td className="px-6 py-3">
-                    <div className="font-medium text-gray-900">
-                      {user.name ?? user.email}
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <div className="font-medium text-gray-900">
+                          {user.name ?? user.email}
+                        </div>
+                        {user.name && (
+                          <div className="text-xs text-gray-400">{user.email}</div>
+                        )}
+                      </div>
+                      {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                        <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+                          Locked
+                        </span>
+                      )}
                     </div>
-                    {user.name && (
-                      <div className="text-xs text-gray-400">{user.email}</div>
-                    )}
                   </td>
                   <td className="px-6 py-3">
                     <select
@@ -203,7 +223,15 @@ export default function UserManager({
                     </select>
                   </td>
                   <td className="px-6 py-3">
-                    <div className="flex items-center justify-end">
+                    <div className="flex items-center justify-end gap-3">
+                      {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                        <button
+                          onClick={() => handleUnlock(user.id)}
+                          className="text-xs text-amber-600 hover:underline"
+                        >
+                          Unlock
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteUser(user.id, user.email)}
                         className="text-xs text-red-500 hover:underline"

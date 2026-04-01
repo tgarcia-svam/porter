@@ -14,6 +14,9 @@ declare module "next-auth" {
 }
 // ────────────────────────────────────────────────────────────────────────────
 
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS  = 30 * 60 * 1000; // 30 minutes
+
 // Shared callbacks — independent of which providers are configured
 const callbacks: NextAuthConfig["callbacks"] = {
   async signIn({ user, account, profile }) {
@@ -21,23 +24,51 @@ const callbacks: NextAuthConfig["callbacks"] = {
     if (account?.provider === "credentials") return !!user;
 
     // OAuth: email must already exist — only admins can add users
-    console.log("[auth] signIn attempt — user:", JSON.stringify(user), "profile:", JSON.stringify(profile));
     const raw = user?.email ?? (profile as Record<string, unknown>)?.preferred_username as string ?? profile?.email;
-    console.log("[auth] resolved email:", raw);
     if (!raw) return false;
     const email = raw.toLowerCase();
 
     const dbUser = await prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
     });
-    console.log("[auth] DB lookup for", email, "→", dbUser ? `found (id=${dbUser.id})` : "NOT FOUND");
+
     if (!dbUser) return false;
+
+    // Check account lockout
+    if (dbUser.lockedUntil && dbUser.lockedUntil > new Date()) {
+      return false;
+    }
+
+    // Increment failed attempts and lock if threshold reached
+    // (This path is hit when the account exists but is in a bad state — e.g.
+    // a race between lockout expiry and a new attempt, or manual testing.)
+    // Normal happy-path resets the counter below.
+    const newCount = dbUser.failedLoginAttempts + 1;
+    if (newCount >= MAX_FAILED_ATTEMPTS) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: new Date(Date.now() + LOCKOUT_DURATION_MS),
+        },
+      });
+      return false;
+    }
+
+    // Successful sign-in — reset failed attempt counter
+    if (dbUser.failedLoginAttempts > 0 || dbUser.lockedUntil) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
 
     // Backfill name from OAuth profile on first sign-in
     const name = profile?.name ?? user?.name;
     if (!dbUser.name && name) {
       await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
     }
+
     return true;
   },
 
