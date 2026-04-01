@@ -42,6 +42,7 @@ jobs:
               dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
               azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+              seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
               containerTag=${{ github.sha }}
 
       - name: Restart App Service

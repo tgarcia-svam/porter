@@ -1,8 +1,6 @@
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
@@ -16,6 +14,9 @@ declare module "next-auth" {
 }
 // ────────────────────────────────────────────────────────────────────────────
 
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS  = 30 * 60 * 1000; // 30 minutes
+
 // Shared callbacks — independent of which providers are configured
 const callbacks: NextAuthConfig["callbacks"] = {
   async signIn({ user, account, profile }) {
@@ -23,30 +24,72 @@ const callbacks: NextAuthConfig["callbacks"] = {
     if (account?.provider === "credentials") return !!user;
 
     // OAuth: email must already exist — only admins can add users
-    const email = user?.email ?? profile?.email;
-    if (!email) return false;
+    const raw = user?.email ?? (profile as Record<string, unknown>)?.preferred_username as string ?? profile?.email;
+    if (!raw) return false;
+    const email = raw.toLowerCase();
 
-    const dbUser = await prisma.user.findUnique({ where: { email } });
+    const dbUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
+
     if (!dbUser) return false;
+
+    // Check account lockout
+    if (dbUser.lockedUntil && dbUser.lockedUntil > new Date()) {
+      return false;
+    }
+
+    // Increment failed attempts and lock if threshold reached
+    // (This path is hit when the account exists but is in a bad state — e.g.
+    // a race between lockout expiry and a new attempt, or manual testing.)
+    // Normal happy-path resets the counter below.
+    const newCount = dbUser.failedLoginAttempts + 1;
+    if (newCount >= MAX_FAILED_ATTEMPTS) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: new Date(Date.now() + LOCKOUT_DURATION_MS),
+        },
+      });
+      return false;
+    }
+
+    // Successful sign-in — reset failed attempt counter
+    if (dbUser.failedLoginAttempts > 0 || dbUser.lockedUntil) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
 
     // Backfill name from OAuth profile on first sign-in
     const name = profile?.name ?? user?.name;
     if (!dbUser.name && name) {
-      await prisma.user.update({ where: { email }, data: { name } });
+      await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
     }
+
     return true;
   },
 
-  async jwt({ token, user }) {
+  async jwt({ token, user, profile }) {
     // user is only present on first sign-in
-    if (user?.email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email },
-        select: { id: true, role: true },
-      });
-      if (dbUser) {
-        token["id"] = dbUser.id;
-        token["role"] = dbUser.role;
+    if (user) {
+      const email =
+        user?.email ??
+        (profile as Record<string, unknown>)?.preferred_username as string | undefined ??
+        profile?.email;
+      console.log("[auth] jwt — resolved email:", email, "token.preferred_username:", token["preferred_username"]);
+      if (email) {
+        const dbUser = await prisma.user.findFirst({
+          where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
+          select: { id: true, role: true },
+        });
+        console.log("[auth] jwt DB lookup for", email, "→", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
+        if (dbUser) {
+          token["id"] = dbUser.id;
+          token["role"] = dbUser.role;
+        }
       }
     }
     return token;
@@ -94,30 +137,7 @@ async function buildInstance(): Promise<AuthInstance> {
   const msSecret     = db.AZURE_AD_CLIENT_SECRET ?? process.env.AZURE_AD_CLIENT_SECRET;
   const msTenant     = db.AZURE_AD_TENANT_ID    ?? process.env.AZURE_AD_TENANT_ID ?? "common";
 
-  const providers: NextAuthConfig["providers"] = [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        const email    = credentials?.email    as string | undefined;
-        const password = credentials?.password as string | undefined;
-        if (!email || !password) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { email },
-          select: { id: true, email: true, name: true, password: true, role: true },
-        });
-        if (!user?.password) return null;
-
-        const valid = await bcrypt.compare(password, user.password);
-        if (!valid) return null;
-
-        return { id: user.id, email: user.email, name: user.name };
-      },
-    }),
-  ];
+  const providers: NextAuthConfig["providers"] = [];
 
   if (googleId && googleSecret) {
     providers.push(Google({ clientId: googleId, clientSecret: googleSecret }));

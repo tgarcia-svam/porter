@@ -49,6 +49,9 @@ param location string = resourceGroup().location
 @description('Docker image tag to deploy')
 param containerTag string = 'latest'
 
+@description('Email address of the initial admin user, created automatically on first container start via the seed script.')
+param seedAdminEmail string
+
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
 @description('Name of the existing PostgreSQL Flexible Server. When set, the connection URL is constructed automatically from the server hostname. Leave empty to supply a raw databaseUrl instead.')
@@ -111,6 +114,8 @@ resource appServiceIdentity 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
       acrUseManagedIdentityCreds: true
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
     }
   }
 }
@@ -121,17 +126,25 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: appServiceIdentity
   name: 'appsettings'
   properties: {
-    DATABASE_URL: effectiveDatabaseUrl
+    DATABASE_URL: (!empty(dbServerName) || !empty(databaseUrl))
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=database-url)'
+      : ''
 
     NEXTAUTH_URL: nextauthUrl
-    NEXTAUTH_SECRET: nextauthSecret
+    NEXTAUTH_SECRET: !empty(nextauthSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=nextauth-secret)'
+      : ''
     AUTH_TRUST_HOST: 'true'
 
     GOOGLE_CLIENT_ID: googleClientId
-    GOOGLE_CLIENT_SECRET: googleClientSecret
+    GOOGLE_CLIENT_SECRET: !empty(googleClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=google-client-secret)'
+      : ''
 
     AZURE_AD_CLIENT_ID: azureAdClientId
-    AZURE_AD_CLIENT_SECRET: azureAdClientSecret
+    AZURE_AD_CLIENT_SECRET: !empty(azureAdClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=sso-porter)'
+      : ''
     AZURE_AD_TENANT_ID: azureAdTenantId
 
     AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
@@ -139,7 +152,11 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 
-    APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
+    SEED_ADMIN_EMAIL: seedAdminEmail
+
+    APPLICATIONINSIGHTS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=appinsights-connection-string)'
+
+    KEY_VAULT_URL: 'https://${keyVault.name}${environment().suffixes.keyvaultDns}/'
   }
 }
 
@@ -167,10 +184,207 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+// ── Key Vault ─────────────────────────────────────────────────────────────────
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: 'porter-keys'
+  location: location
+  properties: {
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 90
+  }
+}
+
+// ── Key Vault secrets ─────────────────────────────────────────────────────────
+// Secrets are written here during deployment and referenced by the App Service
+// at runtime via @Microsoft.KeyVault(...) app setting syntax.
+// The app registration client secret must be seeded before first deploy:
+//   az ad app create --display-name Porter
+//   SECRET=$(az ad app credential reset --id <appId> --display-name sso_porter --query password -o tsv)
+//   az keyvault secret set --vault-name porter-keys --name sso-porter --value "$SECRET"
+
+resource kvSsoPorter 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(azureAdClientSecret)) {
+  parent: keyVault
+  name: 'sso-porter'
+  properties: { value: azureAdClientSecret }
+}
+
+resource kvNextauthSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(nextauthSecret)) {
+  parent: keyVault
+  name: 'nextauth-secret'
+  properties: { value: nextauthSecret }
+}
+
+resource kvDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbAdminPassword)) {
+  parent: keyVault
+  name: 'db-admin-password'
+  properties: { value: dbAdminPassword }
+}
+
+resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbServerName) || !empty(databaseUrl)) {
+  parent: keyVault
+  name: 'database-url'
+  properties: { value: effectiveDatabaseUrl }
+}
+
+resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(googleClientSecret)) {
+  parent: keyVault
+  name: 'google-client-secret'
+  properties: { value: googleClientSecret }
+}
+
+resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'appinsights-connection-string'
+  properties: { value: appInsights.properties.ConnectionString }
+}
+
+// ── Virtual Network ───────────────────────────────────────────────────────────
+
+var vnetName = '${appServiceName}-vnet'
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+  name: vnetName
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: ['10.0.0.0/16'] }
+    subnets: [
+      {
+        // App Service outbound VNet integration
+        name: 'app-subnet'
+        properties: {
+          addressPrefix: '10.0.1.0/24'
+          delegations: [{
+            name: 'app-service-delegation'
+            properties: { serviceName: 'Microsoft.Web/serverFarms' }
+          }]
+        }
+      }
+      {
+        // PostgreSQL Flexible Server (VNet-injected) — used when recreating the DB server
+        name: 'postgres-subnet'
+        properties: {
+          addressPrefix: '10.0.2.0/24'
+          delegations: [{
+            name: 'postgres-delegation'
+            properties: { serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers' }
+          }]
+        }
+      }
+      {
+        // Private endpoints (Storage, Key Vault, etc.)
+        name: 'endpoints-subnet'
+        properties: {
+          addressPrefix: '10.0.3.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+        }
+      }
+    ]
+  }
+}
+
+// ── Private DNS Zones ─────────────────────────────────────────────────────────
+
+resource blobPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+}
+
+resource postgresPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.postgres.database.azure.com'
+  location: 'global'
+}
+
+resource blobDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: blobPrivateDns
+  name: '${vnetName}-blob-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+resource postgresDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
+  parent: postgresPrivateDns
+  name: '${vnetName}-postgres-link'
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnet.id }
+    registrationEnabled: false
+  }
+}
+
+// ── Storage Account Private Endpoint ─────────────────────────────────────────
+// Creates a private path from the VNet to Blob Storage.
+// After deploying, disable public access on the storage account:
+//   az storage account update \
+//     --name <storageAccountName> --resource-group <rg> \
+//     --default-action Deny --bypass AzureServices
+
+resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
+  name: '${storageAccountName}-pe'
+  location: location
+  dependsOn: [vnet]
+  properties: {
+    subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'endpoints-subnet') }
+    privateLinkServiceConnections: [{
+      name: '${storageAccountName}-blob-connection'
+      properties: {
+        privateLinkServiceId: storageAccount.id
+        groupIds: ['blob']
+      }
+    }]
+  }
+}
+
+resource storagePrivateDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {
+  parent: storagePrivateEndpoint
+  name: 'default'
+  properties: {
+    privateDnsZoneConfigs: [{
+      name: 'blob'
+      properties: { privateDnsZoneId: blobPrivateDns.id }
+    }]
+  }
+}
+
+// ── App Service VNet Integration ──────────────────────────────────────────────
+// Routes all outbound App Service traffic through the VNet so it can reach
+// private endpoints (Storage, PostgreSQL) without traversing the public internet.
+
+resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
+  parent: appServiceIdentity
+  name: 'virtualNetwork'
+  properties: {
+    subnetResourceId: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'app-subnet')
+    swiftSupported: true
+  }
+}
+
+// NOTE: PostgreSQL Flexible Server VNet integration cannot be added to an existing server.
+// To move the database onto the VNet:
+//   1. Export data:  pg_dump -h <host> -U <user> <db> > backup.sql
+//   2. Delete the existing server in the portal
+//   3. Recreate it referencing postgres-subnet:
+//        az postgres flexible-server create \
+//          --name <dbServerName> --resource-group <rg> \
+//          --vnet ${vnetName} --subnet postgres-subnet \
+//          --private-dns-zone privatelink.postgres.database.azure.com \
+//          ...other params...
+//   4. Restore data:  psql -h <new-host> -U <user> <db> < backup.sql
+
 // ── Role assignments ──────────────────────────────────────────────────────────
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var keyVaultSecretsUserRoleId  = '4633458b-17de-408a-b874-0445c86b69e6'
 
 resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, appServiceName, acrPullRoleId)
@@ -187,6 +401,16 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: appServiceIdentity.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, appServiceName, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
     principalId: appServiceIdentity.identity.principalId
     principalType: 'ServicePrincipal'
   }

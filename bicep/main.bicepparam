@@ -27,9 +27,12 @@ param googleClientId = ''
 // googleClientSecret → secret: GOOGLE_CLIENT_SECRET
 
 // ── Microsoft Entra ID SSO (optional — leave empty to disable) ───────────────
-param azureAdClientId = ''
+param azureAdClientId = '2dee6845-f88d-48b7-b411-b0c43aa6d7f1'
 param azureAdTenantId = 'common'
 // azureAdClientSecret → secret: AZURE_AD_CLIENT_SECRET
+
+// ── Initial admin ─────────────────────────────────────────────────────────────
+param seedAdminEmail = 'tgarcia@svam.com'
 
 // ── Image tag — overridden to github.sha in CI ────────────────────────────────
 param containerTag = 'latest'

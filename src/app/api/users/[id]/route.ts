@@ -8,6 +8,7 @@ const UpdateUserBody = z.object({
   role: z.enum(["ADMIN", "UPLOADER"]).optional(),
   name: z.string().optional(),
   organizationId: z.string().nullable().optional(),
+  unlock: z.boolean().optional(),
 });
 
 async function requireAdmin(req: NextRequest) {
@@ -35,9 +36,13 @@ export async function PUT(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const { unlock, ...rest } = parsed.data;
   const user = await prisma.user.update({
     where: { id },
-    data: parsed.data,
+    data: {
+      ...rest,
+      ...(unlock ? { failedLoginAttempts: 0, lockedUntil: null } : {}),
+    },
   });
 
   return NextResponse.json(user);
