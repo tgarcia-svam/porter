@@ -10,11 +10,16 @@
  */
 
 // Maps Key Vault secret name → process.env key
-const SECRET_MAP: Record<string, string> = {
+const REQUIRED_SECRETS: Record<string, string> = {
   "nextauth-secret":               "NEXTAUTH_SECRET",
-  "sso-porter":                    "AZURE_AD_CLIENT_SECRET",
-  "google-client-secret":          "GOOGLE_CLIENT_SECRET",
   "appinsights-connection-string": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+};
+
+// Optional — app still starts without these; the corresponding auth provider
+// is simply disabled at runtime if the secret is unavailable.
+const OPTIONAL_SECRETS: Record<string, string> = {
+  "sso-porter":           "AZURE_AD_CLIENT_SECRET",
+  "google-client-secret": "GOOGLE_CLIENT_SECRET",
 };
 
 export async function loadSecretsFromKeyVault(): Promise<void> {
@@ -29,18 +34,21 @@ export async function loadSecretsFromKeyVault(): Promise<void> {
 
   const client = new SecretClient(vaultUrl, new DefaultAzureCredential());
 
-  await Promise.all(
-    Object.entries(SECRET_MAP).map(async ([secretName, envKey]) => {
-      // Skip if already set (e.g. App Service resolved a KV reference natively)
-      if (process.env[envKey]) return;
-      try {
-        const secret = await client.getSecret(secretName);
-        if (secret.value) {
-          process.env[envKey] = secret.value;
-        }
-      } catch (err) {
+  async function load(secretName: string, envKey: string, required: boolean) {
+    if (process.env[envKey]) return; // already set (App Service KV reference)
+    try {
+      const secret = await client.getSecret(secretName);
+      if (secret.value) process.env[envKey] = secret.value;
+    } catch (err) {
+      if (required) {
         console.warn(`[secrets] Could not load ${secretName} from Key Vault:`, err);
       }
-    })
-  );
+      // Optional secrets silently absent — provider will be disabled at runtime
+    }
+  }
+
+  await Promise.all([
+    ...Object.entries(REQUIRED_SECRETS).map(([k, v]) => load(k, v, true)),
+    ...Object.entries(OPTIONAL_SECRETS).map(([k, v]) => load(k, v, false)),
+  ]);
 }
