@@ -14,6 +14,7 @@ type UploadResult = {
   status: string;
   rowCount: number;
   errorCount: number;
+  errorsCapped: boolean;
   errors: ValidationError[];
 };
 
@@ -63,6 +64,13 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
           </p>
         </div>
       </div>
+
+      {/* Truncation notice */}
+      {result.errorsCapped && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          Only the first {result.errors.length} errors are shown. Fix these and re-upload to check for additional issues.
+        </div>
+      )}
 
       {/* Error table */}
       {result.errors.length > 0 && (

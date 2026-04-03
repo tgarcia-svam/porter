@@ -101,7 +101,7 @@ model FileUpload {
   createdAt  DateTime     @default(now())
 
   user    User               @relation(fields: [userId], references: [id])
-  schema  Schema             @relation(fields: [schemaId], references: [id])
+  schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
   results ValidationResult[]
   rows    UploadRow[]
 }

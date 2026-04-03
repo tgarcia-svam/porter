@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { upsertAllSchemaViews, dropAllSchemaViews } from "@/lib/schema-view";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -61,6 +62,14 @@ export async function PUT(
 
   const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
 
+  // Capture old project list + name before mutating (needed to drop stale views)
+  const oldSchema = await prisma.schema.findUnique({
+    where: { id },
+    select: { name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
+  });
+  const oldProjects = oldSchema?.projects.map((sp) => sp.project) ?? [];
+  const oldName = oldSchema?.name ?? "";
+
   // Replace columns and project assignments atomically
   const schema = await prisma.$transaction(async (tx) => {
     if (columns) {
@@ -92,6 +101,11 @@ export async function PUT(
     });
   });
 
+  // Drop views that may have changed name (schema renamed) or lost a project
+  await dropAllSchemaViews(prisma, oldProjects, oldName);
+  const newProjects = schema.projects.map((sp) => sp.project);
+  await upsertAllSchemaViews(prisma, newProjects, schema.id, schema.name, schema.columns);
+
   return NextResponse.json(schema);
 }
 
@@ -103,6 +117,14 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
+  const existing = await prisma.schema.findUnique({
+    where: { id },
+    select: { name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
+  });
+  if (existing) {
+    const projects = existing.projects.map((sp) => sp.project);
+    await dropAllSchemaViews(prisma, projects, existing.name);
+  }
   await prisma.schema.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });
 }

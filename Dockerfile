@@ -42,6 +42,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public          ./public
 # Copy full node_modules for prisma CLI + tsx (needed to run seed at startup)
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma       ./prisma
+COPY --from=builder /app/src/lib      ./src/lib
 
 # Entrypoint: push schema + seed, then start app
 COPY docker-entrypoint.sh ./docker-entrypoint.sh

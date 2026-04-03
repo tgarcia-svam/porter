@@ -28,6 +28,8 @@ export default async function UsersPage() {
         initialUsers={users.map((u) => ({
           ...u,
           createdAt: u.createdAt.toISOString(),
+          updatedAt: u.updatedAt.toISOString(),
+          lockedUntil: u.lockedUntil ? u.lockedUntil.toISOString() : null,
           role: u.role as "ADMIN" | "UPLOADER",
         }))}
         allOrganizations={organizations}

@@ -24,6 +24,7 @@ type UploadResult = {
   status: string;
   rowCount: number;
   errorCount: number;
+  errorsCapped: boolean;
   errors: { row: number; column: string; value: string; error: string }[];
 };
 

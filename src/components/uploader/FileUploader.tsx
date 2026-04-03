@@ -53,6 +53,7 @@ type UploadResult = {
   status: string;
   rowCount: number;
   errorCount: number;
+  errorsCapped: boolean;
   errors: ValidationError[];
 };
 

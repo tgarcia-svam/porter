@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { upsertAllSchemaViews } from "@/lib/schema-view";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -68,6 +69,9 @@ export async function POST(req: NextRequest) {
       projects: { include: { project: { select: { id: true, name: true } } } },
     },
   });
+
+  const projects = schema.projects.map((sp) => sp.project);
+  await upsertAllSchemaViews(prisma, projects, schema.id, schema.name, schema.columns);
 
   return NextResponse.json(schema, { status: 201 });
 }

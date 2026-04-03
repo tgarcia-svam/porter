@@ -199,7 +199,7 @@ export default function SchemaEditor({
         <div className="grid grid-cols-12 gap-2 px-6 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">
           <div className="col-span-5">Column name</div>
           <div className="col-span-4">Data type</div>
-          <div className="col-span-2 text-center">Required</div>
+          <div className="col-span-2 text-center">Nullable</div>
           <div className="col-span-1" />
         </div>
 
@@ -233,8 +233,8 @@ export default function SchemaEditor({
               <div className="col-span-2 flex justify-center">
                 <input
                   type="checkbox"
-                  checked={col.required}
-                  onChange={(e) => updateColumn(i, { required: e.target.checked })}
+                  checked={!col.required}
+                  onChange={(e) => updateColumn(i, { required: !e.target.checked })}
                   className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
               </div>
@@ -257,7 +257,7 @@ export default function SchemaEditor({
         </div>
 
         <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-400">
-          <span className="text-red-400 font-bold">*</span> Required fields will reject empty values
+          Non-nullable fields will reject empty or blank values on upload.
         </div>
       </div>
 

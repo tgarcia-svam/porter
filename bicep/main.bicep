@@ -1,25 +1,52 @@
-// Porter — deploy to existing Azure resources
+// Porter — full infrastructure deployment
+// Creates ALL resources from scratch on an empty resource group.
 // Usage:
+//   az group create --name porter-setup --location canadacentral
 //   az deployment group create \
-//     --resource-group <rg> \
+//     --resource-group porter-setup \
 //     --template-file bicep/main.bicep \
-//     --parameters bicep/main.bicepparam
+//     --parameters bicep/main.secrets.bicepparam
 
-// ── App Service ───────────────────────────────────────────────────────────────
+// ── Parameters ────────────────────────────────────────────────────────────────
 
-@description('Name of the existing App Service')
+@description('Azure region for all resources')
+param location string = resourceGroup().location
+
+@description('Name for the App Service (plan will be <name>-plan, key vault will be <name>-keys)')
 param appServiceName string
 
-@description('Name of the existing Azure Container Registry')
+@description('App Service Plan SKU')
+param appServiceSkuName string = 'B2'
+
+@description('Name of the Azure Container Registry to create')
 param acrName string
 
-@description('Name of the existing Storage Account')
+@description('Name of the Storage Account to create')
 param storageAccountName string
 
-@description('Name of the existing Storage container for uploads')
+@description('Name of the blob container for uploads')
 param storageContainerName string = 'porter-uploads'
 
-@description('NextAuth.js secret — generate with: openssl rand -base64 32. Omit from bicepparam and supply via CI secret.')
+@description('Name of the PostgreSQL Flexible Server to create')
+param dbServerName string
+
+@description('Database name')
+param dbName string = 'porter'
+
+@description('PostgreSQL admin username')
+param dbAdminUser string = 'porteradmin'
+
+@description('PostgreSQL admin password')
+@secure()
+param dbAdminPassword string
+
+@description('PostgreSQL compute SKU')
+param dbSkuName string = 'Standard_B1ms'
+
+@description('PostgreSQL compute tier')
+param dbSkuTier string = 'Burstable'
+
+@description('NextAuth.js secret — generate with: openssl rand -base64 32')
 @secure()
 param nextauthSecret string = ''
 
@@ -43,211 +70,21 @@ param azureAdClientSecret string = ''
 @description('Microsoft Entra ID tenant ID')
 param azureAdTenantId string = 'common'
 
-@description('Azure region of the existing App Service, e.g. eastus')
-param location string = resourceGroup().location
-
 @description('Docker image tag to deploy')
 param containerTag string = 'latest'
 
-@description('Email address of the initial admin user, created automatically on first container start via the seed script.')
+@description('Email address of the initial admin user, seeded automatically on first container start')
 param seedAdminEmail string
 
-// ── PostgreSQL ────────────────────────────────────────────────────────────────
+// ── Derived names ─────────────────────────────────────────────────────────────
 
-@description('Name of the existing PostgreSQL Flexible Server. When set, the connection URL is constructed automatically from the server hostname. Leave empty to supply a raw databaseUrl instead.')
-param dbServerName string = ''
-
-@description('Database name (used when dbServerName is set).')
-param dbName string = 'porter'
-
-@description('PostgreSQL admin username (used when dbServerName is set).')
-param dbAdminUser string = 'porteradmin'
-
-@description('PostgreSQL admin password (used when dbServerName is set). Special characters must be percent-encoded: # → %23, @ → %40, % → %25, : → %3A, ! → %21')
-@secure()
-param dbAdminPassword string = ''
-
-@description('Full PostgreSQL connection URL. Only used when dbServerName is empty. Special characters in the password must be percent-encoded, e.g. # → %23.')
-@secure()
-param databaseUrl string = ''
-
-// ── Derived names & values ───────────────────────────────────────────────────
-
-var logAnalyticsName = '${appServiceName}-logs'
-var appInsightsName  = '${appServiceName}-insights'
-
-// When dbServerName is provided, construct the URL from the existing server's
-// hostname. Otherwise fall back to the raw databaseUrl parameter.
-// any() suppresses the Bicep null-check linter warning on the conditional reference.
-var effectiveDatabaseUrl = !empty(dbServerName)
-  ? 'postgresql://${dbAdminUser}:${dbAdminPassword}@${any(postgresServer).properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
-  : databaseUrl
-
-// ── Reference existing resources ─────────────────────────────────────────────
-
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: acrName
-}
-
-resource appService 'Microsoft.Web/sites@2023-12-01' existing = {
-  name: appServiceName
-}
-
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
-  name: storageAccountName
-}
-
-resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview' existing = if (!empty(dbServerName)) {
-  name: empty(dbServerName) ? 'placeholder' : dbServerName
-}
-
-// ── Ensure the App Service has a system-assigned managed identity ─────────────
-
-resource appServiceIdentity 'Microsoft.Web/sites@2023-12-01' = {
-  name: appServiceName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
-      acrUseManagedIdentityCreds: true
-      minTlsVersion: '1.2'
-      scmMinTlsVersion: '1.2'
-    }
-  }
-}
-
-// ── App settings ─────────────────────────────────────────────────────────────
-
-resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
-  parent: appServiceIdentity
-  name: 'appsettings'
-  properties: {
-    DATABASE_URL: (!empty(dbServerName) || !empty(databaseUrl))
-      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=database-url)'
-      : ''
-
-    NEXTAUTH_URL: nextauthUrl
-    NEXTAUTH_SECRET: !empty(nextauthSecret)
-      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=nextauth-secret)'
-      : ''
-    AUTH_TRUST_HOST: 'true'
-
-    GOOGLE_CLIENT_ID: googleClientId
-    GOOGLE_CLIENT_SECRET: !empty(googleClientSecret)
-      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=google-client-secret)'
-      : ''
-
-    AZURE_AD_CLIENT_ID: azureAdClientId
-    AZURE_AD_CLIENT_SECRET: !empty(azureAdClientSecret)
-      ? '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=sso-porter)'
-      : ''
-    AZURE_AD_TENANT_ID: azureAdTenantId
-
-    AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
-    AZURE_STORAGE_CONTAINER: storageContainerName
-
-    DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
-
-    SEED_ADMIN_EMAIL: seedAdminEmail
-
-    APPLICATIONINSIGHTS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=appinsights-connection-string)'
-
-    KEY_VAULT_URL: 'https://${keyVault.name}${environment().suffixes.keyvaultDns}/'
-  }
-}
-
-// ── Log Analytics Workspace (1-year retention) ────────────────────────────────
-
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: logAnalyticsName
-  location: location
-  properties: {
-    sku: { name: 'PerGB2018' }
-    retentionInDays: 365
-  }
-}
-
-// ── Application Insights (linked to workspace) ────────────────────────────────
-
-resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: appInsightsName
-  location: location
-  kind: 'web'
-  properties: {
-    Application_Type: 'web'
-    WorkspaceResourceId: logAnalytics.id
-    RetentionInDays: 365
-  }
-}
-
-// ── Key Vault ─────────────────────────────────────────────────────────────────
-
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'porter-keys'
-  location: location
-  properties: {
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    tenantId: subscription().tenantId
-    enableRbacAuthorization: true
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 90
-  }
-}
-
-// ── Key Vault secrets ─────────────────────────────────────────────────────────
-// Secrets are written here during deployment and referenced by the App Service
-// at runtime via @Microsoft.KeyVault(...) app setting syntax.
-// The app registration client secret must be seeded before first deploy:
-//   az ad app create --display-name Porter
-//   SECRET=$(az ad app credential reset --id <appId> --display-name sso_porter --query password -o tsv)
-//   az keyvault secret set --vault-name porter-keys --name sso-porter --value "$SECRET"
-
-resource kvSsoPorter 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(azureAdClientSecret)) {
-  parent: keyVault
-  name: 'sso-porter'
-  properties: { value: azureAdClientSecret }
-}
-
-resource kvNextauthSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(nextauthSecret)) {
-  parent: keyVault
-  name: 'nextauth-secret'
-  properties: { value: nextauthSecret }
-}
-
-resource kvDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbAdminPassword)) {
-  parent: keyVault
-  name: 'db-admin-password'
-  properties: { value: dbAdminPassword }
-}
-
-resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(dbServerName) || !empty(databaseUrl)) {
-  parent: keyVault
-  name: 'database-url'
-  properties: { value: effectiveDatabaseUrl }
-}
-
-resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(googleClientSecret)) {
-  parent: keyVault
-  name: 'google-client-secret'
-  properties: { value: googleClientSecret }
-}
-
-resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'appinsights-connection-string'
-  properties: { value: appInsights.properties.ConnectionString }
-}
+var appServicePlanName = '${appServiceName}-plan'
+var keyVaultName       = '${appServiceName}-keys'
+var vnetName           = '${appServiceName}-vnet'
+var logAnalyticsName   = '${appServiceName}-logs'
+var appInsightsName    = '${appServiceName}-insights'
 
 // ── Virtual Network ───────────────────────────────────────────────────────────
-
-var vnetName = '${appServiceName}-vnet'
 
 resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
   name: vnetName
@@ -267,7 +104,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         }
       }
       {
-        // PostgreSQL Flexible Server (VNet-injected) — used when recreating the DB server
+        // PostgreSQL Flexible Server VNet injection
         name: 'postgres-subnet'
         properties: {
           addressPrefix: '10.0.2.0/24'
@@ -278,7 +115,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         }
       }
       {
-        // Private endpoints (Storage, Key Vault, etc.)
+        // Private endpoints (Blob Storage, Key Vault)
         name: 'endpoints-subnet'
         properties: {
           addressPrefix: '10.0.3.0/24'
@@ -321,17 +158,238 @@ resource postgresDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLi
   }
 }
 
+// ── PostgreSQL Flexible Server — public access with Azure-only firewall ───────
+// VNet-injected Flexible Servers require creation-time configuration that is
+// blocked by this subscription's policy. Public access is used instead, locked
+// down to Azure-internal traffic only via the AllowAzureServices firewall rule.
+
+resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+  name: dbServerName
+  location: location
+  sku: {
+    name: dbSkuName
+    tier: dbSkuTier
+  }
+  properties: {
+    administratorLogin: dbAdminUser
+    administratorLoginPassword: dbAdminPassword
+    version: '16'
+    network: {
+      publicNetworkAccess: 'Enabled'
+    }
+    storage: { storageSizeGB: 32 }
+    backup: {
+      backupRetentionDays: 7
+      geoRedundantBackup: 'Disabled'
+    }
+    highAvailability: { mode: 'Disabled' }
+  }
+}
+
+resource postgresFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+  parent: postgresServer
+  name: 'AllowAzureServices'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
+resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+  parent: postgresServer
+  name: dbName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
+// ── Container Registry ────────────────────────────────────────────────────────
+
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: acrName
+  location: location
+  sku: { name: 'Basic' }
+  properties: {
+    adminUserEnabled: false
+  }
+}
+
+// ── Storage Account ───────────────────────────────────────────────────────────
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageAccountName
+  location: location
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: storageContainerName
+  properties: { publicAccess: 'None' }
+}
+
+// ── Log Analytics + Application Insights ─────────────────────────────────────
+
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: logAnalyticsName
+  location: location
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 365
+  }
+}
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: appInsightsName
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+    RetentionInDays: 365
+  }
+}
+
+// ── Key Vault ─────────────────────────────────────────────────────────────────
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: keyVaultName
+  location: location
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 90
+  }
+}
+
+// ── Key Vault Secrets ─────────────────────────────────────────────────────────
+
+var effectiveDatabaseUrl = 'postgresql://${dbAdminUser}:${dbAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
+
+resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'database-url'
+  properties: { value: effectiveDatabaseUrl }
+}
+
+resource kvDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'db-admin-password'
+  properties: { value: dbAdminPassword }
+}
+
+resource kvNextauthSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(nextauthSecret)) {
+  parent: keyVault
+  name: 'nextauth-secret'
+  properties: { value: nextauthSecret }
+}
+
+resource kvSsoPorter 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(azureAdClientSecret)) {
+  parent: keyVault
+  name: 'sso-porter'
+  properties: { value: azureAdClientSecret }
+}
+
+resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(googleClientSecret)) {
+  parent: keyVault
+  name: 'google-client-secret'
+  properties: { value: googleClientSecret }
+}
+
+resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'appinsights-connection-string'
+  properties: { value: appInsights.properties.ConnectionString }
+}
+
+// ── App Service Plan ──────────────────────────────────────────────────────────
+
+resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: appServicePlanName
+  location: location
+  kind: 'Linux'
+  sku: {
+    name: appServiceSkuName
+    tier: appServiceSkuName == 'B1' ? 'Basic' : appServiceSkuName == 'B2' ? 'Basic' : appServiceSkuName == 'B3' ? 'Basic' : 'Basic'
+  }
+  properties: { reserved: true }
+}
+
+// ── App Service ───────────────────────────────────────────────────────────────
+
+resource appService 'Microsoft.Web/sites@2023-12-01' = {
+  name: appServiceName
+  location: location
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    serverFarmId: appServicePlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
+      acrUseManagedIdentityCreds: true
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
+    }
+  }
+}
+
+// ── App Settings ──────────────────────────────────────────────────────────────
+
+resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
+  parent: appService
+  name: 'appsettings'
+  properties: {
+    DATABASE_URL: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url)'
+
+    NEXTAUTH_URL:    nextauthUrl
+    NEXTAUTH_SECRET: !empty(nextauthSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=nextauth-secret)'
+      : ''
+    AUTH_TRUST_HOST: 'true'
+
+    GOOGLE_CLIENT_ID:     googleClientId
+    GOOGLE_CLIENT_SECRET: !empty(googleClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=google-client-secret)'
+      : ''
+
+    AZURE_AD_CLIENT_ID:     azureAdClientId
+    AZURE_AD_CLIENT_SECRET: !empty(azureAdClientSecret)
+      ? '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=sso-porter)'
+      : ''
+    AZURE_AD_TENANT_ID: azureAdTenantId
+
+    AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
+    AZURE_STORAGE_CONTAINER:   storageContainerName
+
+    DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
+
+    SEED_ADMIN_EMAIL: seedAdminEmail
+
+    APPLICATIONINSIGHTS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=appinsights-connection-string)'
+
+    KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
+  }
+}
+
 // ── Storage Account Private Endpoint ─────────────────────────────────────────
-// Creates a private path from the VNet to Blob Storage.
-// After deploying, disable public access on the storage account:
-//   az storage account update \
-//     --name <storageAccountName> --resource-group <rg> \
-//     --default-action Deny --bypass AzureServices
 
 resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
   name: '${storageAccountName}-pe'
   location: location
-  dependsOn: [vnet]
   properties: {
     subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'endpoints-subnet') }
     privateLinkServiceConnections: [{
@@ -342,6 +400,7 @@ resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' 
       }
     }]
   }
+  dependsOn: [vnet]
 }
 
 resource storagePrivateDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {
@@ -356,11 +415,11 @@ resource storagePrivateDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZo
 }
 
 // ── App Service VNet Integration ──────────────────────────────────────────────
-// Routes all outbound App Service traffic through the VNet so it can reach
-// private endpoints (Storage, PostgreSQL) without traversing the public internet.
+// Routes App Service outbound traffic through the VNet so it can reach the
+// PostgreSQL server (VNet-injected) and the Blob Storage private endpoint.
 
 resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
-  parent: appServiceIdentity
+  parent: appService
   name: 'virtualNetwork'
   properties: {
     subnetResourceId: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'app-subnet')
@@ -368,21 +427,9 @@ resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
   }
 }
 
-// NOTE: PostgreSQL Flexible Server VNet integration cannot be added to an existing server.
-// To move the database onto the VNet:
-//   1. Export data:  pg_dump -h <host> -U <user> <db> > backup.sql
-//   2. Delete the existing server in the portal
-//   3. Recreate it referencing postgres-subnet:
-//        az postgres flexible-server create \
-//          --name <dbServerName> --resource-group <rg> \
-//          --vnet ${vnetName} --subnet postgres-subnet \
-//          --private-dns-zone privatelink.postgres.database.azure.com \
-//          ...other params...
-//   4. Restore data:  psql -h <new-host> -U <user> <db> < backup.sql
+// ── Role Assignments ──────────────────────────────────────────────────────────
 
-// ── Role assignments ──────────────────────────────────────────────────────────
-
-var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var acrPullRoleId              = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 var keyVaultSecretsUserRoleId  = '4633458b-17de-408a-b874-0445c86b69e6'
 
@@ -391,7 +438,7 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   scope: acr
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: appServiceIdentity.identity.principalId
+    principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -401,7 +448,7 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
-    principalId: appServiceIdentity.identity.principalId
+    principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -411,30 +458,14 @@ resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@
   scope: keyVault
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
-    principalId: appServiceIdentity.identity.principalId
+    principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// NOTE: To grant the App Service managed identity Entra admin rights on the
-// PostgreSQL server, run once after first deployment:
-//
-//   PRINCIPAL_ID=$(az webapp identity show \
-//     --name <appServiceName> --resource-group <rg> \
-//     --query principalId -o tsv)
-//   az postgres flexible-server ad-admin create \
-//     --server-name <dbServerName> --resource-group <rg> \
-//     --display-name <appServiceName> \
-//     --object-id $PRINCIPAL_ID \
-//     --type ServicePrincipal
+// ── Outputs ───────────────────────────────────────────────────────────────────
 
-// ── Outputs ──────────────────────────────────────────────────────────────────
-
-output appUrl string = 'https://${appService.properties.defaultHostName}'
+output appUrl        string = 'https://${appService.properties.defaultHostName}'
 output acrLoginServer string = acr.properties.loginServer
-output dbHostname string = !empty(dbServerName) ? any(postgresServer).properties.fullyQualifiedDomainName : ''
-output pushCommands string = '''
-  az acr login --name ${acrName}
-  docker build -t ${acr.properties.loginServer}/porter:${containerTag} .
-  docker push ${acr.properties.loginServer}/porter:${containerTag}
-'''
+output dbHostname    string = postgresServer.properties.fullyQualifiedDomainName
+output keyVaultUri   string = keyVault.properties.vaultUri

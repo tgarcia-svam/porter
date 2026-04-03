@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   });
   const buffer = Buffer.from(csv, "utf-8");
 
-  const { errors, rowCount, missingColumns, rows: validatedRows } = validateFile(
+  const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } = await validateFile(
     buffer,
     "text/csv",
     schema.columns
@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
     status: upload.status,
     rowCount,
     errorCount: allErrors.length,
+    errorsCapped,
     errors: allErrors,
   });
 }
