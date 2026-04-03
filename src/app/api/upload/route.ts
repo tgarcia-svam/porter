@@ -130,62 +130,64 @@ export async function POST(req: NextRequest) {
   // "clean" or "pending" (Defender not configured) — proceed
 
   // Validate file contents
-  const { errors, rowCount, missingColumns, rows } = validateFile(
+  const { errors, errorsCapped, rowCount, missingColumns, rows } = await validateFile(
     buffer,
     mimeType,
     schema.columns,
     sheetName
   );
 
-  const allErrors = [
-    ...missingColumns.map((col) => ({
-      row: 0,
-      column: col,
-      value: "",
-      error: "Required column is missing from the file",
-    })),
-    ...errors,
-  ];
+  const missingColumnErrors = missingColumns.map((col) => ({
+    row: 0,
+    column: col,
+    value: "",
+    error: "Required column is missing from the file",
+  }));
 
+  const allErrors = [...missingColumnErrors, ...errors];
   const isValid = allErrors.length === 0;
 
-  // Persist to DB in a transaction
-  const upload = await prisma.$transaction(async (tx) => {
-    const record = await tx.fileUpload.create({
-      data: {
-        userId,
-        schemaId,
-        fileName: file.name,
-        blobUrl,
-        status: isValid ? "VALID" : "INVALID",
-        errorCount: allErrors.length,
-      },
+  // Create the FileUpload record and any validation errors
+  const record = await prisma.fileUpload.create({
+    data: {
+      userId,
+      schemaId,
+      fileName: file.name,
+      blobUrl,
+      status: isValid ? "VALID" : "INVALID",
+      errorCount: allErrors.length,
+    },
+  });
+
+  if (allErrors.length > 0) {
+    await prisma.validationResult.createMany({
+      data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
     });
+  }
 
-    if (allErrors.length > 0) {
-      await tx.validationResult.createMany({
-        data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
-      });
-    }
-
-    if (isValid && rows.length > 0) {
-      await tx.uploadRow.createMany({
-        data: rows.map((row, idx) => ({
+  // Insert valid rows in chunks to avoid single oversized transactions
+  const CHUNK_SIZE = 1_000;
+  if (isValid && rows.length > 0) {
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      await prisma.uploadRow.createMany({
+        data: chunk.map((row, j) => ({
           uploadId: record.id,
-          rowIndex: idx + 1,
+          rowIndex: i + j + 1,
           data: row,
         })),
       });
     }
+  }
 
-    return record;
-  });
+  const upload = record;
 
   return NextResponse.json({
     uploadId: upload.id,
     status: upload.status,
     rowCount,
     errorCount: allErrors.length,
+    errorsCapped,
     errors: allErrors,
   });
 }
