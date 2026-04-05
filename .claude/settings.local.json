@@ -6,7 +6,8 @@
       "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma db push --accept-data-loss)",
       "Bash(npm install:*)",
       "Bash(npx prisma:*)",
-      "Bash(az bicep:*)"
+      "Bash(az bicep:*)",
+      "Bash(xargs wc:*)"
     ]
   }
 }

@@ -4,10 +4,22 @@ import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
 import { auditStore, clientIp } from "@/lib/audit-context";
+import { verifySessionBinding } from "@/lib/session-binding";
+import { logAuthEvent } from "@/lib/auth-audit";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!verifySessionBinding(session.user.uaHash, req)) {
+    logAuthEvent({
+      action: "auth.session.invalid",
+      userId: session.user.id,
+      userEmail: session.user.email,
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId: string = session.user.id;

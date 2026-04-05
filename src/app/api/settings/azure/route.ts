@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api-auth";
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function GET(req: NextRequest) {
+  const session = await requireAdmin(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL ?? null;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import ValidationResults from "./ValidationResults";
@@ -67,24 +67,27 @@ export default function FileUploader({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function resolveInitialProject(): string {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("porter:projectId") : null;
-    if (saved && projects.some((p) => p.id === saved)) return saved;
-    return projects[0]?.id ?? "";
-  }
-
-  function resolveInitialSchema(projectId: string): string {
-    const schemas = projects.find((p) => p.id === projectId)?.schemas ?? [];
-    const saved = typeof window !== "undefined" ? localStorage.getItem("porter:schemaId") : null;
-    if (saved && schemas.some((s) => s.id === saved)) return saved;
-    return schemas[0]?.id ?? "";
-  }
-
-  const initialProjectId = resolveInitialProject();
-  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
+  // Initialize from the first available item so SSR and initial client render
+  // match, then restore any localStorage preference after hydration.
+  const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? "");
   const [selectedSchemaId, setSelectedSchemaId] = useState(
-    resolveInitialSchema(initialProjectId)
+    projects[0]?.schemas[0]?.id ?? ""
   );
+
+  useEffect(() => {
+    const savedProject = localStorage.getItem("porter:projectId");
+    const savedSchema = localStorage.getItem("porter:schemaId");
+    if (savedProject && projects.some((p) => p.id === savedProject)) {
+      setSelectedProjectId(savedProject);
+      const schemas = projects.find((p) => p.id === savedProject)?.schemas ?? [];
+      if (savedSchema && schemas.some((s) => s.id === savedSchema)) {
+        setSelectedSchemaId(savedSchema);
+      } else {
+        setSelectedSchemaId(schemas[0]?.id ?? "");
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [activeTab, setActiveTab] = useState<"upload" | "entry" | "stats">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);

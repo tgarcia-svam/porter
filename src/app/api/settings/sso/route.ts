@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth, invalidateAuth } from "@/lib/auth";
+import { invalidateAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { auditStore, clientIp } from "@/lib/audit-context";
+import { requireAdmin } from "@/lib/api-auth";
 
 type SettingSource = "db" | "env" | null;
 
+// Secrets (client secrets) are managed exclusively in Azure Key Vault.
+// Only non-secret config is stored in AppSetting.
 const SSO_KEYS = [
   "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
   "AZURE_AD_CLIENT_ID",
-  "AZURE_AD_CLIENT_SECRET",
   "AZURE_AD_TENANT_ID",
 ] as const;
 
@@ -30,11 +30,11 @@ async function getSSOStatus() {
 
   const googleConfigured =
     !!(db.GOOGLE_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID) &&
-    !!(db.GOOGLE_CLIENT_SECRET ?? process.env.GOOGLE_CLIENT_SECRET);
+    !!process.env.GOOGLE_CLIENT_SECRET;
 
   const msConfigured =
     !!(db.AZURE_AD_CLIENT_ID ?? process.env.AZURE_AD_CLIENT_ID) &&
-    !!(db.AZURE_AD_CLIENT_SECRET ?? process.env.AZURE_AD_CLIENT_SECRET);
+    !!process.env.AZURE_AD_CLIENT_SECRET;
 
   const msTenantId =
     db.AZURE_AD_TENANT_ID ?? process.env.AZURE_AD_TENANT_ID ?? "common";
@@ -43,44 +43,35 @@ async function getSSOStatus() {
     google: {
       configured: googleConfigured,
       clientIdSource: source("GOOGLE_CLIENT_ID"),
-      clientSecretSource: source("GOOGLE_CLIENT_SECRET"),
+      clientSecretSource: "keyvault" as const,
     },
     microsoft: {
       configured: msConfigured,
       clientIdSource: source("AZURE_AD_CLIENT_ID"),
-      clientSecretSource: source("AZURE_AD_CLIENT_SECRET"),
+      clientSecretSource: "keyvault" as const,
       tenantId: msTenantId,
       tenantIdSource: source("AZURE_AD_TENANT_ID") ?? ("default" as const),
     },
   };
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function GET(req: NextRequest) {
+  const session = await requireAdmin(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json(await getSSOStatus());
 }
 
+// Secrets (googleClientSecret, msClientSecret) are intentionally absent.
+// They must be managed directly in Azure Key Vault.
 const UpdateBody = z.object({
   googleClientId: z.string().optional(),
-  googleClientSecret: z.string().optional(),
   msClientId: z.string().optional(),
-  msClientSecret: z.string().optional(),
   msTenantId: z.string().optional(),
 });
 
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  auditStore.enterWith({
-    userId: session.user.id,
-    userEmail: session.user.email ?? undefined,
-    ip: clientIp(req),
-  });
+  const session = await requireAdmin(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
   const parsed = UpdateBody.safeParse(body);
@@ -88,15 +79,12 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { googleClientId, googleClientSecret, msClientId, msClientSecret, msTenantId } =
-    parsed.data;
+  const { googleClientId, msClientId, msTenantId } = parsed.data;
 
   const toUpsert: [SSOKey, string][] = [];
-  if (googleClientId?.trim())    toUpsert.push(["GOOGLE_CLIENT_ID",      googleClientId.trim()]);
-  if (googleClientSecret?.trim()) toUpsert.push(["GOOGLE_CLIENT_SECRET",   googleClientSecret.trim()]);
-  if (msClientId?.trim())        toUpsert.push(["AZURE_AD_CLIENT_ID",     msClientId.trim()]);
-  if (msClientSecret?.trim())    toUpsert.push(["AZURE_AD_CLIENT_SECRET", msClientSecret.trim()]);
-  if (msTenantId?.trim())        toUpsert.push(["AZURE_AD_TENANT_ID",     msTenantId.trim()]);
+  if (googleClientId?.trim()) toUpsert.push(["GOOGLE_CLIENT_ID",  googleClientId.trim()]);
+  if (msClientId?.trim())     toUpsert.push(["AZURE_AD_CLIENT_ID", msClientId.trim()]);
+  if (msTenantId?.trim())     toUpsert.push(["AZURE_AD_TENANT_ID", msTenantId.trim()]);
 
   await Promise.all(
     toUpsert.map(([key, value]) =>
