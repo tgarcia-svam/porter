@@ -212,7 +212,7 @@ export async function GET() {
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { organizationId: true },
+    select: { organizationId: true, role: true },
   });
 
   const uploads = await prisma.fileUpload.findMany({
@@ -228,5 +228,10 @@ export async function GET() {
     take: 50,
   });
 
-  return NextResponse.json(uploads);
+  const isAdmin = currentUser?.role === "ADMIN";
+  const response = isAdmin
+    ? uploads
+    : uploads.map(({ blobUrl: _blobUrl, ...rest }) => ({ ...rest, blobUrl: null }));
+
+  return NextResponse.json(response);
 }

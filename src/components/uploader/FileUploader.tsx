@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
+import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
 import StatsPanel from "./StatsPanel";
@@ -210,7 +211,7 @@ export default function FileUploader({
       formData.append("schemaId", selectedSchemaId);
       if (selectedSheet) formData.append("sheetName", selectedSheet);
 
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await apiFetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
 
       if (!res.ok) {

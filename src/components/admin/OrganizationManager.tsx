@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/apiFetch";
 
 type Organization = {
   id: string;
@@ -32,7 +33,7 @@ export default function OrganizationManager({
     setAddError(null);
     setAdding(true);
     try {
-      const res = await fetch("/api/organizations", {
+      const res = await apiFetch("/api/organizations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim() }),
@@ -53,7 +54,7 @@ export default function OrganizationManager({
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete organization "${name}"? Users in this organization will be unassigned.`)) return;
-    await fetch(`/api/organizations/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/organizations/${id}`, { method: "DELETE" });
     await refresh();
     router.refresh();
   }
@@ -65,7 +66,7 @@ export default function OrganizationManager({
 
   async function handleRename(id: string) {
     if (!editName.trim()) return;
-    await fetch(`/api/organizations/${id}`, {
+    await apiFetch(`/api/organizations/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: editName.trim() }),

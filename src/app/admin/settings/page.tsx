@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/apiFetch";
 
 type SettingSource = "db" | "env" | "default" | null;
 
@@ -167,7 +168,7 @@ function GoogleSection() {
     setSaving(true);
     setFeedback(null);
     try {
-      const res = await fetch("/api/settings/sso", {
+      const res = await apiFetch("/api/settings/sso", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ googleClientId: clientId, googleClientSecret: clientSecret }),
@@ -259,7 +260,7 @@ function MicrosoftSection() {
     setSaving(true);
     setFeedback(null);
     try {
-      const res = await fetch("/api/settings/sso", {
+      const res = await apiFetch("/api/settings/sso", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ msClientId: clientId, msClientSecret: clientSecret, msTenantId: tenantId }),

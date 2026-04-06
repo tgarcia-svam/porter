@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/apiFetch";
 
 type OrgRef = { id: string; name: string };
 type User = {
@@ -42,7 +43,7 @@ export default function UserManager({
     setAddError(null);
     setAdding(true);
     try {
-      const res = await fetch("/api/users", {
+      const res = await apiFetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -68,7 +69,7 @@ export default function UserManager({
   }
 
   async function handleUnlock(id: string) {
-    await fetch(`/api/users/${id}`, {
+    await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ unlock: true }),
@@ -78,12 +79,12 @@ export default function UserManager({
 
   async function handleDeleteUser(id: string, email: string) {
     if (!confirm(`Remove user "${email}"?`)) return;
-    await fetch(`/api/users/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/users/${id}`, { method: "DELETE" });
     await refreshUsers();
   }
 
   async function handleRoleChange(id: string, role: "ADMIN" | "UPLOADER") {
-    await fetch(`/api/users/${id}`, {
+    await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
@@ -92,7 +93,7 @@ export default function UserManager({
   }
 
   async function handleOrgChange(id: string, organizationId: string | null) {
-    await fetch(`/api/users/${id}`, {
+    await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ organizationId }),

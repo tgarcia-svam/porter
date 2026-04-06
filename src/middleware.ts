@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/csrf";
 
 // ── Rate limit config ────────────────────────────────────────────────────────
 // Auth endpoints get a tighter limit to slow credential-stuffing attempts.
@@ -37,6 +38,13 @@ function isAllowed(key: string, max: number, windowMs: number): boolean {
   return true;
 }
 
+const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+// Paths exempt from CSRF validation — NextAuth handles its own CSRF internally,
+// and the upload endpoint uses multipart/form-data which cannot set custom headers
+// from a cross-origin form, so the same-origin session check is sufficient there.
+const CSRF_EXEMPT = ["/api/auth"];
+
 // ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {
   const ip =
@@ -57,7 +65,26 @@ export function middleware(req: NextRequest) {
     });
   }
 
-  return NextResponse.next();
+  // ── CSRF validation ────────────────────────────────────────────────────────
+  const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
+  if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
+    return new NextResponse("Invalid CSRF token", {
+      status: 403,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  // ── Ensure CSRF cookie is set ──────────────────────────────────────────────
+  const res = NextResponse.next();
+  if (!req.cookies.get(CSRF_COOKIE)) {
+    res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
+      httpOnly: false, // must be readable by client JS
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+    });
+  }
+  return res;
 }
 
 export const config = {
