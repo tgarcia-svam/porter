@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 export default async function SchemasPage() {
   const schemas = await prisma.schema.findMany({
     include: {
-      columns: { orderBy: { order: "asc" } },
+      columns: {
+        orderBy: { order: "asc" },
+        include: { classification: { select: { name: true } } },
+      },
       projects: { include: { project: { select: { id: true, name: true } } } },
       _count: { select: { uploads: true } },
     },

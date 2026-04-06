@@ -5,11 +5,13 @@ node_modules/
 .next/
 out/
 
-# Environment variables — .env is committed (non-secret config only)
+# Environment variables — never commit real env files
+.env
 .env.local
 .env.*.local
 
-# Keep the example env file for onboarding
+# Keep example env files for onboarding
+!.env.example
 !.env.local.example
 
 # Prisma SQLite database

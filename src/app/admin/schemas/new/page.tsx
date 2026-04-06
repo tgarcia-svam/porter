@@ -4,10 +4,10 @@ import SchemaEditor from "@/components/admin/SchemaEditor";
 export const dynamic = 'force-dynamic';
 
 export default async function NewSchemaPage() {
-  const allProjects = await prisma.project.findMany({
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
+  const [allProjects, allClassifications] = await Promise.all([
+    prisma.project.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.classification.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -17,7 +17,7 @@ export default async function NewSchemaPage() {
           Define column names and required data types.
         </p>
       </div>
-      <SchemaEditor allProjects={allProjects} />
+      <SchemaEditor allProjects={allProjects} allClassifications={allClassifications} />
     </div>
   );
 }

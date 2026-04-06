@@ -9,6 +9,7 @@ const ColumnSchema = z.object({
   dataType: z.enum(["TEXT", "NUMBER", "INTEGER", "BOOLEAN", "DATE", "EMAIL"]),
   required: z.boolean().default(true),
   order: z.number().int().default(0),
+  classificationId: z.string().nullable().optional(),
 });
 
 const CreateSchemaBody = z.object({
