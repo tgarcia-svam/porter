@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/api-auth";
 const CreateBody = z.object({
   name: z.string().min(1),
   values: z.array(z.string().min(1)).min(1),
+  caseSensitive: z.boolean().default(true),
 });
 
 export async function GET(req: NextRequest) {
@@ -30,11 +31,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, values } = parsed.data;
+  const { name, values, caseSensitive } = parsed.data;
 
   try {
     const classification = await prisma.classification.create({
-      data: { name, values },
+      data: { name, values, caseSensitive },
       include: { _count: { select: { columns: true } } },
     });
     return NextResponse.json(classification, { status: 201 });

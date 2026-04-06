@@ -8,6 +8,7 @@ type Classification = {
   id: string;
   name: string;
   values: string[];
+  caseSensitive: boolean;
   _count: { columns: number };
 };
 
@@ -23,6 +24,7 @@ export default function ClassificationManager({
   const [newName, setNewName] = useState("");
   const [newValueInput, setNewValueInput] = useState("");
   const [newValues, setNewValues] = useState<string[]>([]);
+  const [newCaseSensitive, setNewCaseSensitive] = useState(true);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -31,6 +33,7 @@ export default function ClassificationManager({
   const [editName, setEditName] = useState("");
   const [editValueInput, setEditValueInput] = useState("");
   const [editValues, setEditValues] = useState<string[]>([]);
+  const [editCaseSensitive, setEditCaseSensitive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -81,7 +84,7 @@ export default function ClassificationManager({
       const res = await apiFetch("/api/classifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), values: unique }),
+        body: JSON.stringify({ name: newName.trim(), values: unique, caseSensitive: newCaseSensitive }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -90,6 +93,7 @@ export default function ClassificationManager({
       setNewName("");
       setNewValues([]);
       setNewValueInput("");
+      setNewCaseSensitive(true);
       await refresh();
       router.refresh();
     } catch (err) {
@@ -105,6 +109,7 @@ export default function ClassificationManager({
     setEditingId(c.id);
     setEditName(c.name);
     setEditValues([...c.values]);
+    setEditCaseSensitive(c.caseSensitive);
     setEditValueInput("");
     setEditError(null);
   }
@@ -129,7 +134,7 @@ export default function ClassificationManager({
       const res = await apiFetch(`/api/classifications/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editName.trim(), values: unique }),
+        body: JSON.stringify({ name: editName.trim(), values: unique, caseSensitive: editCaseSensitive }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -157,6 +162,46 @@ export default function ClassificationManager({
     router.refresh();
   }
 
+  // ── Shared toggle UI ──────────────────────────────────────────────────────
+
+  function CaseSensitiveToggle({
+    value,
+    onChange,
+  }: {
+    value: boolean;
+    onChange: (v: boolean) => void;
+  }) {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-xs font-medium text-gray-500">Value matching</span>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => onChange(true)}
+            className={`px-3 py-1.5 transition-colors ${
+              value
+                ? "bg-gray-900 text-white"
+                : "bg-white text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            Case sensitive
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange(false)}
+            className={`px-3 py-1.5 border-l border-gray-200 transition-colors ${
+              !value
+                ? "bg-gray-900 text-white"
+                : "bg-white text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            Case insensitive
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -173,6 +218,8 @@ export default function ClassificationManager({
             required
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+
+          <CaseSensitiveToggle value={newCaseSensitive} onChange={setNewCaseSensitive} />
 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">
@@ -251,6 +298,8 @@ export default function ClassificationManager({
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
+                <CaseSensitiveToggle value={editCaseSensitive} onChange={setEditCaseSensitive} />
+
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">
                     Expected values
@@ -325,6 +374,13 @@ export default function ClassificationManager({
                       <span className="font-semibold text-sm text-gray-900">{c.name}</span>
                       <span className="text-xs text-gray-400">
                         {c._count.columns} column{c._count.columns === 1 ? "" : "s"}
+                      </span>
+                      <span className={`text-xs rounded-full px-2 py-0.5 ring-1 ring-inset ${
+                        c.caseSensitive
+                          ? "bg-gray-50 text-gray-500 ring-gray-200"
+                          : "bg-amber-50 text-amber-700 ring-amber-200"
+                      }`}>
+                        {c.caseSensitive ? "case sensitive" : "case insensitive"}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">

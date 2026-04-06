@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/api-auth";
 const UpdateBody = z.object({
   name: z.string().min(1).optional(),
   values: z.array(z.string().min(1)).min(1).optional(),
+  caseSensitive: z.boolean().optional(),
 });
 
 export async function GET(
