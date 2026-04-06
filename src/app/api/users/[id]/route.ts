@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { auditStore, clientIp } from "@/lib/audit-context";
+import { requireAdmin } from "@/lib/api-auth";
 
 const UpdateUserBody = z.object({
   role: z.enum(["ADMIN", "UPLOADER"]).optional(),
@@ -10,17 +9,6 @@ const UpdateUserBody = z.object({
   organizationId: z.string().nullable().optional(),
   unlock: z.boolean().optional(),
 });
-
-async function requireAdmin(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") return null;
-  auditStore.enterWith({
-    userId: session.user.id,
-    userEmail: session.user.email ?? undefined,
-    ip: clientIp(req),
-  });
-  return session;
-}
 
 export async function PUT(
   req: NextRequest,

@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/api-auth";
 
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") return null;
-  return session;
-}
-
-export async function GET() {
-  const session = await requireAdmin();
+export async function GET(req: NextRequest) {
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const organizations = await prisma.organization.findMany({
@@ -26,7 +20,7 @@ const CreateBody = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const session = await requireAdmin();
+  const session = await requireAdmin(req);
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();

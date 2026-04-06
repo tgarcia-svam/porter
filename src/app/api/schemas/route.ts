@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { upsertAllSchemaViews } from "@/lib/schema-view";
+import { requireAdmin } from "@/lib/api-auth";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -20,11 +20,9 @@ const CreateSchemaBody = z.object({
   timeSeriesGranularity: z.enum(["DAY", "MONTH", "YEAR"]).nullable().optional(),
 });
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function GET(req: NextRequest) {
+  const session = await requireAdmin(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const schemas = await prisma.schema.findMany({
     include: {
@@ -38,10 +36,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const session = await requireAdmin(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
   const parsed = CreateSchemaBody.safeParse(body);

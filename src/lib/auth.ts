@@ -2,6 +2,8 @@ import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import { prisma } from "@/lib/prisma";
+import { logAuthEvent } from "@/lib/auth-audit";
+import { requestStore, hashUa } from "@/lib/session-binding";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
 declare module "next-auth" {
@@ -9,6 +11,7 @@ declare module "next-auth" {
     user: {
       id: string;
       role: "ADMIN" | "UPLOADER";
+      uaHash?: string; // session binding — UA hash captured at sign-in
     } & DefaultSession["user"];
   }
 }
@@ -32,10 +35,14 @@ const callbacks: NextAuthConfig["callbacks"] = {
       where: { email: { equals: email, mode: "insensitive" } },
     });
 
-    if (!dbUser) return false;
+    if (!dbUser) {
+      logAuthEvent({ action: "auth.login.failed", userEmail: email });
+      return false;
+    }
 
     // Check account lockout
     if (dbUser.lockedUntil && dbUser.lockedUntil > new Date()) {
+      logAuthEvent({ action: "auth.login.blocked", userEmail: email, userId: dbUser.id });
       return false;
     }
 
@@ -52,6 +59,7 @@ const callbacks: NextAuthConfig["callbacks"] = {
           lockedUntil: new Date(Date.now() + LOCKOUT_DURATION_MS),
         },
       });
+      logAuthEvent({ action: "auth.login.blocked", userEmail: email, userId: dbUser.id });
       return false;
     }
 
@@ -69,6 +77,7 @@ const callbacks: NextAuthConfig["callbacks"] = {
       await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
     }
 
+    logAuthEvent({ action: "auth.login.success", userEmail: email, userId: dbUser.id });
     return true;
   },
 
@@ -91,6 +100,10 @@ const callbacks: NextAuthConfig["callbacks"] = {
           token["role"] = dbUser.role;
         }
       }
+      // Bind the token to the User-Agent of the browser that signed in.
+      // requestStore is populated by the auth handler wrappers below.
+      const uaHash = requestStore.getStore()?.uaHash;
+      if (uaHash) token["uaHash"] = uaHash;
     }
     return token;
   },
@@ -101,6 +114,7 @@ const callbacks: NextAuthConfig["callbacks"] = {
       session.user.role = ((token["role"] as string) ?? "UPLOADER") as
         | "ADMIN"
         | "UPLOADER";
+      session.user.uaHash = (token["uaHash"] as string | undefined);
     }
     return session;
   },
@@ -116,26 +130,23 @@ type AuthInstance = ReturnType<typeof NextAuth>;
 let _promise: Promise<AuthInstance> | null = null;
 
 async function buildInstance(): Promise<AuthInstance> {
+  // Non-secret config (client IDs, tenant) may come from DB or env.
+  // Secrets (client secrets) come exclusively from process.env, which is
+  // populated from Azure Key Vault at startup — never from the DB.
   const rows = await prisma.appSetting.findMany({
     where: {
       key: {
-        in: [
-          "GOOGLE_CLIENT_ID",
-          "GOOGLE_CLIENT_SECRET",
-          "AZURE_AD_CLIENT_ID",
-          "AZURE_AD_CLIENT_SECRET",
-          "AZURE_AD_TENANT_ID",
-        ],
+        in: ["GOOGLE_CLIENT_ID", "AZURE_AD_CLIENT_ID", "AZURE_AD_TENANT_ID"],
       },
     },
   });
   const db = Object.fromEntries(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
 
-  const googleId     = db.GOOGLE_CLIENT_ID     ?? process.env.GOOGLE_CLIENT_ID;
-  const googleSecret = db.GOOGLE_CLIENT_SECRET  ?? process.env.GOOGLE_CLIENT_SECRET;
-  const msId         = db.AZURE_AD_CLIENT_ID    ?? process.env.AZURE_AD_CLIENT_ID;
-  const msSecret     = db.AZURE_AD_CLIENT_SECRET ?? process.env.AZURE_AD_CLIENT_SECRET;
-  const msTenant     = db.AZURE_AD_TENANT_ID    ?? process.env.AZURE_AD_TENANT_ID ?? "common";
+  const googleId     = db.GOOGLE_CLIENT_ID  ?? process.env.GOOGLE_CLIENT_ID;
+  const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const msId         = db.AZURE_AD_CLIENT_ID ?? process.env.AZURE_AD_CLIENT_ID;
+  const msSecret     = process.env.AZURE_AD_CLIENT_SECRET;
+  const msTenant     = db.AZURE_AD_TENANT_ID ?? process.env.AZURE_AD_TENANT_ID ?? "common";
 
   const providers: NextAuthConfig["providers"] = [];
 
@@ -158,6 +169,15 @@ async function buildInstance(): Promise<AuthInstance> {
     pages: { signIn: "/login", error: "/login" },
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
+    events: {
+      async signOut({ token }) {
+        logAuthEvent({
+          action: "auth.logout",
+          userId: token?.["id"] as string | undefined,
+          userEmail: token?.email ?? null,
+        });
+      },
+    },
   });
 }
 
@@ -175,9 +195,15 @@ export function invalidateAuth(): void {
 
 export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  GET: async (req: any) => (await getInstance()).handlers.GET(req),
+  GET: async (req: any) => {
+    requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
+    return (await getInstance()).handlers.GET(req);
+  },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  POST: async (req: any) => (await getInstance()).handlers.POST(req),
+  POST: async (req: any) => {
+    requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
+    return (await getInstance()).handlers.POST(req);
+  },
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -10,8 +10,9 @@ export default async function UploadPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { organizationId: true },
+    select: { organizationId: true, role: true },
   });
+  const isAdmin = user?.role === "ADMIN";
 
   const rawProjects = user?.organizationId
     ? await prisma.project.findMany({
@@ -69,7 +70,7 @@ export default async function UploadPage() {
           status: u.status,
           errorCount: u.errorCount,
           createdAt: u.createdAt.toISOString(),
-          blobUrl: u.blobUrl ?? null,
+          blobUrl: isAdmin ? (u.blobUrl ?? null) : null,
           uploadedBy: u.user?.name ?? u.user?.email ?? "Unknown",
         }))}
       />

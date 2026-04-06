@@ -4,10 +4,22 @@ import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
 import { auditStore, clientIp } from "@/lib/audit-context";
+import { verifySessionBinding } from "@/lib/session-binding";
+import { logAuthEvent } from "@/lib/auth-audit";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!verifySessionBinding(session.user.uaHash, req)) {
+    logAuthEvent({
+      action: "auth.session.invalid",
+      userId: session.user.id,
+      userEmail: session.user.email,
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId: string = session.user.id;
@@ -200,7 +212,7 @@ export async function GET() {
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { organizationId: true },
+    select: { organizationId: true, role: true },
   });
 
   const uploads = await prisma.fileUpload.findMany({
@@ -216,5 +228,10 @@ export async function GET() {
     take: 50,
   });
 
-  return NextResponse.json(uploads);
+  const isAdmin = currentUser?.role === "ADMIN";
+  const response = isAdmin
+    ? uploads
+    : uploads.map(({ blobUrl: _blobUrl, ...rest }) => ({ ...rest, blobUrl: null }));
+
+  return NextResponse.json(response);
 }

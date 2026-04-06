@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
 
 const PAGE_SIZE = 25;
@@ -135,7 +136,7 @@ export default function DataEntryTable({
     setSubmitError(null);
 
     try {
-      const res = await fetch("/api/upload/manual", {
+      const res = await apiFetch("/api/upload/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schemaId: schema.id, rows }),

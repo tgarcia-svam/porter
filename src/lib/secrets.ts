@@ -7,19 +7,17 @@
  *
  * Non-secret config (NEXTAUTH_URL, AZURE_AD_CLIENT_ID, etc.) is read from
  * the committed .env file and is not fetched here.
+ *
+ * SSO client secrets are required here — they are never stored in the DB.
  */
 
 // Maps Key Vault secret name → process.env key
 const REQUIRED_SECRETS: Record<string, string> = {
   "nextauth-secret":               "NEXTAUTH_SECRET",
   "appinsights-connection-string": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-};
-
-// Optional — app still starts without these; the corresponding auth provider
-// is simply disabled at runtime if the secret is unavailable.
-const OPTIONAL_SECRETS: Record<string, string> = {
-  "sso-porter":           "AZURE_AD_CLIENT_SECRET",
-  "google-client-secret": "GOOGLE_CLIENT_SECRET",
+  "database-url":                  "DATABASE_URL",
+  "sso-porter":                    "AZURE_AD_CLIENT_SECRET",
+  "google-client-secret":          "GOOGLE_CLIENT_SECRET",
 };
 
 export async function loadSecretsFromKeyVault(): Promise<void> {
@@ -47,8 +45,7 @@ export async function loadSecretsFromKeyVault(): Promise<void> {
     }
   }
 
-  await Promise.all([
-    ...Object.entries(REQUIRED_SECRETS).map(([k, v]) => load(k, v, true)),
-    ...Object.entries(OPTIONAL_SECRETS).map(([k, v]) => load(k, v, false)),
-  ]);
+  await Promise.all(
+    Object.entries(REQUIRED_SECRETS).map(([k, v]) => load(k, v, true)),
+  );
 }

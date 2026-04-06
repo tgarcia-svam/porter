@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiFetch } from "@/lib/apiFetch";
 
 type Column = {
   id: string;
@@ -29,7 +30,7 @@ export default function SchemaListClient({
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete file format "${name}"? This cannot be undone.`)) return;
-    await fetch(`/api/schemas/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/schemas/${id}`, { method: "DELETE" });
     router.refresh();
   }
 

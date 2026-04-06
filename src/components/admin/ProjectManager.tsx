@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/apiFetch";
 
 type OrgRef = { id: string; name: string };
 type SchemaRef = { id: string; name: string };
@@ -43,7 +44,7 @@ export default function ProjectManager({
     setAddError(null);
     setAdding(true);
     try {
-      const res = await fetch("/api/projects", {
+      const res = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() || undefined }),
@@ -65,18 +66,18 @@ export default function ProjectManager({
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete project "${name}"? Schemas in this project will be unassigned.`)) return;
-    await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
     await refresh();
     router.refresh();
   }
 
   async function toggleOrg(projectId: string, orgId: string, assigned: boolean) {
     if (assigned) {
-      await fetch(`/api/projects/${projectId}/organizations?organizationId=${orgId}`, {
+      await apiFetch(`/api/projects/${projectId}/organizations?organizationId=${orgId}`, {
         method: "DELETE",
       });
     } else {
-      await fetch(`/api/projects/${projectId}/organizations`, {
+      await apiFetch(`/api/projects/${projectId}/organizations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ organizationId: orgId }),
@@ -87,11 +88,11 @@ export default function ProjectManager({
 
   async function toggleSchema(projectId: string, schemaId: string, assigned: boolean) {
     if (assigned) {
-      await fetch(`/api/projects/${projectId}/schemas?schemaId=${schemaId}`, {
+      await apiFetch(`/api/projects/${projectId}/schemas?schemaId=${schemaId}`, {
         method: "DELETE",
       });
     } else {
-      await fetch(`/api/projects/${projectId}/schemas`, {
+      await apiFetch(`/api/projects/${projectId}/schemas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schemaId }),
