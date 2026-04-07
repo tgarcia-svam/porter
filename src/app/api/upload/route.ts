@@ -141,11 +141,30 @@ export async function POST(req: NextRequest) {
   }
   // "clean" or "pending" (Defender not configured) — proceed
 
+  // Enrich columns with classification allowed values (separate query per MEMORY guidance)
+  const classificationIds = schema.columns
+    .map((c) => c.classificationId)
+    .filter((id): id is string => id !== null && id !== undefined);
+
+  const classMap = new Map<string, { values: string[]; caseSensitive: boolean }>();
+  if (classificationIds.length > 0) {
+    const clsfs = await prisma.classification.findMany({
+      where: { id: { in: classificationIds } },
+      select: { id: true, values: true, caseSensitive: true },
+    });
+    for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
+  }
+
+  const columnsForValidation = schema.columns.map((c) => {
+    const clf = c.classificationId ? classMap.get(c.classificationId) : null;
+    return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
+  });
+
   // Validate file contents
   const { errors, errorsCapped, rowCount, missingColumns, rows } = await validateFile(
     buffer,
     mimeType,
-    schema.columns,
+    columnsForValidation,
     sheetName
   );
 

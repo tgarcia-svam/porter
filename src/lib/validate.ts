@@ -21,6 +21,8 @@ type ColumnDef = {
   name: string;
   dataType: string;
   required: boolean;
+  allowedValues?: string[] | null;
+  caseSensitive?: boolean | null;
 };
 
 /** Maximum validation errors returned. Collection stops after this to prevent OOM. */
@@ -96,7 +98,27 @@ function validateRow(
     if (value === "") continue;
 
     const typeError = checkValue(value, col.dataType);
-    if (typeError) errors.push({ row: rowNumber, column: col.name, value, error: typeError });
+    if (typeError) {
+      errors.push({ row: rowNumber, column: col.name, value, error: typeError });
+      continue;
+    }
+
+    if (col.allowedValues?.length) {
+      const sensitive = col.caseSensitive !== false;
+      const match = sensitive
+        ? col.allowedValues.includes(value)
+        : col.allowedValues.some((v) => v.toLowerCase() === value.toLowerCase());
+      if (!match) {
+        const sample = col.allowedValues.slice(0, 5).join(", ");
+        const extra = col.allowedValues.length > 5 ? ` (+${col.allowedValues.length - 5} more)` : "";
+        errors.push({
+          row: rowNumber,
+          column: col.name,
+          value,
+          error: `Not a recognised value. Expected one of: ${sample}${extra}`,
+        });
+      }
+    }
   }
 
   return true;

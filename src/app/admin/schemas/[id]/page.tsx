@@ -9,7 +9,7 @@ export default async function EditSchemaPage({
 }) {
   const { id } = await params;
 
-  const [schema, allProjects] = await Promise.all([
+  const [schema, allProjects, allClassifications] = await Promise.all([
     prisma.schema.findUnique({
       where: { id },
       include: {
@@ -18,6 +18,10 @@ export default async function EditSchemaPage({
       },
     }),
     prisma.project.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.classification.findMany({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -43,11 +47,13 @@ export default async function EditSchemaPage({
             name: c.name,
             dataType: c.dataType as "TEXT" | "NUMBER" | "INTEGER" | "BOOLEAN" | "DATE" | "EMAIL",
             required: c.required,
+            classificationId: c.classificationId ?? null,
           })),
           timeSeriesColumn: schema.timeSeriesColumn ?? null,
           timeSeriesGranularity: schema.timeSeriesGranularity as "DAY" | "MONTH" | "YEAR" | null ?? null,
         }}
         allProjects={allProjects}
+        allClassifications={allClassifications}
       />
     </div>
   );

@@ -117,6 +117,14 @@ async function main() {
   await createPolicy("ValidationResult", "valresult_delete", "DELETE", "USING (true)");
   console.log("  ValidationResult — SELECT/INSERT/DELETE allowed, UPDATE blocked");
 
+  // ── Classification ────────────────────────────────────────────────────────
+  await enableRls("Classification");
+  await createPolicy("Classification", "classification_select", "SELECT", "USING (true)");
+  await createPolicy("Classification", "classification_insert", "INSERT", "WITH CHECK (true)");
+  await createPolicy("Classification", "classification_update", "UPDATE", "USING (true) WITH CHECK (true)");
+  await createPolicy("Classification", "classification_delete", "DELETE", "USING (true)");
+  console.log("  Classification — full CRUD allowed");
+
   // ── AppSetting ────────────────────────────────────────────────────────────
   await enableRls("AppSetting");
   await createPolicy("AppSetting", "appsetting_select", "SELECT", "USING (true)");

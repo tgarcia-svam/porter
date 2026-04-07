@@ -10,9 +10,11 @@ type ColumnDef = {
   name: string;
   dataType: DataType;
   required: boolean;
+  classificationId: string | null;
 };
 
 type ProjectRef = { id: string; name: string };
+type ClassificationRef = { id: string; name: string };
 
 type Granularity = "DAY" | "MONTH" | "YEAR";
 
@@ -38,9 +40,11 @@ const DATA_TYPES: { value: DataType; label: string; description: string }[] = [
 export default function SchemaEditor({
   initialData,
   allProjects = [],
+  allClassifications = [],
 }: {
   initialData?: InitialData;
   allProjects?: ProjectRef[];
+  allClassifications?: ClassificationRef[];
 }) {
   const router = useRouter();
   const [name, setName] = useState(initialData?.name ?? "");
@@ -53,7 +57,7 @@ export default function SchemaEditor({
     );
   }
   const [columns, setColumns] = useState<ColumnDef[]>(
-    initialData?.columns ?? [{ name: "", dataType: "TEXT", required: true }]
+    initialData?.columns ?? [{ name: "", dataType: "TEXT", required: true, classificationId: null }]
   );
   const [timeSeriesColumn, setTimeSeriesColumn] = useState<string>(
     initialData?.timeSeriesColumn ?? ""
@@ -65,7 +69,7 @@ export default function SchemaEditor({
   const [error, setError] = useState<string | null>(null);
 
   function addColumn() {
-    setColumns((prev) => [...prev, { name: "", dataType: "TEXT", required: true }]);
+    setColumns((prev) => [...prev, { name: "", dataType: "TEXT", required: true, classificationId: null }]);
   }
 
   function removeColumn(i: number) {
@@ -130,7 +134,7 @@ export default function SchemaEditor({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
+    <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
       {/* Schema name + description */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
         <div>
@@ -198,16 +202,17 @@ export default function SchemaEditor({
 
         {/* Header row */}
         <div className="grid grid-cols-12 gap-2 px-6 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">
-          <div className="col-span-5">Column name</div>
-          <div className="col-span-4">Data type</div>
-          <div className="col-span-2 text-center">Nullable</div>
+          <div className="col-span-4">Column name</div>
+          <div className="col-span-3">Data type</div>
+          <div className="col-span-3">Classification</div>
+          <div className="col-span-1 text-center">Nullable</div>
           <div className="col-span-1" />
         </div>
 
         <div className="divide-y divide-gray-50">
           {columns.map((col, i) => (
             <div key={i} className="grid grid-cols-12 gap-2 px-6 py-3 items-center">
-              <div className="col-span-5">
+              <div className="col-span-4">
                 <input
                   type="text"
                   value={col.name}
@@ -216,7 +221,7 @@ export default function SchemaEditor({
                   className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div className="col-span-4">
+              <div className="col-span-3">
                 <select
                   value={col.dataType}
                   onChange={(e) =>
@@ -231,7 +236,23 @@ export default function SchemaEditor({
                   ))}
                 </select>
               </div>
-              <div className="col-span-2 flex justify-center">
+              <div className="col-span-3">
+                <select
+                  value={col.classificationId ?? ""}
+                  onChange={(e) =>
+                    updateColumn(i, { classificationId: e.target.value || null })
+                  }
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— None —</option>
+                  {allClassifications.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-1 flex justify-center">
                 <input
                   type="checkbox"
                   checked={!col.required}
@@ -258,7 +279,7 @@ export default function SchemaEditor({
         </div>
 
         <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-400">
-          Non-nullable fields will reject empty or blank values on upload.
+          Non-nullable fields will reject empty or blank values on upload. A classification restricts the column to a predefined list of values.
         </div>
       </div>
 

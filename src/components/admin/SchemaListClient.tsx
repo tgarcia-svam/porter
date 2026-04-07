@@ -10,6 +10,7 @@ type Column = {
   dataType: string;
   required: boolean;
   order: number;
+  classification: { name: string } | null;
 };
 
 type Schema = {
@@ -81,6 +82,11 @@ export default function SchemaListClient({
                   >
                     <span className="font-medium">{col.name}</span>
                     <span className="text-gray-400">{col.dataType}</span>
+                    {col.classification && (
+                      <span className="rounded-full bg-green-50 px-1.5 text-green-700 ring-1 ring-inset ring-green-600/20">
+                        {col.classification.name}
+                      </span>
+                    )}
                     {col.required && (
                       <span className="text-red-400 font-bold">*</span>
                     )}
