@@ -1,4 +1,4 @@
-import { BlobServiceClient } from "@azure/storage-blob";
+import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
 function getContainerClient() {
@@ -15,7 +15,7 @@ function getContainerClient() {
 
 export async function waitForMalwareScanResult(
   blobName: string,
-  timeoutMs = 30_000,
+  timeoutMs = 8_000,
   pollIntervalMs = 2_000
 ): Promise<"clean" | "malicious" | "pending"> {
   const containerClient = getContainerClient();
@@ -70,6 +70,40 @@ async function logAzurePrincipal() {
   } catch (err) {
     console.warn("[azure-storage] could not resolve principal:", err);
   }
+}
+
+/**
+ * Generates a short-lived write-only SAS URL so the browser can upload
+ * directly to blob storage without routing the file through the app server.
+ * Uses a user delegation key (DefaultAzureCredential — no storage key needed).
+ */
+export async function generateUploadSasUrl(blobName: string): Promise<string> {
+  const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
+  if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
+
+  const credential = new DefaultAzureCredential();
+  const blobServiceClient = new BlobServiceClient(accountUrl, credential);
+
+  const startsOn = new Date();
+  const expiresOn = new Date(startsOn.getTime() + 15 * 60 * 1000); // 15 minutes
+
+  const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn);
+
+  const accountName = new URL(accountUrl).hostname.split(".")[0];
+  const sasQuery = generateBlobSASQueryParameters(
+    {
+      containerName,
+      blobName,
+      permissions: BlobSASPermissions.parse("cw"), // create + write
+      startsOn,
+      expiresOn,
+    },
+    userDelegationKey,
+    accountName
+  );
+
+  return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
 }
 
 export async function uploadToBlob(

@@ -46,6 +46,8 @@ const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 const CSRF_EXEMPT = [
   "/api/auth",
   "/api/upload/process", // authenticated by X-Worker-Secret header, not session/CSRF
+  "/api/upload/sas",     // session-authenticated JSON POST — no cookie available from SAS flow
+  "/api/upload/confirm", // follows SAS upload — session-authenticated JSON POST
 ];
 
 // ── Middleware ───────────────────────────────────────────────────────────────

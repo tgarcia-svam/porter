@@ -569,6 +569,7 @@ resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
 
 var acrPullRoleId                    = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var storageBlobDataOwnerRoleId       = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var storageBlobDelegatorRoleId       = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
 var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 var keyVaultSecretsUserRoleId        = '4633458b-17de-408a-b874-0445c86b69e6'
@@ -581,6 +582,17 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   scope: acr
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: appService.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// App Service — issue user delegation keys for SAS URLs (direct-to-blob uploads)
+resource storageDelegatorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, appServiceName, storageBlobDelegatorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDelegatorRoleId)
     principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }

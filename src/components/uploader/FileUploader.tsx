@@ -212,20 +212,56 @@ export default function FileUploader({
     let isAsyncPath = false;
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("schemaId", selectedSchemaId);
-      if (selectedSheet) formData.append("sheetName", selectedSheet);
+      // Step 1 — get a SAS URL for direct-to-blob upload
+      const sasRes = await apiFetch("/api/upload/sas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemaId: selectedSchemaId,
+          fileName: selectedFile.name,
+          mimeType: selectedFile.type || "application/octet-stream",
+        }),
+      });
+      const sasData = await sasRes.json();
+      if (!sasRes.ok) {
+        setUploadError(sasData?.error ?? "Could not initiate upload. Please try again.");
+        return;
+      }
+      const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
 
-      const res = await apiFetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
+      // Step 2 — PUT file directly to blob storage (no app server in the path)
+      const putRes = await fetch(sasUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": selectedFile.type || "application/octet-stream",
+          "x-ms-blob-type": "BlockBlob",
+        },
+        body: selectedFile,
+      });
+      if (!putRes.ok) {
+        setUploadError("File upload to storage failed. Please try again.");
+        return;
+      }
 
-      if (!res.ok) {
+      // Step 3 — confirm with app server to create record + enqueue job
+      const confirmRes = await apiFetch("/api/upload/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          blobName,
+          schemaId: selectedSchemaId,
+          fileName: selectedFile.name,
+          mimeType: selectedFile.type || "application/octet-stream",
+          sheetName: selectedSheet || undefined,
+        }),
+      });
+      const data = await confirmRes.json();
+      if (!confirmRes.ok) {
         setUploadError(data?.error ?? "An unexpected error occurred. Please try again.");
         return;
       }
 
-      // Async path — server returned PENDING, start polling for completion
+      // Always async when Service Bus is configured
       if (data.status === "PENDING") {
         isAsyncPath = true;
         setSelectedFile(null);
@@ -235,7 +271,7 @@ export default function FileUploader({
         pollingRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`/api/upload/${uploadId}/status`);
-            if (!pollRes.ok) return; // transient error — keep polling
+            if (!pollRes.ok) return;
             const pollData = await pollRes.json();
             if (pollData.status !== "PENDING") {
               stopPolling();
@@ -250,7 +286,6 @@ export default function FileUploader({
         return;
       }
 
-      // Inline synchronous path — result is already complete
       setResult(data as UploadResult);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
