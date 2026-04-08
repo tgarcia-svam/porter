@@ -28,6 +28,13 @@ type ColumnDef = {
 /** Maximum validation errors returned. Collection stops after this to prevent OOM. */
 const MAX_ERRORS = 100;
 
+/**
+ * Excel files must be fully parsed into memory before validation (the xlsx
+ * library has no streaming API). Cap at 200 000 rows to prevent OOM for
+ * very large spreadsheets. CSV files are streamed and have no row limit.
+ */
+const EXCEL_MAX_ROWS = 200_000;
+
 // ---------------------------------------------------------------------------
 // Type checkers
 // ---------------------------------------------------------------------------
@@ -257,6 +264,22 @@ function validateExcel(
 
   if (rawRows.length === 0) {
     return { errors: [], errorsCapped: false, rowCount: 0, missingColumns: [], rows: [], headerMap: new Map() };
+  }
+
+  if (rawRows.length > EXCEL_MAX_ROWS) {
+    return {
+      errors: [{
+        row: 0,
+        column: "",
+        value: "",
+        error: `Excel file exceeds the ${EXCEL_MAX_ROWS.toLocaleString()}-row limit. Convert to CSV for larger files.`,
+      }],
+      errorsCapped: false,
+      rowCount: rawRows.length,
+      missingColumns: [],
+      rows: [],
+      headerMap: new Map(),
+    };
   }
 
   const headerMap = new Map<string, string>();

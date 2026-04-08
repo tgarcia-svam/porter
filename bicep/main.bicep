@@ -76,13 +76,24 @@ param containerTag string = 'latest'
 @description('Email address of the initial admin user, seeded automatically on first container start')
 param seedAdminEmail string
 
+@description('Name of the Service Bus queue for upload jobs')
+param serviceBusQueueName string = 'porter-uploads'
+
+@description('Shared secret the Azure Function sends as X-Worker-Secret when calling /api/upload/process. Generate with: openssl rand -hex 32')
+@secure()
+param uploadWorkerSecret string
+
 // ── Derived names ─────────────────────────────────────────────────────────────
 
-var appServicePlanName = '${appServiceName}-plan'
-var keyVaultName       = '${appServiceName}-keys'
-var vnetName           = '${appServiceName}-vnet'
-var logAnalyticsName   = '${appServiceName}-logs'
-var appInsightsName    = '${appServiceName}-insights'
+var appServicePlanName      = '${appServiceName}-plan'
+var keyVaultName            = '${appServiceName}-keys'
+var vnetName                = '${appServiceName}-vnet'
+var logAnalyticsName        = '${appServiceName}-logs'
+var appInsightsName         = '${appServiceName}-insights'
+var serviceBusNamespaceName = '${appServiceName}-bus'
+var workerFunctionName      = '${appServiceName}-worker'
+// Storage account names: max 24 chars, alphanumeric only
+var workerStorageName       = take('fnwrk${uniqueString(resourceGroup().id, appServiceName)}', 24)
 
 // ── Virtual Network ───────────────────────────────────────────────────────────
 
@@ -240,6 +251,119 @@ resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
   properties: { publicAccess: 'None' }
 }
 
+// ── Azure Service Bus ─────────────────────────────────────────────────────────
+// Standard tier is required for queues with dead-lettering and sessions.
+// The queue is used to decouple file upload acceptance from heavy validation
+// work. The App Service enqueues jobs (Data Sender role); the Azure Function
+// dequeues and calls /api/upload/process (Data Receiver role).
+
+resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
+  name: serviceBusNamespaceName
+  location: location
+  sku: {
+    name: 'Standard'
+    tier: 'Standard'
+  }
+  properties: {
+    minimumTlsVersion: '1.2'
+  }
+}
+
+resource serviceBusQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
+  parent: serviceBusNamespace
+  name: serviceBusQueueName
+  properties: {
+    // Lock messages for up to 5 minutes — matches maxDuration on /api/upload/process
+    lockDuration: 'PT5M'
+    // Retry up to 3 times before dead-lettering; the process endpoint is idempotent
+    maxDeliveryCount: 3
+    deadLetteringOnMessageExpiration: true
+    // Messages expire after 24 hours if never processed
+    defaultMessageTimeToLive: 'P1D'
+  }
+}
+
+// ── Worker Function Storage Account ──────────────────────────────────────────
+// Azure Functions runtime requires its own dedicated storage account.
+// Managed identity is used for AzureWebJobsStorage (passwordless).
+
+resource workerStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: workerStorageName
+  location: location
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+// ── Worker Function App Plan (Consumption) ────────────────────────────────────
+// Windows Consumption plan — Linux dynamic workers cannot coexist with a Linux
+// App Service plan in the same resource group (Azure platform limitation).
+// The Node.js v4 Functions runtime works identically on Windows.
+
+resource workerPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: '${workerFunctionName}-plan'
+  location: location
+  sku: {
+    name: 'Y1'
+    tier: 'Dynamic'
+  }
+  properties: {}
+}
+
+// ── Worker Function App ───────────────────────────────────────────────────────
+// Node.js 20, Windows Consumption plan, system-assigned managed identity.
+// Code is deployed via zip deploy in CI — see .github/workflows/deploy.yml.
+
+resource workerFunction 'Microsoft.Web/sites@2023-12-01' = {
+  name: workerFunctionName
+  location: location
+  kind: 'functionapp'
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    serverFarmId: workerPlan.id
+    httpsOnly: true
+    siteConfig: {
+      minTlsVersion: '1.2'
+    }
+  }
+}
+
+resource workerFunctionSettings 'Microsoft.Web/sites/config@2023-12-01' = {
+  parent: workerFunction
+  name: 'appsettings'
+  properties: {
+    // Runtime config
+    FUNCTIONS_EXTENSION_VERSION: '~4'
+    FUNCTIONS_WORKER_RUNTIME: 'node'
+    WEBSITE_NODE_DEFAULT_VERSION: '~20'
+
+    // AzureWebJobsStorage — Consumption (Y1) plan does not support managed identity
+    // for AzureWebJobsStorage; a connection string is required.
+    AzureWebJobsStorage: 'DefaultEndpointsProtocol=https;AccountName=${workerStorage.name};AccountKey=${workerStorage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+
+    // Service Bus trigger via managed identity (passwordless)
+    // The double-underscore format enables managed identity auth — no connection string needed.
+    ServiceBusConnection__fullyQualifiedNamespace: '${serviceBusNamespaceName}.servicebus.windows.net'
+
+    AZURE_SERVICE_BUS_QUEUE_NAME: serviceBusQueueName
+
+    // Where to forward the job — the public App Service URL
+    APP_URL: nextauthUrl
+
+    // Shared secret authenticating this function to /api/upload/process
+    UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
+
+    // Application Insights
+    APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
+    ApplicationInsightsAgent_EXTENSION_VERSION: '~3'
+  }
+  dependsOn: [kvUploadWorkerSecret]
+}
+
 // ── Log Analytics + Application Insights ─────────────────────────────────────
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -316,6 +440,12 @@ resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-0
   properties: { value: appInsights.properties.ConnectionString }
 }
 
+resource kvUploadWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'upload-worker-secret'
+  properties: { value: uploadWorkerSecret }
+}
+
 // ── App Service Plan ──────────────────────────────────────────────────────────
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
@@ -375,6 +505,13 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
     AZURE_STORAGE_CONTAINER:   storageContainerName
 
+    // Service Bus — enables async background processing of large file uploads
+    AZURE_SERVICE_BUS_NAMESPACE:  '${serviceBusNamespaceName}.servicebus.windows.net'
+    AZURE_SERVICE_BUS_QUEUE_NAME: serviceBusQueueName
+
+    // Shared secret authenticating /api/upload/process calls from the worker function
+    UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
+
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 
     SEED_ADMIN_EMAIL: seedAdminEmail
@@ -383,6 +520,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
+  dependsOn: [kvUploadWorkerSecret]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────
@@ -429,10 +567,15 @@ resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
 
 // ── Role Assignments ──────────────────────────────────────────────────────────
 
-var acrPullRoleId              = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-var keyVaultSecretsUserRoleId  = '4633458b-17de-408a-b874-0445c86b69e6'
+var acrPullRoleId                    = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var storageBlobDataOwnerRoleId       = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
+var keyVaultSecretsUserRoleId        = '4633458b-17de-408a-b874-0445c86b69e6'
+var serviceBusDataSenderRoleId       = '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
+var serviceBusDataReceiverRoleId     = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
 
+// App Service — pull container images from ACR
 resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(acr.id, appServiceName, acrPullRoleId)
   scope: acr
@@ -443,6 +586,7 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
+// App Service — read/write uploads storage
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, appServiceName, storageBlobDataOwnerRoleId)
   scope: storageAccount
@@ -453,6 +597,7 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
+// App Service — read secrets from Key Vault
 resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(keyVault.id, appServiceName, keyVaultSecretsUserRoleId)
   scope: keyVault
@@ -463,9 +608,75 @@ resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@
   }
 }
 
+// App Service — send messages to Service Bus queue
+resource appServiceBusSenderAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBusNamespace.id, appServiceName, serviceBusDataSenderRoleId)
+  scope: serviceBusNamespace
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataSenderRoleId)
+    principalId: appService.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Function App — receive (dequeue) messages from Service Bus queue
+resource workerServiceBusReceiverAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBusNamespace.id, workerFunctionName, serviceBusDataReceiverRoleId)
+  scope: serviceBusNamespace
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', serviceBusDataReceiverRoleId)
+    principalId: workerFunction.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Function App — read upload-worker-secret from Key Vault
+resource workerKeyVaultAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, workerFunctionName, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    principalId: workerFunction.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Function App — AzureWebJobsStorage managed identity (blob + queue + table)
+resource workerStorageBlobAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(workerStorage.id, workerFunctionName, storageBlobDataOwnerRoleId)
+  scope: workerStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: workerFunction.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workerStorageQueueAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(workerStorage.id, workerFunctionName, storageQueueDataContributorRoleId)
+  scope: workerStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageQueueDataContributorRoleId)
+    principalId: workerFunction.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workerStorageTableAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(workerStorage.id, workerFunctionName, storageTableDataContributorRoleId)
+  scope: workerStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorRoleId)
+    principalId: workerFunction.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ── Outputs ───────────────────────────────────────────────────────────────────
 
-output appUrl        string = 'https://${appService.properties.defaultHostName}'
-output acrLoginServer string = acr.properties.loginServer
-output dbHostname    string = postgresServer.properties.fullyQualifiedDomainName
-output keyVaultUri   string = keyVault.properties.vaultUri
+output appUrl                  string = 'https://${appService.properties.defaultHostName}'
+output acrLoginServer          string = acr.properties.loginServer
+output dbHostname              string = postgresServer.properties.fullyQualifiedDomainName
+output keyVaultUri             string = keyVault.properties.vaultUri
+output serviceBusNamespaceFqdn string = '${serviceBusNamespaceName}.servicebus.windows.net'
+output workerFunctionName      string = workerFunction.name

@@ -38,7 +38,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages: ["applicationinsights", "@azure/identity", "@azure/keyvault-secrets"],
+  serverExternalPackages: ["applicationinsights", "@azure/identity", "@azure/keyvault-secrets", "@azure/service-bus"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

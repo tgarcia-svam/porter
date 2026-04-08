@@ -3,9 +3,14 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
+import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import { auditStore, clientIp } from "@/lib/audit-context";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
+
+// Allow up to 5 minutes for large-file processing (inline fallback path only —
+// the async Service Bus path returns in seconds).
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -35,10 +40,7 @@ export async function POST(req: NextRequest) {
   const sheetName = (formData.get("sheetName") as string | null) ?? undefined;
 
   if (!file || !schemaId) {
-    return NextResponse.json(
-      { error: "file and schemaId are required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "file and schemaId are required" }, { status: 400 });
   }
 
   // Verify access: user must belong to an org linked to a project that contains this schema
@@ -57,9 +59,7 @@ export async function POST(req: NextRequest) {
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
-      project: {
-        organizations: { some: { organizationId: user.organizationId! } },
-      },
+      project: { organizations: { some: { organizationId: user.organizationId! } } },
     },
   });
 
@@ -70,7 +70,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch schema with columns and projects
   const schema = await prisma.schema.findUnique({
     where: { id: schemaId },
     include: {
@@ -79,16 +78,11 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!schema) {
-    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
-  }
+  if (!schema) return NextResponse.json({ error: "Schema not found" }, { status: 404 });
 
   const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
   if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json(
-      { error: "File exceeds the 100 MB size limit." },
-      { status: 413 }
-    );
+    return NextResponse.json({ error: "File exceeds the 100 MB size limit." }, { status: 413 });
   }
 
   const ext = file.name.split(".").pop()?.toLowerCase();
@@ -112,13 +106,13 @@ export async function POST(req: NextRequest) {
   const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
   const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
   const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
-  const orgSegment = sanitize(user?.organization?.name ?? "no-organization");
+  const orgSegment = sanitize(user.organization.name);
   const schemaSegment = sanitize(schema.name);
   const now = new Date();
   const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
   const blobName = `${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${file.name}`;
 
-  // Upload to Azure first; malware scanning is handled by Azure Defender for Storage
+  // Upload file to blob storage
   let blobUrl: string;
   try {
     blobUrl = await uploadToBlob(buffer, blobName, mimeType);
@@ -130,37 +124,58 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Wait for Defender for Storage malware scan result
+  // ── Async path (Service Bus configured) ───────────────────────────────────
+  // Create a PENDING record, enqueue the job, return immediately.
+  // The /api/upload/process worker handles malware scanning, validation, and
+  // row storage. It is triggered by an Azure Function Service Bus trigger that
+  // calls POST /api/upload/process with the message payload.
+  if (isServiceBusConfigured()) {
+    const record = await prisma.fileUpload.create({
+      data: { userId, schemaId, fileName: file.name, blobUrl, status: "PENDING" },
+    });
+
+    await enqueueUploadJob({ uploadId: record.id, blobName, mimeType, sheetName });
+
+    return NextResponse.json({
+      uploadId: record.id,
+      status: "PENDING",
+      rowCount: 0,
+      errorCount: 0,
+      errorsCapped: false,
+      errors: [],
+    });
+  }
+
+  // ── Inline fallback (no Service Bus — local dev) ───────────────────────────
+  // Runs the full pipeline synchronously within this request.
+
+  // Malware scan (Defender for Storage — no-op if not configured)
   const scanResult = await waitForMalwareScanResult(blobName);
   if (scanResult === "malicious") {
     await deleteBlobByName(blobName);
-    return NextResponse.json(
-      { error: "File rejected: malware detected." },
-      { status: 422 }
-    );
+    return NextResponse.json({ error: "File rejected: malware detected." }, { status: 422 });
   }
-  // "clean" or "pending" (Defender not configured) — proceed
 
-  // Enrich columns with classification allowed values (separate query per MEMORY guidance)
+  // Fetch classifications in parallel with nothing else to do here
   const classificationIds = schema.columns
     .map((c) => c.classificationId)
     .filter((id): id is string => id !== null && id !== undefined);
 
+  const clsfs = classificationIds.length > 0
+    ? await prisma.classification.findMany({
+        where: { id: { in: classificationIds } },
+        select: { id: true, values: true, caseSensitive: true },
+      })
+    : [];
+
   const classMap = new Map<string, { values: string[]; caseSensitive: boolean }>();
-  if (classificationIds.length > 0) {
-    const clsfs = await prisma.classification.findMany({
-      where: { id: { in: classificationIds } },
-      select: { id: true, values: true, caseSensitive: true },
-    });
-    for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
-  }
+  for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
 
   const columnsForValidation = schema.columns.map((c) => {
     const clf = c.classificationId ? classMap.get(c.classificationId) : null;
     return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
   });
 
-  // Validate file contents
   const { errors, errorsCapped, rowCount, missingColumns, rows } = await validateFile(
     buffer,
     mimeType,
@@ -178,7 +193,6 @@ export async function POST(req: NextRequest) {
   const allErrors = [...missingColumnErrors, ...errors];
   const isValid = allErrors.length === 0;
 
-  // Create the FileUpload record and any validation errors
   const record = await prisma.fileUpload.create({
     data: {
       userId,
@@ -187,6 +201,8 @@ export async function POST(req: NextRequest) {
       blobUrl,
       status: isValid ? "VALID" : "INVALID",
       errorCount: allErrors.length,
+      rowCount,
+      errorsCapped,
     },
   });
 
@@ -196,26 +212,32 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Insert valid rows in chunks to avoid single oversized transactions
-  const CHUNK_SIZE = 1_000;
+  // Insert valid rows — parallel chunks of 2 000 rows, 4 at a time
+  const CHUNK_SIZE = 2_000;
+  const CONCURRENCY = 4;
   if (isValid && rows.length > 0) {
+    const chunks: Array<{ startIdx: number; data: typeof rows }> = [];
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + CHUNK_SIZE);
-      await prisma.uploadRow.createMany({
-        data: chunk.map((row, j) => ({
-          uploadId: record.id,
-          rowIndex: i + j + 1,
-          data: row,
-        })),
-      });
+      chunks.push({ startIdx: i, data: rows.slice(i, i + CHUNK_SIZE) });
+    }
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      await Promise.all(
+        chunks.slice(i, i + CONCURRENCY).map(({ startIdx, data }) =>
+          prisma.uploadRow.createMany({
+            data: data.map((row, j) => ({
+              uploadId: record.id,
+              rowIndex: startIdx + j + 1,
+              data: row,
+            })),
+          })
+        )
+      );
     }
   }
 
-  const upload = record;
-
   return NextResponse.json({
-    uploadId: upload.id,
-    status: upload.status,
+    uploadId: record.id,
+    status: record.status,
     rowCount,
     errorCount: allErrors.length,
     errorsCapped,

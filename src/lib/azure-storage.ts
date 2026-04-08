@@ -41,12 +41,18 @@ export async function downloadFromBlob(blobUrl: string): Promise<Buffer> {
   const containerClient = getContainerClient();
 
   // Extract blob name from URL: strip scheme + host + "/{containerName}/"
+  // Decode first so the SDK doesn't double-encode any percent-encoded characters.
   const url = new URL(blobUrl);
-  const blobName = url.pathname.replace(
-    `/${containerClient.containerName}/`,
-    ""
+  const blobName = decodeURIComponent(
+    url.pathname.replace(`/${containerClient.containerName}/`, "")
   );
 
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  return await blockBlobClient.downloadToBuffer();
+}
+
+export async function downloadBlobByName(blobName: string): Promise<Buffer> {
+  const containerClient = getContainerClient();
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   return await blockBlobClient.downloadToBuffer();
 }

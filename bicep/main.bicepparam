@@ -38,3 +38,7 @@ param seedAdminEmail = 'tgarcia@svam.com'
 
 // ── Image tag — overridden to github.sha in CI ────────────────────────────────
 param containerTag = 'latest'
+
+// ── Service Bus / async worker ────────────────────────────────────────────────
+param serviceBusQueueName = 'porter-uploads'
+// uploadWorkerSecret → secret in main.secrets.bicepparam

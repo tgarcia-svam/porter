@@ -94,8 +94,8 @@ export default function FileUploader({
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [dragging, setDragging] = useState(false);
-  const [uploadPhase, setUploadPhase] = useState<"uploading" | "scanning" | "validating" | null>(null);
-  const uploading = uploadPhase !== null;
+  const [uploading, setUploading] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>(initialUploads);
@@ -196,14 +196,20 @@ export default function FileUploader({
     router.refresh();
   }
 
+  function stopPolling() {
+    if (pollingRef.current !== null) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }
+
   async function handleUpload() {
     if (!selectedFile || !selectedSchemaId) return;
-    setUploadPhase("uploading");
+    setUploading(true);
     setResult(null);
     setUploadError(null);
 
-    const scanTimer = setTimeout(() => setUploadPhase("scanning"), 3_000);
-    const validateTimer = setTimeout(() => setUploadPhase("validating"), 28_000);
+    let isAsyncPath = false;
 
     try {
       const formData = new FormData();
@@ -219,14 +225,38 @@ export default function FileUploader({
         return;
       }
 
+      // Async path — server returned PENDING, start polling for completion
+      if (data.status === "PENDING") {
+        isAsyncPath = true;
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        const uploadId: string = data.uploadId;
+        pollingRef.current = setInterval(async () => {
+          try {
+            const pollRes = await fetch(`/api/upload/${uploadId}/status`);
+            if (!pollRes.ok) return; // transient error — keep polling
+            const pollData = await pollRes.json();
+            if (pollData.status !== "PENDING") {
+              stopPolling();
+              setUploading(false);
+              setResult(pollData as UploadResult);
+              await refreshHistory();
+            }
+          } catch {
+            // network hiccup — keep polling
+          }
+        }, 3_000);
+        return;
+      }
+
+      // Inline synchronous path — result is already complete
       setResult(data as UploadResult);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
     } finally {
-      clearTimeout(scanTimer);
-      clearTimeout(validateTimer);
-      setUploadPhase(null);
+      if (!isAsyncPath) setUploading(false);
     }
   }
 
@@ -395,7 +425,7 @@ export default function FileUploader({
                 {uploading ? "Processing…" : "Upload and validate"}
               </button>
 
-              {uploadPhase && <UploadProgressBanner phase={uploadPhase} />}
+              {uploading && <UploadProgressBanner />}
             </div>
 
             {uploadError && (
@@ -493,40 +523,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function UploadProgressBanner({ phase }: { phase: "uploading" | "scanning" | "validating" }) {
-  const steps: { key: typeof phase; label: string }[] = [
-    { key: "uploading", label: "Uploading file" },
-    { key: "scanning",  label: "Scanning for malware" },
-    { key: "validating", label: "Validating file" },
-  ];
-  const currentIndex = steps.findIndex((s) => s.key === phase);
-
+function UploadProgressBanner() {
   return (
-    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-      <div className="flex flex-col gap-2">
-        {steps.map((step, i) => {
-          const isDone = i < currentIndex;
-          const isActive = i === currentIndex;
-          return (
-            <div key={step.key} className="flex items-center gap-2.5">
-              <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                {isDone ? (
-                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : isActive ? (
-                  <Spinner />
-                ) : (
-                  <div className="w-3 h-3 rounded-full border-2 border-gray-300" />
-                )}
-              </div>
-              <span className={`text-sm ${isActive ? "text-blue-700 font-medium" : isDone ? "text-blue-400" : "text-gray-400"}`}>
-                {step.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 flex items-center gap-3">
+      <Spinner />
+      <span className="text-sm text-blue-700 font-medium">
+        Scanning and validating (this may take a few minutes)…
+      </span>
     </div>
   );
 }

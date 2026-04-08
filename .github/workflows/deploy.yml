@@ -42,6 +42,7 @@ jobs:
               dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
               azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+              uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
               seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
               containerTag=${{ github.sha }}
 
@@ -51,3 +52,34 @@ jobs:
           az webapp restart \
             --name $APP_SERVICE_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }}
+
+      - name: Build and deploy upload-worker Function App
+        run: |
+          WORKER_NAME=$(az deployment group show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name main \
+            --query properties.outputs.workerFunctionName.value \
+            --output tsv)
+
+          cd functions/upload-worker
+          npm ci
+          npm run build
+
+          # Assemble the deployment package:
+          #   host.json          — Functions host config (must be at root)
+          #   package.json       — needed by the Functions runtime
+          #   dist/              — compiled JS output
+          #   node_modules/      — production dependencies only
+          npm prune --omit=dev
+          mkdir -p staging
+          cp host.json package.json staging/
+          cp -r dist staging/
+          cp -r node_modules staging/
+          cd staging
+          zip -r ../function.zip .
+          cd ..
+
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name $WORKER_NAME \
+            --src function.zip

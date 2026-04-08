@@ -104,14 +104,16 @@ model Classification {
 }
 
 model FileUpload {
-  id         String       @id @default(cuid())
-  userId     String
-  schemaId   String
-  fileName   String
-  blobUrl    String?
-  status     UploadStatus @default(PENDING)
-  errorCount Int          @default(0)
-  createdAt  DateTime     @default(now())
+  id           String       @id @default(cuid())
+  userId       String
+  schemaId     String
+  fileName     String
+  blobUrl      String?
+  status       UploadStatus @default(PENDING)
+  errorCount   Int          @default(0)
+  rowCount     Int          @default(0)
+  errorsCapped Boolean      @default(false)
+  createdAt    DateTime     @default(now())
 
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
