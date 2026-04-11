@@ -8,8 +8,8 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self'",
-  // OAuth redirects + Application Insights telemetry endpoints
-  "connect-src 'self' https://login.microsoftonline.com https://accounts.google.com https://*.applicationinsights.azure.com https://dc.services.visualstudio.com",
+  // OAuth redirects + Application Insights telemetry + direct-to-blob upload
+  "connect-src 'self' https://login.microsoftonline.com https://accounts.google.com https://*.applicationinsights.azure.com https://dc.services.visualstudio.com https://*.blob.core.windows.net",
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "object-src 'none'",

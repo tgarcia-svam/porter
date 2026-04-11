@@ -61,8 +61,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
+  const t0 = Date.now();
+  const elapsed = () => `${Date.now() - t0}ms`;
+  console.log(`[process] uploadId=${uploadId} blob=${blobName} — started`);
+
   // ── Malware scan ──────────────────────────────────────────────────────────
+  const tScan = Date.now();
   const scanResult = await waitForMalwareScanResult(blobName);
+  console.log(`[process] malware scan: result=${scanResult} duration=${Date.now() - tScan}ms elapsed=${elapsed()}`);
+
   if (scanResult === "malicious") {
     await deleteBlobByName(blobName);
     await prisma.fileUpload.update({
@@ -114,12 +121,14 @@ export async function POST(req: NextRequest) {
     return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
   });
 
-  // ── Download blob + validate ──────────────────────────────────────────────
+  // ── Download blob ─────────────────────────────────────────────────────────
+  const tDownload = Date.now();
   let buffer: Buffer;
   try {
     buffer = await downloadBlobByName(blobName);
+    console.log(`[process] blob download: size=${buffer.byteLength}B duration=${Date.now() - tDownload}ms elapsed=${elapsed()}`);
   } catch (err) {
-    console.error("Failed to download blob for processing:", err);
+    console.error(`[process] blob download failed after ${Date.now() - tDownload}ms:`, err);
     await prisma.fileUpload.update({
       where: { id: uploadId },
       data: { status: "INVALID", errorCount: 1 },
@@ -130,12 +139,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "blob_download_failed" });
   }
 
+  // ── Validate ──────────────────────────────────────────────────────────────
+  const tValidate = Date.now();
   const { errors, errorsCapped, rowCount, missingColumns, rows } = await validateFile(
     buffer,
     mimeType,
     columnsForValidation,
     sheetName
   );
+  console.log(`[process] validation: rows=${rowCount} errors=${errors.length} duration=${Date.now() - tValidate}ms elapsed=${elapsed()}`);
 
   const missingColumnErrors = missingColumns.map((col) => ({
     row: 0,
@@ -148,6 +160,7 @@ export async function POST(req: NextRequest) {
   const isValid = allErrors.length === 0;
 
   // ── Persist results ───────────────────────────────────────────────────────
+  const tDb = Date.now();
   await prisma.fileUpload.update({
     where: { id: uploadId },
     data: {
@@ -186,6 +199,8 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+  console.log(`[process] db writes: duration=${Date.now() - tDb}ms elapsed=${elapsed()}`);
+  console.log(`[process] uploadId=${uploadId} complete: status=${isValid ? "VALID" : "INVALID"} rows=${rowCount} total=${elapsed()}`);
 
   return NextResponse.json({
     ok: true,

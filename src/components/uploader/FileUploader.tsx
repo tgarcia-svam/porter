@@ -61,9 +61,11 @@ type UploadResult = {
 export default function FileUploader({
   projects,
   initialUploads,
+  directUpload = false,
 }: {
   projects: Project[];
   initialUploads: UploadRecord[];
+  directUpload?: boolean;
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -212,62 +214,96 @@ export default function FileUploader({
     let isAsyncPath = false;
 
     try {
-      // Step 1 — get a SAS URL for direct-to-blob upload
-      const sasRes = await apiFetch("/api/upload/sas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          schemaId: selectedSchemaId,
-          fileName: selectedFile.name,
-          mimeType: selectedFile.type || "application/octet-stream",
-        }),
-      });
-      const sasData = await sasRes.json();
-      if (!sasRes.ok) {
-        setUploadError(sasData?.error ?? "Could not initiate upload. Please try again.");
-        return;
-      }
-      const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
+      let data: UploadResult & { status: string; uploadId?: string };
 
-      // Step 2 — PUT file directly to blob storage (no app server in the path)
-      const putRes = await fetch(sasUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": selectedFile.type || "application/octet-stream",
-          "x-ms-blob-type": "BlockBlob",
-        },
-        body: selectedFile,
-      });
-      if (!putRes.ok) {
-        setUploadError("File upload to storage failed. Please try again.");
-        return;
+      if (directUpload) {
+        // ── Direct-to-blob path (production) ──────────────────────────────────
+        // Step 1 — get a SAS URL
+        const sasRes = await apiFetch("/api/upload/sas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schemaId: selectedSchemaId,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || "application/octet-stream",
+          }),
+        });
+        let sasData: { sasUrl?: string; blobName?: string; error?: string } = {};
+        try { sasData = await sasRes.json(); } catch { /* non-JSON error body */ }
+        if (!sasRes.ok) {
+          setUploadError(sasData?.error ?? `Upload initialisation failed (HTTP ${sasRes.status}). Please try again.`);
+          return;
+        }
+        const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
+
+        // Step 2 — PUT directly to blob storage
+        console.log("[upload] PUT to blob storage, sasUrl prefix:", sasUrl.slice(0, 80));
+        let putRes: Response;
+        try {
+          putRes = await fetch(sasUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": selectedFile.type || "application/octet-stream",
+              "x-ms-blob-type": "BlockBlob",
+            },
+            body: selectedFile,
+          });
+        } catch (putErr) {
+          // Network error — almost always CORS blocking the preflight
+          console.error("[upload] PUT network error (likely CORS):", putErr);
+          setUploadError(`File could not be sent to storage (network error — check browser console for CORS details).`);
+          return;
+        }
+        console.log("[upload] PUT response status:", putRes.status);
+        if (!putRes.ok) {
+          const body = await putRes.text().catch(() => "");
+          console.error("[upload] PUT failed:", putRes.status, body);
+          setUploadError(`File upload to storage failed (HTTP ${putRes.status}). Please try again.`);
+          return;
+        }
+        console.log("[upload] PUT succeeded, calling confirm...");
+
+        // Step 3 — confirm: create record + enqueue job
+        const confirmRes = await apiFetch("/api/upload/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobName,
+            schemaId: selectedSchemaId,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || "application/octet-stream",
+            sheetName: selectedSheet || undefined,
+          }),
+        });
+        let confirmData: Record<string, unknown> = {};
+        try { confirmData = await confirmRes.json(); } catch { /* non-JSON error body */ }
+        if (!confirmRes.ok) {
+          setUploadError((confirmData?.error as string) ?? "An unexpected error occurred. Please try again.");
+          return;
+        }
+        data = confirmData as typeof data;
+      } else {
+        // ── Server-side multipart path (local dev) ─────────────────────────────
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("schemaId", selectedSchemaId);
+        if (selectedSheet) formData.append("sheetName", selectedSheet);
+
+        const res = await apiFetch("/api/upload", { method: "POST", body: formData });
+        const resData = await res.json();
+        if (!res.ok) {
+          setUploadError(resData?.error ?? "An unexpected error occurred. Please try again.");
+          return;
+        }
+        data = resData;
       }
 
-      // Step 3 — confirm with app server to create record + enqueue job
-      const confirmRes = await apiFetch("/api/upload/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          blobName,
-          schemaId: selectedSchemaId,
-          fileName: selectedFile.name,
-          mimeType: selectedFile.type || "application/octet-stream",
-          sheetName: selectedSheet || undefined,
-        }),
-      });
-      const data = await confirmRes.json();
-      if (!confirmRes.ok) {
-        setUploadError(data?.error ?? "An unexpected error occurred. Please try again.");
-        return;
-      }
-
-      // Always async when Service Bus is configured
       if (data.status === "PENDING") {
         isAsyncPath = true;
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
 
-        const uploadId: string = data.uploadId;
+        const uploadId = data.uploadId!;
         pollingRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`/api/upload/${uploadId}/status`);

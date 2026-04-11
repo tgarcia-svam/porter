@@ -18,19 +18,22 @@ export function isServiceBusConfigured(): boolean {
 
 /**
  * Sends an upload processing job to the Service Bus queue.
- * Uses DefaultAzureCredential — run `az login` locally if needed,
- * or assign the "Azure Service Bus Data Sender" role to the managed identity
- * in production.
+ * Uses connection string when available (production), falls back to
+ * DefaultAzureCredential (local dev with `az login`).
  */
 export async function enqueueUploadJob(message: UploadJobMessage): Promise<void> {
+  const connectionString = process.env.AZURE_SERVICE_BUS_CONNECTION_STRING;
   const namespace = process.env.AZURE_SERVICE_BUS_NAMESPACE;
   const queueName = process.env.AZURE_SERVICE_BUS_QUEUE_NAME ?? "porter-uploads";
 
-  if (!namespace) {
+  if (!connectionString && !namespace) {
     throw new Error("AZURE_SERVICE_BUS_NAMESPACE is not set");
   }
 
-  const client = new ServiceBusClient(namespace, new DefaultAzureCredential());
+  const client = connectionString
+    ? new ServiceBusClient(connectionString)
+    : new ServiceBusClient(namespace!, new DefaultAzureCredential());
+
   const sender = client.createSender(queueName);
   try {
     await sender.sendMessages({ body: message, contentType: "application/json" });

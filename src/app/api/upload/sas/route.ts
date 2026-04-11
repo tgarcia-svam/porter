@@ -17,20 +17,34 @@ import { generateUploadSasUrl } from "@/lib/azure-storage";
 import { verifySessionBinding } from "@/lib/session-binding";
 
 export async function POST(req: NextRequest) {
+  console.log("[upload/sas] request received");
+
   const session = await auth();
   if (!session?.user?.id) {
+    console.log("[upload/sas] unauthorized — no session");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
+    console.log("[upload/sas] unauthorized — session binding failed");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { schemaId, fileName, mimeType } = await req.json();
+  const body = await req.json();
+  const { schemaId, fileName, mimeType } = body;
+  console.log("[upload/sas] body:", { schemaId, fileName, mimeType });
 
   if (!schemaId || !fileName || !mimeType) {
     return NextResponse.json({ error: "schemaId, fileName, and mimeType are required" }, { status: 400 });
   }
+
+  // Log env var presence (not values) to confirm config is loaded
+  console.log("[upload/sas] env check:", {
+    AZURE_STORAGE_ACCOUNT_URL: !!process.env.AZURE_STORAGE_ACCOUNT_URL,
+    AZURE_STORAGE_ACCOUNT_NAME: !!process.env.AZURE_STORAGE_ACCOUNT_NAME,
+    AZURE_STORAGE_ACCOUNT_KEY: !!process.env.AZURE_STORAGE_ACCOUNT_KEY,
+    AZURE_DIRECT_UPLOAD_ENABLED: process.env.AZURE_DIRECT_UPLOAD_ENABLED,
+  });
 
   const userId = session.user.id;
 
@@ -41,6 +55,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!user?.organization) {
+    console.log("[upload/sas] no organization for user", userId);
     return NextResponse.json({ error: "You must belong to an organization to upload files" }, { status: 403 });
   }
 
@@ -52,6 +67,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!access) {
+    console.log("[upload/sas] schema not accessible:", schemaId);
     return NextResponse.json({ error: "Schema not accessible to your organization" }, { status: 403 });
   }
 
@@ -70,8 +86,19 @@ export async function POST(req: NextRequest) {
   const schemaSegment = sanitize(schema.name);
   const datetime = new Date().toISOString().replace(/:/g, "-").replace(/\..+$/, "");
   const blobName = `${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${fileName}`;
+  console.log("[upload/sas] generating SAS for blob:", blobName);
 
-  const sasUrl = await generateUploadSasUrl(blobName);
+  let sasUrl: string;
+  try {
+    sasUrl = await generateUploadSasUrl(blobName);
+    console.log("[upload/sas] SAS URL generated successfully");
+  } catch (err) {
+    console.error("[upload/sas] generateUploadSasUrl failed:", err);
+    return NextResponse.json(
+      { error: `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ sasUrl, blobName });
 }

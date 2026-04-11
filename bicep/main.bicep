@@ -243,6 +243,19 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
   parent: storageAccount
   name: 'default'
+  properties: {
+    cors: {
+      corsRules: [
+        {
+          allowedOrigins: [nextauthUrl, 'http://localhost:3000']
+          allowedMethods: ['PUT', 'OPTIONS']
+          allowedHeaders: ['*']
+          exposedHeaders: ['*']
+          maxAgeInSeconds: 3600
+        }
+      ]
+    }
+  }
 }
 
 resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
@@ -434,6 +447,20 @@ resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = i
   properties: { value: googleClientSecret }
 }
 
+resource kvStorageAccountKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'storage-account-key'
+  properties: { value: storageAccount.listKeys().keys[0].value }
+}
+
+resource kvServiceBusConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'service-bus-connection-string'
+  properties: {
+    value: listKeys('${serviceBusNamespace.id}/AuthorizationRules/RootManageSharedAccessKey', serviceBusNamespace.apiVersion).primaryConnectionString
+  }
+}
+
 resource kvAppInsightsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'appinsights-connection-string'
@@ -502,12 +529,16 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
       : ''
     AZURE_AD_TENANT_ID: azureAdTenantId
 
-    AZURE_STORAGE_ACCOUNT_URL: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
-    AZURE_STORAGE_CONTAINER:   storageContainerName
+    AZURE_STORAGE_ACCOUNT_URL:      'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
+    AZURE_STORAGE_ACCOUNT_NAME:     storageAccount.name
+    AZURE_STORAGE_ACCOUNT_KEY:      '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=storage-account-key)'
+    AZURE_STORAGE_CONTAINER:        storageContainerName
+    AZURE_DIRECT_UPLOAD_ENABLED:    'true'
 
     // Service Bus — enables async background processing of large file uploads
-    AZURE_SERVICE_BUS_NAMESPACE:  '${serviceBusNamespaceName}.servicebus.windows.net'
-    AZURE_SERVICE_BUS_QUEUE_NAME: serviceBusQueueName
+    AZURE_SERVICE_BUS_NAMESPACE:           '${serviceBusNamespaceName}.servicebus.windows.net'
+    AZURE_SERVICE_BUS_QUEUE_NAME:          serviceBusQueueName
+    AZURE_SERVICE_BUS_CONNECTION_STRING:   '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=service-bus-connection-string)'
 
     // Shared secret authenticating /api/upload/process calls from the worker function
     UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
@@ -520,7 +551,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
-  dependsOn: [kvUploadWorkerSecret]
+  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────

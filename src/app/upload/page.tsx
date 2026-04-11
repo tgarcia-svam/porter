@@ -62,6 +62,7 @@ export default async function UploadPage() {
       </div>
 
       <FileUploader
+        directUpload={!!process.env.AZURE_DIRECT_UPLOAD_ENABLED}
         projects={projects}
         initialUploads={recentUploads.map((u) => ({
           id: u.id,

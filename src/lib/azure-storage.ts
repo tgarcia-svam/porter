@@ -1,15 +1,23 @@
-import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters } from "@azure/storage-blob";
+import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
 function getContainerClient() {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
 
   if (!accountUrl) {
     throw new Error("AZURE_STORAGE_ACCOUNT_URL environment variable is not set");
   }
 
-  const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
+  // Use key-based credential when available (production), fall back to
+  // DefaultAzureCredential for local dev with `az login`.
+  const credential = accountName && accountKey
+    ? new StorageSharedKeyCredential(accountName, accountKey)
+    : new DefaultAzureCredential();
+
+  const blobServiceClient = new BlobServiceClient(accountUrl, credential);
   return blobServiceClient.getContainerClient(containerName);
 }
 
@@ -79,28 +87,34 @@ async function logAzurePrincipal() {
  */
 export async function generateUploadSasUrl(blobName: string): Promise<string> {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
-  if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
 
-  const credential = new DefaultAzureCredential();
-  const blobServiceClient = new BlobServiceClient(accountUrl, credential);
+  console.log("[generateUploadSasUrl] env:", {
+    accountUrl: !!accountUrl,
+    accountName: !!accountName,
+    accountKey: !!accountKey,
+    containerName,
+  });
+
+  if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
+  if (!accountName) throw new Error("AZURE_STORAGE_ACCOUNT_NAME is not set");
+  if (!accountKey) throw new Error("AZURE_STORAGE_ACCOUNT_KEY is not set");
 
   const startsOn = new Date();
   const expiresOn = new Date(startsOn.getTime() + 15 * 60 * 1000); // 15 minutes
 
-  const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn);
-
-  const accountName = new URL(accountUrl).hostname.split(".")[0];
+  const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
   const sasQuery = generateBlobSASQueryParameters(
     {
       containerName,
       blobName,
-      permissions: BlobSASPermissions.parse("cw"), // create + write
+      permissions: BlobSASPermissions.parse("cw"), // create + write only
       startsOn,
       expiresOn,
     },
-    userDelegationKey,
-    accountName
+    sharedKeyCredential
   );
 
   return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
