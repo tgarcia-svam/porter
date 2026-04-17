@@ -12,6 +12,7 @@ type Column = {
   dataType: string;
   required: boolean;
   order: number;
+  classification: { values: string[]; caseSensitive: boolean } | null;
 };
 
 type Schema = {
@@ -275,13 +276,26 @@ export default function DataEntryTable({
                   </td>
                   {schema.columns.map((col) => (
                     <td key={col.id} className="px-2 py-1">
-                      <input
-                        type={inputType(col.dataType)}
-                        value={row[col.name] ?? ""}
-                        onChange={(e) => updateCell(originalIdx, col.name, e.target.value)}
-                        className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-300 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
-                        placeholder="—"
-                      />
+                      {col.classification ? (
+                        <select
+                          value={row[col.name] ?? ""}
+                          onChange={(e) => updateCell(originalIdx, col.name, e.target.value)}
+                          className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+                        >
+                          <option value="">—</option>
+                          {col.classification.values.map((v) => (
+                            <option key={v} value={v}>{v}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={inputType(col.dataType)}
+                          value={row[col.name] ?? ""}
+                          onChange={(e) => updateCell(originalIdx, col.name, e.target.value)}
+                          className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-300 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+                          placeholder="—"
+                        />
+                      )}
                     </td>
                   ))}
                   <td className="px-2 py-1.5">
