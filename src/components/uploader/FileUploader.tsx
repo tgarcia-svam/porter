@@ -61,9 +61,11 @@ type UploadResult = {
 export default function FileUploader({
   projects,
   initialUploads,
+  directUpload = false,
 }: {
   projects: Project[];
   initialUploads: UploadRecord[];
+  directUpload?: boolean;
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -94,8 +96,8 @@ export default function FileUploader({
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [dragging, setDragging] = useState(false);
-  const [uploadPhase, setUploadPhase] = useState<"uploading" | "scanning" | "validating" | null>(null);
-  const uploading = uploadPhase !== null;
+  const [uploading, setUploading] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>(initialUploads);
@@ -196,26 +198,127 @@ export default function FileUploader({
     router.refresh();
   }
 
+  function stopPolling() {
+    if (pollingRef.current !== null) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }
+
   async function handleUpload() {
     if (!selectedFile || !selectedSchemaId) return;
-    setUploadPhase("uploading");
+    setUploading(true);
     setResult(null);
     setUploadError(null);
 
-    const scanTimer = setTimeout(() => setUploadPhase("scanning"), 3_000);
-    const validateTimer = setTimeout(() => setUploadPhase("validating"), 28_000);
+    let isAsyncPath = false;
 
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("schemaId", selectedSchemaId);
-      if (selectedSheet) formData.append("sheetName", selectedSheet);
+      let data: UploadResult & { status: string; uploadId?: string };
 
-      const res = await apiFetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
+      if (directUpload) {
+        // ── Direct-to-blob path (production) ──────────────────────────────────
+        // Step 1 — get a SAS URL
+        const sasRes = await apiFetch("/api/upload/sas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schemaId: selectedSchemaId,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || "application/octet-stream",
+          }),
+        });
+        let sasData: { sasUrl?: string; blobName?: string; error?: string } = {};
+        try { sasData = await sasRes.json(); } catch { /* non-JSON error body */ }
+        if (!sasRes.ok) {
+          setUploadError(sasData?.error ?? `Upload initialisation failed (HTTP ${sasRes.status}). Please try again.`);
+          return;
+        }
+        const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
 
-      if (!res.ok) {
-        setUploadError(data?.error ?? "An unexpected error occurred. Please try again.");
+        // Step 2 — PUT directly to blob storage
+        console.log("[upload] PUT to blob storage, sasUrl prefix:", sasUrl.slice(0, 80));
+        let putRes: Response;
+        try {
+          putRes = await fetch(sasUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": selectedFile.type || "application/octet-stream",
+              "x-ms-blob-type": "BlockBlob",
+            },
+            body: selectedFile,
+          });
+        } catch (putErr) {
+          // Network error — almost always CORS blocking the preflight
+          console.error("[upload] PUT network error (likely CORS):", putErr);
+          setUploadError(`File could not be sent to storage (network error — check browser console for CORS details).`);
+          return;
+        }
+        console.log("[upload] PUT response status:", putRes.status);
+        if (!putRes.ok) {
+          const body = await putRes.text().catch(() => "");
+          console.error("[upload] PUT failed:", putRes.status, body);
+          setUploadError(`File upload to storage failed (HTTP ${putRes.status}). Please try again.`);
+          return;
+        }
+        console.log("[upload] PUT succeeded, calling confirm...");
+
+        // Step 3 — confirm: create record + enqueue job
+        const confirmRes = await apiFetch("/api/upload/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            blobName,
+            schemaId: selectedSchemaId,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type || "application/octet-stream",
+            sheetName: selectedSheet || undefined,
+          }),
+        });
+        let confirmData: Record<string, unknown> = {};
+        try { confirmData = await confirmRes.json(); } catch { /* non-JSON error body */ }
+        if (!confirmRes.ok) {
+          setUploadError((confirmData?.error as string) ?? "An unexpected error occurred. Please try again.");
+          return;
+        }
+        data = confirmData as typeof data;
+      } else {
+        // ── Server-side multipart path (local dev) ─────────────────────────────
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("schemaId", selectedSchemaId);
+        if (selectedSheet) formData.append("sheetName", selectedSheet);
+
+        const res = await apiFetch("/api/upload", { method: "POST", body: formData });
+        const resData = await res.json();
+        if (!res.ok) {
+          setUploadError(resData?.error ?? "An unexpected error occurred. Please try again.");
+          return;
+        }
+        data = resData;
+      }
+
+      if (data.status === "PENDING") {
+        isAsyncPath = true;
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        const uploadId = data.uploadId!;
+        pollingRef.current = setInterval(async () => {
+          try {
+            const pollRes = await fetch(`/api/upload/${uploadId}/status`);
+            if (!pollRes.ok) return;
+            const pollData = await pollRes.json();
+            if (pollData.status !== "PENDING") {
+              stopPolling();
+              setUploading(false);
+              setResult(pollData as UploadResult);
+              await refreshHistory();
+            }
+          } catch {
+            // network hiccup — keep polling
+          }
+        }, 3_000);
         return;
       }
 
@@ -224,9 +327,7 @@ export default function FileUploader({
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
     } finally {
-      clearTimeout(scanTimer);
-      clearTimeout(validateTimer);
-      setUploadPhase(null);
+      if (!isAsyncPath) setUploading(false);
     }
   }
 
@@ -395,7 +496,7 @@ export default function FileUploader({
                 {uploading ? "Processing…" : "Upload and validate"}
               </button>
 
-              {uploadPhase && <UploadProgressBanner phase={uploadPhase} />}
+              {uploading && <UploadProgressBanner />}
             </div>
 
             {uploadError && (
@@ -493,40 +594,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function UploadProgressBanner({ phase }: { phase: "uploading" | "scanning" | "validating" }) {
-  const steps: { key: typeof phase; label: string }[] = [
-    { key: "uploading", label: "Uploading file" },
-    { key: "scanning",  label: "Scanning for malware" },
-    { key: "validating", label: "Validating file" },
-  ];
-  const currentIndex = steps.findIndex((s) => s.key === phase);
-
+function UploadProgressBanner() {
   return (
-    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-      <div className="flex flex-col gap-2">
-        {steps.map((step, i) => {
-          const isDone = i < currentIndex;
-          const isActive = i === currentIndex;
-          return (
-            <div key={step.key} className="flex items-center gap-2.5">
-              <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                {isDone ? (
-                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : isActive ? (
-                  <Spinner />
-                ) : (
-                  <div className="w-3 h-3 rounded-full border-2 border-gray-300" />
-                )}
-              </div>
-              <span className={`text-sm ${isActive ? "text-blue-700 font-medium" : isDone ? "text-blue-400" : "text-gray-400"}`}>
-                {step.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 flex items-center gap-3">
+      <Spinner />
+      <span className="text-sm text-blue-700 font-medium">
+        Scanning and validating (this may take a few minutes)…
+      </span>
     </div>
   );
 }

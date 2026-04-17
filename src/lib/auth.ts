@@ -170,7 +170,8 @@ async function buildInstance(): Promise<AuthInstance> {
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
     events: {
-      async signOut({ token }) {
+      async signOut(message) {
+        const token = "token" in message ? message.token : null;
         logAuthEvent({
           action: "auth.logout",
           userId: token?.["id"] as string | undefined,

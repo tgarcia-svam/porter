@@ -43,7 +43,12 @@ const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 // Paths exempt from CSRF validation — NextAuth handles its own CSRF internally,
 // and the upload endpoint uses multipart/form-data which cannot set custom headers
 // from a cross-origin form, so the same-origin session check is sufficient there.
-const CSRF_EXEMPT = ["/api/auth"];
+const CSRF_EXEMPT = [
+  "/api/auth",
+  "/api/upload/process", // authenticated by X-Worker-Secret header, not session/CSRF
+  "/api/upload/sas",     // session-authenticated JSON POST — no cookie available from SAS flow
+  "/api/upload/confirm", // follows SAS upload — session-authenticated JSON POST
+];
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {

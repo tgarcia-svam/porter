@@ -1,21 +1,29 @@
-import { BlobServiceClient } from "@azure/storage-blob";
+import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
 function getContainerClient() {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
 
   if (!accountUrl) {
     throw new Error("AZURE_STORAGE_ACCOUNT_URL environment variable is not set");
   }
 
-  const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
+  // Use key-based credential when available (production), fall back to
+  // DefaultAzureCredential for local dev with `az login`.
+  const credential = accountName && accountKey
+    ? new StorageSharedKeyCredential(accountName, accountKey)
+    : new DefaultAzureCredential();
+
+  const blobServiceClient = new BlobServiceClient(accountUrl, credential);
   return blobServiceClient.getContainerClient(containerName);
 }
 
 export async function waitForMalwareScanResult(
   blobName: string,
-  timeoutMs = 30_000,
+  timeoutMs = 8_000,
   pollIntervalMs = 2_000
 ): Promise<"clean" | "malicious" | "pending"> {
   const containerClient = getContainerClient();
@@ -41,12 +49,18 @@ export async function downloadFromBlob(blobUrl: string): Promise<Buffer> {
   const containerClient = getContainerClient();
 
   // Extract blob name from URL: strip scheme + host + "/{containerName}/"
+  // Decode first so the SDK doesn't double-encode any percent-encoded characters.
   const url = new URL(blobUrl);
-  const blobName = url.pathname.replace(
-    `/${containerClient.containerName}/`,
-    ""
+  const blobName = decodeURIComponent(
+    url.pathname.replace(`/${containerClient.containerName}/`, "")
   );
 
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  return await blockBlobClient.downloadToBuffer();
+}
+
+export async function downloadBlobByName(blobName: string): Promise<Buffer> {
+  const containerClient = getContainerClient();
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   return await blockBlobClient.downloadToBuffer();
 }
@@ -64,6 +78,46 @@ async function logAzurePrincipal() {
   } catch (err) {
     console.warn("[azure-storage] could not resolve principal:", err);
   }
+}
+
+/**
+ * Generates a short-lived write-only SAS URL so the browser can upload
+ * directly to blob storage without routing the file through the app server.
+ * Uses a user delegation key (DefaultAzureCredential — no storage key needed).
+ */
+export async function generateUploadSasUrl(blobName: string): Promise<string> {
+  const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+  const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
+
+  console.log("[generateUploadSasUrl] env:", {
+    accountUrl: !!accountUrl,
+    accountName: !!accountName,
+    accountKey: !!accountKey,
+    containerName,
+  });
+
+  if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
+  if (!accountName) throw new Error("AZURE_STORAGE_ACCOUNT_NAME is not set");
+  if (!accountKey) throw new Error("AZURE_STORAGE_ACCOUNT_KEY is not set");
+
+  const startsOn = new Date();
+  const expiresOn = new Date(startsOn.getTime() + 15 * 60 * 1000); // 15 minutes
+
+  const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
+  const sasQuery = generateBlobSASQueryParameters(
+    {
+      containerName,
+      blobName,
+      permissions: BlobSASPermissions.parse("cw"), // create + write only
+      startsOn,
+      expiresOn,
+    },
+    sharedKeyCredential
+  );
+
+  return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
 }
 
 export async function uploadToBlob(

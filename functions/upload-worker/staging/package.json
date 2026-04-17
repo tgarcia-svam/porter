@@ -1,0 +1,21 @@
+{
+  "name": "porter-upload-worker",
+  "version": "1.0.0",
+  "description": "Azure Function: Service Bus → /api/upload/process forwarder",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
