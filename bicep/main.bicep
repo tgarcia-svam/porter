@@ -40,6 +40,10 @@ param dbAdminUser string = 'porteradmin'
 @secure()
 param dbAdminPassword string
 
+@description('PostgreSQL application user password — used by the app at runtime (not for migrations)')
+@secure()
+param dbAppUserPassword string
+
 @description('PostgreSQL compute SKU')
 param dbSkuName string = 'Standard_B1ms'
 
@@ -415,12 +419,19 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
 
 // ── Key Vault Secrets ─────────────────────────────────────────────────────────
 
-var effectiveDatabaseUrl = 'postgresql://${dbAdminUser}:${dbAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
+var effectiveDatabaseUrl    = 'postgresql://${dbAdminUser}:${dbAdminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
+var effectiveDatabaseUrlApp = 'postgresql://porterapp:${dbAppUserPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
 
 resource kvDatabaseUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'database-url'
   properties: { value: effectiveDatabaseUrl }
+}
+
+resource kvDatabaseUrlApp 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'database-url-app'
+  properties: { value: effectiveDatabaseUrlApp }
 }
 
 resource kvDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
@@ -510,7 +521,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: appService
   name: 'appsettings'
   properties: {
-    DATABASE_URL: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url)'
+    DATABASE_URL: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url-app)'
 
     NEXTAUTH_URL:    nextauthUrl
     NEXTAUTH_SECRET: !empty(nextauthSecret)
@@ -551,7 +562,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
-  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString]
+  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString, kvDatabaseUrlApp]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────

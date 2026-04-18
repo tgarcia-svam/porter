@@ -14,6 +14,7 @@ type Column = {
   dataType: string;
   required: boolean;
   order: number;
+  classification: { values: string[]; caseSensitive: boolean } | null;
 };
 
 type Schema = {
@@ -418,20 +419,46 @@ export default function FileUploader({
         {activeTab === "upload" && (
           <>
             <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-              {selectedSchema && (
+              {selectedSchema && selectedSchema.columns.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2">Expected columns:</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedSchema.columns.map((col) => (
-                      <span
-                        key={col.id}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs"
-                      >
-                        <span className="font-medium font-mono text-gray-700">{col.name}</span>
-                        <span className="text-gray-400">{col.dataType}</span>
-                        {col.required && <span className="text-red-400 font-bold">*</span>}
-                      </span>
-                    ))}
+                  <p className="text-xs font-medium text-gray-500 mb-1.5">Expected Data Format</p>
+                  <div className="w-auto inline-block overflow-x-auto">
+                    <table className="text-xs border-collapse">
+                      <tbody>
+                        <tr className="border-b border-gray-200">
+                          <td className="px-2 py-1.5 font-semibold text-gray-500 whitespace-nowrap bg-gray-50 border-r border-gray-200">
+                            Headers
+                          </td>
+                          {selectedSchema.columns.map((col) => (
+                            <td key={col.id} className="px-2 py-1.5 font-mono font-medium text-gray-800 whitespace-nowrap border-r border-gray-100 last:border-r-0">
+                              {col.name}{col.required && <span className="text-red-400 ml-0.5">*</span>}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="border-b border-gray-200">
+                          <td className="px-2 py-1.5 font-semibold text-gray-500 whitespace-nowrap bg-gray-50 border-r border-gray-200">
+                            Data Type
+                          </td>
+                          {selectedSchema.columns.map((col) => (
+                            <td key={col.id} className="px-2 py-1.5 text-gray-500 whitespace-nowrap border-r border-gray-100 last:border-r-0">
+                              {col.dataType}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-1.5 font-semibold text-gray-500 whitespace-nowrap bg-gray-50 border-r border-gray-200">
+                            Value Requirements
+                          </td>
+                          {selectedSchema.columns.map((col) => (
+                            <td key={col.id} className="px-2 py-1.5 text-gray-500 border-r border-gray-100 last:border-r-0">
+                              {col.classification
+                                ? col.classification.values.join(", ")
+                                : <span className="text-gray-300">any</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}

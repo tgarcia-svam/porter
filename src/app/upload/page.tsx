@@ -22,7 +22,14 @@ export default async function UploadPage() {
         include: {
           schemas: {
             include: {
-              schema: { include: { columns: { orderBy: { order: "asc" } } } },
+              schema: {
+                include: {
+                  columns: {
+                    include: { classification: { select: { values: true, caseSensitive: true } } },
+                    orderBy: { order: "asc" },
+                  },
+                },
+              },
             },
             orderBy: { assignedAt: "asc" },
           },

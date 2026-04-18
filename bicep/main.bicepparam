@@ -13,7 +13,8 @@ param storageContainerName = 'porter-uploads'
 param dbServerName = 'porter-postgres'
 param dbName       = 'porter-database'
 param dbAdminUser     = 'porteradmin'
-param dbAdminPassword = ''   // overridden in main.secrets.bicepparam
+param dbAdminPassword    = ''   // overridden in main.secrets.bicepparam
+param dbAppUserPassword  = ''   // overridden in main.secrets.bicepparam
 
 // ── App Service ───────────────────────────────────────────────────────────────
 param appServiceSkuName = 'B2'
@@ -40,5 +41,5 @@ param seedAdminEmail = 'tgarcia@svam.com'
 param containerTag = 'latest'
 
 // ── Service Bus / async worker ────────────────────────────────────────────────
-param serviceBusQueueName = 'porter-uploads'
-// uploadWorkerSecret → secret in main.secrets.bicepparam
+param serviceBusQueueName  = 'porter-uploads'
+param uploadWorkerSecret   = ''   // overridden in main.secrets.bicepparam
