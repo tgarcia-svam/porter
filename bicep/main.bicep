@@ -521,7 +521,8 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
   parent: appService
   name: 'appsettings'
   properties: {
-    DATABASE_URL: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url-app)'
+    DATABASE_URL:       '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url-app)'
+    DATABASE_URL_ADMIN: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=database-url)'
 
     NEXTAUTH_URL:    nextauthUrl
     NEXTAUTH_SECRET: !empty(nextauthSecret)
@@ -562,7 +563,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
-  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString, kvDatabaseUrlApp]
+  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString, kvDatabaseUrlApp, kvDatabaseUrl]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────
