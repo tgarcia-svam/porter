@@ -25,8 +25,8 @@ export default async function UploadPage() {
               schema: {
                 include: {
                   columns: {
-                    include: { classification: { select: { values: true, caseSensitive: true } } },
                     orderBy: { order: "asc" },
+                    include: { classification: { select: { values: true, caseSensitive: true } } },
                   },
                 },
               },
