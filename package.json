@@ -11,7 +11,8 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "db:rls": "tsx prisma/apply-rls.ts"
+    "db:rls": "tsx prisma/apply-rls.ts",
+    "db:create-app-user": "tsx prisma/create-app-user.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",
