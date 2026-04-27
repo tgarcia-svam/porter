@@ -1,0 +1,86 @@
+import { test, expect } from "@playwright/test";
+import { apiPost, apiPut, apiDelete } from "./helpers";
+
+const ORG_NAME = `PW Org ${Date.now()}`;
+
+test.describe("GET /api/organizations", () => {
+  test("returns 200 with array", async ({ request }) => {
+    const res = await request.get("/api/organizations");
+    expect(res.status()).toBe(200);
+    expect(Array.isArray(await res.json())).toBe(true);
+  });
+
+  test("returns 403 without auth", async ({ browser }) => {
+    const ctx = await browser.newContext();
+    const res = await ctx.request.get("/api/organizations");
+    expect(res.status()).toBe(403);
+    await ctx.close();
+  });
+});
+
+test.describe("POST /api/organizations", () => {
+  let orgId: string;
+
+  test("creates an organization and returns 201", async ({ request }) => {
+    const res = await apiPost(request, "/api/organizations", { name: ORG_NAME });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.name).toBe(ORG_NAME);
+    expect(typeof body.id).toBe("string");
+    orgId = body.id;
+  });
+
+  test("returns 400 for missing name", async ({ request }) => {
+    const res = await apiPost(request, "/api/organizations", { name: "" });
+    expect(res.status()).toBe(400);
+  });
+});
+
+test.describe("GET /api/organizations/:id", () => {
+  test("returns the organization", async ({ request }) => {
+    const listRes = await request.get("/api/organizations");
+    const orgs = await listRes.json();
+    if (orgs.length === 0) test.skip();
+    const org = orgs[0];
+
+    const res = await request.get(`/api/organizations/${org.id}`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.id).toBe(org.id);
+  });
+
+  test("returns 404 for unknown id", async ({ request }) => {
+    const res = await request.get("/api/organizations/no-such-org-00000000");
+    expect(res.status()).toBe(404);
+  });
+});
+
+test.describe("PUT /api/organizations/:id", () => {
+  test("updates the organization name", async ({ request }) => {
+    const listRes = await request.get("/api/organizations");
+    const orgs: Array<{ id: string; name: string }> = await listRes.json();
+    const target = orgs.find((o) => o.name === ORG_NAME);
+    if (!target) test.skip();
+
+    const res = await apiPut(request, `/api/organizations/${target.id}`, {
+      name: `${ORG_NAME} Updated`,
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe(`${ORG_NAME} Updated`);
+  });
+});
+
+test.describe("DELETE /api/organizations/:id", () => {
+  test("deletes the created organization", async ({ request }) => {
+    const listRes = await request.get("/api/organizations");
+    const orgs: Array<{ id: string; name: string }> = await listRes.json();
+    const target = orgs.find(
+      (o) => o.name === ORG_NAME || o.name === `${ORG_NAME} Updated`,
+    );
+    if (!target) test.skip();
+
+    const res = await apiDelete(request, `/api/organizations/${target.id}`);
+    expect([200, 204]).toContain(res.status());
+  });
+});

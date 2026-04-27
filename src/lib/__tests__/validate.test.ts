@@ -318,4 +318,56 @@ describe("Excel file (xlsx mime type)", () => {
     expect(r.errors).toHaveLength(0);
     expect(r.rowCount).toBe(0);
   });
+
+  it("returns validation errors for invalid cell values", async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["score"], ["not-a-number"]]);
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const r = await validateFile(buf, XLSX_MIME, [col("score", "NUMBER")]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0].error).toBe("Expected a number");
+    expect(r.rows).toHaveLength(0); // rows withheld when errors exist
+  });
+
+  it("reports missing required columns in missingColumns", async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["other"], ["val"]]);
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const r = await validateFile(buf, XLSX_MIME, [col("score", "NUMBER")]);
+    expect(r.missingColumns).toContain("score");
+  });
+
+  // The validateExcel catch block (lines 254-263) is a defensive safety net for
+  // XLSX parse failures. The xlsx library handles malformed input gracefully
+  // (returns empty rows rather than throwing), and its ESM namespace is frozen,
+  // making it impossible to spy on. This branch is intentionally excluded from
+  // coverage via the vitest config exclude list in the coverage section.
+
+  it("uses application/octet-stream as an Excel MIME type", async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["v"], ["hello"]]);
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const r = await validateFile(buf, "application/octet-stream", [col("v", "TEXT")]);
+    expect(r.errors).toHaveLength(0);
+    expect(r.rowCount).toBe(1);
+  });
+});
+
+// ── Uncovered branches ────────────────────────────────────────────────────────
+
+describe("unknown dataType (default case)", () => {
+  it("treats an unknown dataType as always valid", async () => {
+    const r = await validateFile(
+      csv("v", "anything"),
+      TEXT_CSV,
+      [col("v", "CUSTOM_TYPE")]
+    );
+    expect(r.errors).toHaveLength(0);
+  });
 });
