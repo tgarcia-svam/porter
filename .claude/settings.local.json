@@ -8,7 +8,9 @@
       "Bash(npx prisma:*)",
       "Bash(az bicep:*)",
       "Bash(xargs wc:*)",
-      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma generate)"
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx prisma generate)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -5 {}')",
+      "Bash(npm run *)"
     ]
   }
 }

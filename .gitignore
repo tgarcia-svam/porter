@@ -49,3 +49,8 @@ terraform/*.tfplan
 
 # Bicep — secrets.bicepparam is gitignored; main.bicepparam is safe to commit
 bicep/*.secrets.bicepparam
+
+# Playwright
+playwright-report/
+test-results/
+.auth/
