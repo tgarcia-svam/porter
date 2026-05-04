@@ -10,7 +10,7 @@ test.describe("Upload page", () => {
   });
 
   test("redirects unauthenticated users to login", async ({ browser }) => {
-    const ctx = await browser.newContext(); // no auth
+    const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
     const page = await ctx.newPage();
     await page.goto("/upload");
     await expect(page).toHaveURL(/\/login/);
@@ -22,19 +22,18 @@ test.describe("Upload page", () => {
     // Admin users with no org assigned see the upload page but may show
     // an empty state or project selector depending on org assignment.
     // Verify the page renders something meaningful.
-    const body = page.locator("main, [role='main'], body > div");
-    await expect(body.first()).toBeVisible();
+    await expect(page.locator("main")).toBeVisible();
   });
 });
 
 test.describe("Login page", () => {
   test("shows Porter heading and sign-in buttons", async ({ browser }) => {
-    const ctx = await browser.newContext();
+    const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
     const page = await ctx.newPage();
     await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Porter" })).toBeVisible();
     // At least one sign-in button should be present
-    const signInBtn = page.getByRole("button").filter({ hasText: /sign in/i }).first();
+    const signInBtn = page.getByRole("button").filter({ hasText: /Continue with/i }).first();
     await expect(signInBtn).toBeVisible();
     await ctx.close();
   });

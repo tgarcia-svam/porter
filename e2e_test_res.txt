@@ -1,0 +1,49 @@
+
+> porter@0.1.0 test:e2e
+> playwright test
+
+
+Running 35 tests using 1 worker
+
+  ✓   1 [setup] › tests\auth.setup.ts:14:6 › create admin session (302ms)
+  ✓   2 [setup] › tests\auth.setup.ts:26:6 › create uploader session (75ms)
+  ✓   3 [api] › tests\api\organizations.test.ts:7:7 › GET /api/organizations › returns 200 with array (184ms)
+  ✓   4 [api] › tests\api\organizations.test.ts:13:7 › GET /api/organizations › returns 403 without auth (37ms)
+  ✓   5 [api] › tests\api\organizations.test.ts:23:7 › POST /api/organizations › creates an organization and returns 201 (64ms)
+  ✓   6 [api] › tests\api\organizations.test.ts:31:7 › POST /api/organizations › returns 400 for missing name (50ms)
+  ✓   7 [api] › tests\api\organizations.test.ts:38:7 › PUT /api/organizations/:id › updates the organization name (857ms)
+  ✓   8 [api] › tests\api\organizations.test.ts:54:7 › DELETE /api/organizations/:id › deletes the created organization (118ms)
+  ✓   9 [api] › tests\api\schemas.test.ts:17:7 › GET /api/schemas › returns 200 with array (105ms)
+  ✓  10 [api] › tests\api\schemas.test.ts:23:7 › GET /api/schemas › returns 403 without auth (14ms)
+  ✓  11 [api] › tests\api\schemas.test.ts:32:7 › POST /api/schemas › creates a schema with columns and returns 201 (51ms)
+  ✓  12 [api] › tests\api\schemas.test.ts:40:7 › POST /api/schemas › returns 400 when columns array is empty (32ms)
+  ✓  13 [api] › tests\api\schemas.test.ts:48:7 › POST /api/schemas › returns 400 when columns are missing (38ms)
+  ✓  14 [api] › tests\api\schemas.test.ts:55:7 › GET /api/schemas/:id › returns the schema with columns and projects (895ms)
+  ✓  15 [api] › tests\api\schemas.test.ts:68:7 › GET /api/schemas/:id › returns 404 for unknown id (33ms)
+  ✓  16 [api] › tests\api\schemas.test.ts:75:7 › DELETE /api/schemas/:id › deletes the test schema (124ms)
+  ✓  17 [api] › tests\api\users.test.ts:7:7 › GET /api/users › returns 200 with array of users (78ms)
+  ✓  18 [api] › tests\api\users.test.ts:14:7 › GET /api/users › returns 403 without authentication (23ms)
+  ✓  19 [api] › tests\api\users.test.ts:24:7 › POST /api/users › creates a new user and returns 201 (38ms)
+  ✓  20 [api] › tests\api\users.test.ts:36:7 › POST /api/users › returns 409 when email already exists (32ms)
+  ✓  21 [api] › tests\api\users.test.ts:44:7 › POST /api/users › returns 400 for invalid email (32ms)
+  ✓  22 [api] › tests\api\users.test.ts:54:7 › DELETE /api/users/:id › deletes the created test user (846ms)
+  ✓  23 [ui] › tests\ui\admin.test.ts:4:7 › Admin dashboard › loads the dashboard page (722ms)
+  ✓  24 [ui] › tests\ui\admin.test.ts:9:7 › Admin dashboard › shows stat cards for Users, File Formats, Total Uploads (483ms)
+  ✓  25 [ui] › tests\ui\admin.test.ts:17:7 › Admin dashboard › shows Recent Uploads section (444ms)
+  ✓  26 [ui] › tests\ui\admin.test.ts:22:7 › Admin dashboard › redirects unauthenticated users to login (426ms)
+  ✓  27 [ui] › tests\ui\admin.test.ts:32:7 › Admin users page › loads and shows Users heading (509ms)
+  ✓  28 [ui] › tests\ui\admin.test.ts:37:7 › Admin users page › shows Add User button (547ms)
+  ✓  29 [ui] › tests\ui\admin.test.ts:42:7 › Admin users page › shows the test admin in the user list (456ms)
+  ✓  30 [ui] › tests\ui\admin.test.ts:49:7 › Admin schemas page › loads and shows File Formats heading (550ms)
+  ✓  31 [ui] › tests\ui\admin.test.ts:59:7 › Admin navigation › sidebar links navigate correctly (601ms)
+  ✓  32 [ui] › tests\ui\upload.test.ts:4:7 › Upload page › loads the upload page (517ms)
+  ✓  33 [ui] › tests\ui\upload.test.ts:12:7 › Upload page › redirects unauthenticated users to login (391ms)
+  ✓  34 [ui] › tests\ui\upload.test.ts:20:7 › Upload page › shows file drop area or project selector (427ms)
+  ✓  35 [ui] › tests\ui\upload.test.ts:30:7 › Login page › shows Porter heading and sign-in buttons (379ms)
+
+  35 passed (19.2s)
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m

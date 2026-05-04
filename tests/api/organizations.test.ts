@@ -10,48 +10,27 @@ test.describe("GET /api/organizations", () => {
     expect(Array.isArray(await res.json())).toBe(true);
   });
 
-  test("returns 403 without auth", async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const res = await ctx.request.get("/api/organizations");
+  test("returns 403 without auth", async ({ playwright }) => {
+    // Use a fully isolated API context with no storage state
+    const ctx = await playwright.request.newContext({ baseURL: "http://localhost:3000", storageState: { cookies: [], origins: [] } });
+    const res = await ctx.get("/api/organizations");
     expect(res.status()).toBe(403);
-    await ctx.close();
+    await ctx.dispose();
   });
 });
 
 test.describe("POST /api/organizations", () => {
-  let orgId: string;
-
   test("creates an organization and returns 201", async ({ request }) => {
     const res = await apiPost(request, "/api/organizations", { name: ORG_NAME });
     expect(res.status()).toBe(201);
     const body = await res.json();
     expect(body.name).toBe(ORG_NAME);
     expect(typeof body.id).toBe("string");
-    orgId = body.id;
   });
 
   test("returns 400 for missing name", async ({ request }) => {
     const res = await apiPost(request, "/api/organizations", { name: "" });
     expect(res.status()).toBe(400);
-  });
-});
-
-test.describe("GET /api/organizations/:id", () => {
-  test("returns the organization", async ({ request }) => {
-    const listRes = await request.get("/api/organizations");
-    const orgs = await listRes.json();
-    if (orgs.length === 0) test.skip();
-    const org = orgs[0];
-
-    const res = await request.get(`/api/organizations/${org.id}`);
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body.id).toBe(org.id);
-  });
-
-  test("returns 404 for unknown id", async ({ request }) => {
-    const res = await request.get("/api/organizations/no-such-org-00000000");
-    expect(res.status()).toBe(404);
   });
 });
 

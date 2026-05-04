@@ -20,24 +20,21 @@ test.describe("GET /api/schemas", () => {
     expect(Array.isArray(await res.json())).toBe(true);
   });
 
-  test("returns 403 without auth", async ({ browser }) => {
-    const ctx = await browser.newContext();
-    const res = await ctx.request.get("/api/schemas");
+  test("returns 403 without auth", async ({ playwright }) => {
+    const ctx = await playwright.request.newContext({ baseURL: "http://localhost:3000", storageState: { cookies: [], origins: [] } });
+    const res = await ctx.get("/api/schemas");
     expect(res.status()).toBe(403);
-    await ctx.close();
+    await ctx.dispose();
   });
 });
 
 test.describe("POST /api/schemas", () => {
-  let schemaId: string;
-
   test("creates a schema with columns and returns 201", async ({ request }) => {
     const res = await apiPost(request, "/api/schemas", BASE_SCHEMA);
     expect(res.status()).toBe(201);
     const body = await res.json();
     expect(body.name).toBe(SCHEMA_NAME);
     expect(body.columns).toHaveLength(3);
-    schemaId = body.id;
   });
 
   test("returns 400 when columns array is empty", async ({ request }) => {
@@ -59,7 +56,7 @@ test.describe("GET /api/schemas/:id", () => {
     const listRes = await request.get("/api/schemas");
     const schemas: Array<{ id: string; name: string }> = await listRes.json();
     const target = schemas.find((s) => s.name === SCHEMA_NAME);
-    if (!target) test.skip();
+    if (!target) return test.skip();
 
     const res = await request.get(`/api/schemas/${target.id}`);
     expect(res.status()).toBe(200);
@@ -79,7 +76,7 @@ test.describe("DELETE /api/schemas/:id", () => {
     const listRes = await request.get("/api/schemas");
     const schemas: Array<{ id: string; name: string }> = await listRes.json();
     const target = schemas.find((s) => s.name === SCHEMA_NAME);
-    if (!target) test.skip();
+    if (!target) return test.skip();
 
     const res = await apiDelete(request, `/api/schemas/${target.id}`);
     expect([200, 204]).toContain(res.status());

@@ -8,9 +8,10 @@ test.describe("Admin dashboard", () => {
 
   test("shows stat cards for Users, File Formats, Total Uploads", async ({ page }) => {
     await page.goto("/admin");
-    await expect(page.getByText("Users")).toBeVisible();
-    await expect(page.getByText("File Formats")).toBeVisible();
-    await expect(page.getByText("Total Uploads")).toBeVisible();
+    const main = page.getByRole("main");
+    await expect(main.getByText("Users", { exact: true }).first()).toBeVisible();
+    await expect(main.getByText("File Formats", { exact: true })).toBeVisible();
+    await expect(main.getByText("Total Uploads", { exact: true })).toBeVisible();
   });
 
   test("shows Recent Uploads section", async ({ page }) => {
@@ -19,7 +20,7 @@ test.describe("Admin dashboard", () => {
   });
 
   test("redirects unauthenticated users to login", async ({ browser }) => {
-    const ctx = await browser.newContext(); // no auth cookies
+    const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
     const page = await ctx.newPage();
     await page.goto("/admin");
     await expect(page).toHaveURL(/\/login/);
