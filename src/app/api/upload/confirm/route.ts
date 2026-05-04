@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
   const body = await req.json();
   const { blobName, schemaId, fileName, mimeType, sheetName } = body;
-  console.log("[upload/confirm] body:", { blobName, schemaId, fileName, mimeType, sheetName });
+  console.log("[upload/confirm] body:", { schemaId, mimeType, sheetName });
 
   if (!blobName || !schemaId || !fileName || !mimeType) {
     return NextResponse.json({ error: "blobName, schemaId, fileName, and mimeType are required" }, { status: 400 });

@@ -88,13 +88,13 @@ const callbacks: NextAuthConfig["callbacks"] = {
         user?.email ??
         (profile as Record<string, unknown>)?.preferred_username as string | undefined ??
         profile?.email;
-      console.log("[auth] jwt — resolved email:", email, "token.preferred_username:", token["preferred_username"]);
+      console.log("[auth] jwt — email resolved:", !!email);
       if (email) {
         const dbUser = await prisma.user.findFirst({
           where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
           select: { id: true, role: true },
         });
-        console.log("[auth] jwt DB lookup for", email, "→", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
+        console.log("[auth] jwt DB lookup →", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
         if (dbUser) {
           token["id"] = dbUser.id;
           token["role"] = dbUser.role;

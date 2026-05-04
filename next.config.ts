@@ -34,6 +34,32 @@ const securityHeaders = [
     key: "X-Content-Type-Options",
     value: "nosniff",
   },
+  {
+    key: "Referrer-Policy",
+    value: "strict-origin-when-cross-origin",
+  },
+  {
+    // Disable browser features this app does not use
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+  },
+  {
+    key: "X-DNS-Prefetch-Control",
+    value: "off",
+  },
+  {
+    // Prevents window.opener attacks from OAuth redirect windows
+    key: "Cross-Origin-Opener-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "Cross-Origin-Resource-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "X-Permitted-Cross-Domain-Policies",
+    value: "none",
+  },
 ];
 
 const nextConfig: NextConfig = {

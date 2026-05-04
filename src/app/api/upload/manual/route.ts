@@ -3,6 +3,9 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
+import { verifySessionBinding } from "@/lib/session-binding";
+import { logAuthEvent } from "@/lib/auth-audit";
+import { auditStore, clientIp } from "@/lib/audit-context";
 import Papa from "papaparse";
 
 export async function POST(req: NextRequest) {
@@ -10,7 +13,19 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  if (!verifySessionBinding(session.user.uaHash, req)) {
+    logAuthEvent({
+      action: "auth.session.invalid",
+      userId: session.user.id,
+      userEmail: session.user.email,
+      ipAddress: clientIp(req),
+    });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const userId: string = session.user.id;
+  auditStore.enterWith({ userId, userEmail: session.user.email ?? undefined, ip: clientIp(req) });
 
   const body = (await req.json()) as {
     schemaId?: string;

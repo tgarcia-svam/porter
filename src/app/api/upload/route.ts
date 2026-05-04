@@ -124,10 +124,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Malware scan (Defender for Storage — no-op if not configured).
+  // Must block the response on both paths so a malicious file is never
+  // committed to the DB or enqueued for processing.
+  const scanResult = await waitForMalwareScanResult(blobName);
+  if (scanResult === "malicious") {
+    await deleteBlobByName(blobName);
+    return NextResponse.json({ error: "File rejected: malware detected." }, { status: 422 });
+  }
+
   // ── Async path (Service Bus configured) ───────────────────────────────────
   // Create a PENDING record, enqueue the job, return immediately.
-  // The /api/upload/process worker handles malware scanning, validation, and
-  // row storage. It is triggered by an Azure Function Service Bus trigger that
+  // The /api/upload/process worker handles validation and row storage.
+  // It is triggered by an Azure Function Service Bus trigger that
   // calls POST /api/upload/process with the message payload.
   if (isServiceBusConfigured()) {
     const record = await prisma.fileUpload.create({
@@ -148,13 +157,6 @@ export async function POST(req: NextRequest) {
 
   // ── Inline fallback (no Service Bus — local dev) ───────────────────────────
   // Runs the full pipeline synchronously within this request.
-
-  // Malware scan (Defender for Storage — no-op if not configured)
-  const scanResult = await waitForMalwareScanResult(blobName);
-  if (scanResult === "malicious") {
-    await deleteBlobByName(blobName);
-    return NextResponse.json({ error: "File rejected: malware detected." }, { status: 422 });
-  }
 
   // Fetch classifications in parallel with nothing else to do here
   const classificationIds = schema.columns

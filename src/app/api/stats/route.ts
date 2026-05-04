@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { verifySessionBinding } from "@/lib/session-binding";
+import { logAuthEvent } from "@/lib/auth-audit";
+import { clientIp } from "@/lib/audit-context";
 
 const TRUNC: Record<string, string> = { DAY: "day", MONTH: "month", YEAR: "year" };
 const FMT: Record<string, string> = { DAY: "YYYY-MM-DD", MONTH: "YYYY-MM", YEAR: "YYYY" };
@@ -8,6 +11,16 @@ const FMT: Record<string, string> = { DAY: "YYYY-MM-DD", MONTH: "YYYY-MM", YEAR:
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!verifySessionBinding(session.user.uaHash, req)) {
+    logAuthEvent({
+      action: "auth.session.invalid",
+      userId: session.user.id,
+      userEmail: session.user.email,
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
