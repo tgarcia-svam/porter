@@ -14,6 +14,7 @@ type Column = {
   dataType: string;
   required: boolean;
   order: number;
+  classification: { values: string[]; caseSensitive: boolean } | null;
 };
 
 type Schema = {
@@ -418,21 +419,68 @@ export default function FileUploader({
         {activeTab === "upload" && (
           <>
             <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-              {selectedSchema && (
+              {selectedSchema && selectedSchema.columns.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2">Expected columns:</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedSchema.columns.map((col) => (
-                      <span
-                        key={col.id}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs"
-                      >
-                        <span className="font-medium font-mono text-gray-700">{col.name}</span>
-                        <span className="text-gray-400">{col.dataType}</span>
-                        {col.required && <span className="text-red-400 font-bold">*</span>}
-                      </span>
-                    ))}
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Expected Data Format
+                  </p>
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 inline-block max-w-full">
+                    <table className="text-xs w-auto">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-2 py-1.5 text-left font-semibold text-gray-400 whitespace-nowrap border-r border-gray-200">
+                            Headers
+                          </th>
+                          {selectedSchema.columns.map((col) => (
+                            <th
+                              key={col.id}
+                              className="px-2 py-1.5 text-left font-semibold text-gray-700 font-mono whitespace-nowrap"
+                            >
+                              {col.name}
+                              {col.required && (
+                                <span className="ml-0.5 text-red-500">*</span>
+                              )}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-gray-100">
+                          <td className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap border-r border-gray-200">
+                            Data Type
+                          </td>
+                          {selectedSchema.columns.map((col) => (
+                            <td key={col.id} className="px-2 py-1.5 text-gray-500 whitespace-nowrap">
+                              {col.dataType}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap border-r border-gray-200">
+                            Value Requirements
+                          </td>
+                          {selectedSchema.columns.map((col) => (
+                            <td key={col.id} className="px-2 py-1.5">
+                              {col.classification ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {col.classification.values.map((v) => (
+                                    <span key={v} className="inline-flex items-center rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-green-700 font-medium whitespace-nowrap">
+                                      {v}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    <span className="text-red-500 font-bold">*</span> required
+                  </p>
                 </div>
               )}
 
