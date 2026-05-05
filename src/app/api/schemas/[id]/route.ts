@@ -37,7 +37,7 @@ export async function GET(
     },
   });
 
-  if (!schema) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!schema || schema.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(schema);
 }
 
@@ -49,6 +49,12 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
+
+  const softDeleted = await prisma.schema.findUnique({ where: { id }, select: { deletedAt: true } });
+  if (!softDeleted || softDeleted.deletedAt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await req.json();
   const parsed = UpdateSchemaBody.safeParse(body);
   if (!parsed.success) {
@@ -88,6 +94,9 @@ export async function PUT(
         ...(description !== undefined && { description }),
         ...(timeSeriesColumn !== undefined && { timeSeriesColumn }),
         ...(timeSeriesGranularity !== undefined && { timeSeriesGranularity }),
+        // Bump version whenever columns change so FileUpload records can be
+        // interpreted against the exact schema definition that was in effect.
+        ...(columns && { version: { increment: 1 } }),
       },
       include: {
         columns: { orderBy: { order: "asc" } },
@@ -114,12 +123,14 @@ export async function DELETE(
   const { id } = await params;
   const existing = await prisma.schema.findUnique({
     where: { id },
-    select: { name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
+    select: { deletedAt: true, name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
   });
-  if (existing) {
-    const projects = existing.projects.map((sp) => sp.project);
-    await dropAllSchemaViews(prisma, projects, existing.name);
+  if (!existing || existing.deletedAt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  await prisma.schema.delete({ where: { id } });
+
+  const projects = existing.projects.map((sp) => sp.project);
+  await dropAllSchemaViews(prisma, projects, existing.name);
+  await prisma.schema.update({ where: { id }, data: { deletedAt: new Date() } });
   return new NextResponse(null, { status: 204 });
 }

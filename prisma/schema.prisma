@@ -8,24 +8,30 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   users    User[]
   projects ProjectOrganization[]
+
+  @@index([deletedAt])
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   schemas       SchemaProject[]
   organizations ProjectOrganization[]
+
+  @@index([deletedAt])
 }
 
 model ProjectOrganization {
@@ -60,12 +66,16 @@ model Schema {
   description           String?
   timeSeriesColumn      String?
   timeSeriesGranularity Granularity?
+  version               Int          @default(1)
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
+  deletedAt             DateTime?
 
   projects SchemaProject[]
   columns  SchemaColumn[]
   uploads  FileUpload[]
+
+  @@index([deletedAt])
 }
 
 model SchemaProject {
@@ -104,16 +114,17 @@ model Classification {
 }
 
 model FileUpload {
-  id           String       @id @default(cuid())
-  userId       String
-  schemaId     String
-  fileName     String
-  blobUrl      String?
-  status       UploadStatus @default(PENDING)
-  errorCount   Int          @default(0)
-  rowCount     Int          @default(0)
-  errorsCapped Boolean      @default(false)
-  createdAt    DateTime     @default(now())
+  id            String       @id @default(cuid())
+  userId        String
+  schemaId      String
+  schemaVersion Int          @default(1)
+  fileName      String
+  blobUrl       String?
+  status        UploadStatus @default(PENDING)
+  errorCount    Int          @default(0)
+  rowCount      Int          @default(0)
+  errorsCapped  Boolean      @default(false)
+  createdAt     DateTime     @default(now())
 
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)

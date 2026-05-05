@@ -8,12 +8,15 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const projects = await prisma.project.findMany({
+    where: { deletedAt: null },
     include: {
       organizations: {
+        where: { organization: { deletedAt: null } },
         include: { organization: { select: { id: true, name: true } } },
         orderBy: { assignedAt: "asc" },
       },
       schemas: {
+        where: { schema: { deletedAt: null } },
         include: { schema: { select: { id: true, name: true } } },
         orderBy: { assignedAt: "asc" },
       },

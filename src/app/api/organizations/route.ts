@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const organizations = await prisma.organization.findMany({
+    where: { deletedAt: null },
     include: { _count: { select: { users: true } } },
     orderBy: { name: "asc" },
   });

@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
-      project: { organizations: { some: { organizationId: user.organizationId! } } },
+      schema: { deletedAt: null },
+      project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
   });
 

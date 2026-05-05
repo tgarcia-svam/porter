@@ -6,8 +6,15 @@ set -e
 # both point to the same superuser account.
 ADMIN_URL="${DATABASE_URL_ADMIN:-$DATABASE_URL}"
 
-echo "Pushing database schema..."
-DATABASE_URL="$ADMIN_URL" npx prisma db push
+if [ "$NODE_ENV" = "production" ]; then
+  echo "Running database migrations..."
+  # migrate deploy applies pending migrations in order and never drops data.
+  # db push is intentionally not used in production — it can drop columns/tables.
+  DATABASE_URL="$ADMIN_URL" npx prisma migrate deploy
+else
+  echo "Pushing database schema (dev only)..."
+  DATABASE_URL="$ADMIN_URL" npx prisma db push
+fi
 
 echo "Applying RLS policies..."
 DATABASE_URL="$ADMIN_URL" npx tsx prisma/apply-rls.ts

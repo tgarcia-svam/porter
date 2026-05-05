@@ -47,11 +47,18 @@ export async function POST(req: NextRequest) {
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
   const blobUrl = `${accountUrl}/${containerName}/${blobName}`;
 
+  // Capture schema version at upload time so the record can always be
+  // interpreted against the exact column definitions that were in effect.
+  const schema = await prisma.schema.findUnique({ where: { id: schemaId }, select: { version: true } });
+  if (!schema) {
+    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
+  }
+
   console.log("[upload/confirm] creating DB record...");
   let record: { id: string };
   try {
     record = await prisma.fileUpload.create({
-      data: { userId, schemaId, fileName, blobUrl, status: "PENDING" },
+      data: { userId, schemaId, schemaVersion: schema.version, fileName, blobUrl, status: "PENDING" },
     });
     console.log("[upload/confirm] DB record created:", record.id);
   } catch (err) {

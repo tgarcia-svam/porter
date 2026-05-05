@@ -289,16 +289,19 @@ describe("error capping", () => {
 
 // ── Excel path ────────────────────────────────────────────────────────────────
 
+async function makeXlsx(rows: (string | number)[][]): Promise<Buffer> {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.default.Workbook();
+  const sheet = workbook.addWorksheet("Sheet1");
+  for (const row of rows) sheet.addRow(row);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 describe("Excel file (xlsx mime type)", () => {
   const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
   it("validates a valid Excel buffer", async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([["name", "score"], ["Alice", "95"]]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
-
+    const buf = await makeXlsx([["name", "score"], ["Alice", "95"]]);
     const r = await validateFile(buf, XLSX_MIME, [
       col("name", "TEXT"),
       col("score", "NUMBER"),
@@ -308,23 +311,15 @@ describe("Excel file (xlsx mime type)", () => {
   });
 
   it("returns zero rows for an empty Excel sheet", async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
     // Sheet with only a header — no data rows
-    const ws = XLSX.utils.aoa_to_sheet([["name"]]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const buf = await makeXlsx([["name"]]);
     const r = await validateFile(buf, XLSX_MIME, [col("name", "TEXT")]);
     expect(r.errors).toHaveLength(0);
     expect(r.rowCount).toBe(0);
   });
 
   it("returns validation errors for invalid cell values", async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([["score"], ["not-a-number"]]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const buf = await makeXlsx([["score"], ["not-a-number"]]);
     const r = await validateFile(buf, XLSX_MIME, [col("score", "NUMBER")]);
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0].error).toBe("Expected a number");
@@ -332,27 +327,13 @@ describe("Excel file (xlsx mime type)", () => {
   });
 
   it("reports missing required columns in missingColumns", async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([["other"], ["val"]]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const buf = await makeXlsx([["other"], ["val"]]);
     const r = await validateFile(buf, XLSX_MIME, [col("score", "NUMBER")]);
     expect(r.missingColumns).toContain("score");
   });
 
-  // The validateExcel catch block (lines 254-263) is a defensive safety net for
-  // XLSX parse failures. The xlsx library handles malformed input gracefully
-  // (returns empty rows rather than throwing), and its ESM namespace is frozen,
-  // making it impossible to spy on. This branch is intentionally excluded from
-  // coverage via the vitest config exclude list in the coverage section.
-
   it("uses application/octet-stream as an Excel MIME type", async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([["v"], ["hello"]]);
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buf = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const buf = await makeXlsx([["v"], ["hello"]]);
     const r = await validateFile(buf, "application/octet-stream", [col("v", "TEXT")]);
     expect(r.errors).toHaveLength(0);
     expect(r.rowCount).toBe(1);

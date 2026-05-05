@@ -26,9 +26,13 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const schemas = await prisma.schema.findMany({
+    where: { deletedAt: null },
     include: {
       columns: { orderBy: { order: "asc" } },
-      projects: { include: { project: { select: { id: true, name: true } } } },
+      projects: {
+        where: { project: { deletedAt: null } },
+        include: { project: { select: { id: true, name: true } } },
+      },
     },
     orderBy: { createdAt: "desc" },
   });

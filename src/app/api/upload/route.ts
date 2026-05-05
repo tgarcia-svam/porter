@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
-      project: { organizations: { some: { organizationId: user.organizationId! } } },
+      schema: { deletedAt: null },
+      project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
   });
 
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
   // calls POST /api/upload/process with the message payload.
   if (isServiceBusConfigured()) {
     const record = await prisma.fileUpload.create({
-      data: { userId, schemaId, fileName: file.name, blobUrl, status: "PENDING" },
+      data: { userId, schemaId, schemaVersion: schema.version, fileName: file.name, blobUrl, status: "PENDING" },
     });
 
     await enqueueUploadJob({ uploadId: record.id, blobName, mimeType, sheetName });
@@ -199,6 +200,7 @@ export async function POST(req: NextRequest) {
     data: {
       userId,
       schemaId,
+      schemaVersion: schema.version,
       fileName: file.name,
       blobUrl,
       status: isValid ? "VALID" : "INVALID",

@@ -16,6 +16,12 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
+
+  const existing = await prisma.project.findUnique({ where: { id } });
+  if (!existing || existing.deletedAt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await req.json();
   const parsed = UpdateBody.safeParse(body);
   if (!parsed.success) {
@@ -49,6 +55,11 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
-  await prisma.project.delete({ where: { id } });
+  const existing = await prisma.project.findUnique({ where: { id } });
+  if (!existing || existing.deletedAt) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
   return new NextResponse(null, { status: 204 });
 }

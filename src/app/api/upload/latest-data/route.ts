@@ -21,11 +21,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const schemaId = req.nextUrl.searchParams.get("schemaId");
-  const projectId = req.nextUrl.searchParams.get("projectId");
+  const { searchParams } = req.nextUrl;
+  const schemaId = searchParams.get("schemaId");
+  const projectId = searchParams.get("projectId");
   if (!schemaId || !projectId) {
     return NextResponse.json({ error: "schemaId and projectId are required" }, { status: 400 });
   }
+
+  const PAGE_SIZE_DEFAULT = 100;
+  const PAGE_SIZE_MAX = 1000;
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const pageSize = Math.min(
+    PAGE_SIZE_MAX,
+    Math.max(1, parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
+  );
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -33,7 +42,7 @@ export async function GET(req: NextRequest) {
   });
 
   if (!currentUser?.organizationId) {
-    return NextResponse.json({ rows: [] });
+    return NextResponse.json({ rows: [], pagination: { page, pageSize, total: 0, totalPages: 0 } });
   }
 
   // Find the latest valid upload for this schema + project + org
@@ -42,24 +51,36 @@ export async function GET(req: NextRequest) {
       schemaId,
       status: "VALID",
       user: { organizationId: currentUser.organizationId },
-      schema: { projects: { some: { projectId } } },
+      schema: { deletedAt: null, projects: { some: { projectId } } },
     },
     orderBy: { createdAt: "desc" },
   });
 
   if (!upload) {
-    return NextResponse.json({ rows: [] });
+    return NextResponse.json({ rows: [], pagination: { page, pageSize, total: 0, totalPages: 0 } });
   }
 
-  // Fetch its rows from the UploadRow table (separate query avoids stale-type issues)
+  // Fetch page + total in parallel
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const uploadRows = await (prisma as any).uploadRow.findMany({
-    where: { uploadId: upload.id },
-    orderBy: { rowIndex: "asc" },
-  });
+  const uploadRowModel = (prisma as any).uploadRow;
+  const [uploadRows, total] = await Promise.all([
+    uploadRowModel.findMany({
+      where: { uploadId: upload.id },
+      orderBy: { rowIndex: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    uploadRowModel.count({ where: { uploadId: upload.id } }),
+  ]);
 
   return NextResponse.json({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rows: uploadRows.map((r: any) => r.data),
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
   });
 }

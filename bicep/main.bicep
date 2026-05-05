@@ -610,9 +610,10 @@ resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
 
 // ── Role Assignments ──────────────────────────────────────────────────────────
 
-var acrPullRoleId                    = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-var storageBlobDataOwnerRoleId       = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-var storageBlobDelegatorRoleId       = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
+var acrPullRoleId                        = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var storageBlobDataOwnerRoleId           = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var storageBlobDataContributorRoleId     = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var storageBlobDelegatorRoleId           = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
 var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 var keyVaultSecretsUserRoleId        = '4633458b-17de-408a-b874-0445c86b69e6'
@@ -641,12 +642,14 @@ resource storageDelegatorAssignment 'Microsoft.Authorization/roleAssignments@202
   }
 }
 
-// App Service — read/write uploads storage
+// App Service — read/write uploads storage (Contributor, not Owner — delete is
+// handled via the account key in getAdminContainerClient; Contributor includes
+// blobs/read which covers GetBlobTags for Defender malware scan results)
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, appServiceName, storageBlobDataOwnerRoleId)
+  name: guid(storageAccount.id, appServiceName, storageBlobDataContributorRoleId)
   scope: storageAccount
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
     principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }

@@ -56,9 +56,8 @@ export async function POST(req: NextRequest) {
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
-      project: {
-        organizations: { some: { organizationId: user.organizationId! } },
-      },
+      schema: { deletedAt: null },
+      project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
   });
 
@@ -153,6 +152,7 @@ export async function POST(req: NextRequest) {
       data: {
         userId,
         schemaId,
+        schemaVersion: schema.version,
         fileName,
         blobUrl,
         status: isValid ? "VALID" : "INVALID",
