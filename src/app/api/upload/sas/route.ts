@@ -15,19 +15,20 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateUploadSasUrl } from "@/lib/azure-storage";
 import { verifySessionBinding } from "@/lib/session-binding";
+import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   console.log("[upload/sas] request received");
 
   const session = await auth();
   if (!session?.user?.id) {
     console.log("[upload/sas] unauthorized — no session");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     console.log("[upload/sas] unauthorized — session binding failed");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   const body = await req.json();
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   console.log("[upload/sas] body:", { schemaId, mimeType });
 
   if (!schemaId || !fileName || !mimeType) {
-    return NextResponse.json({ error: "schemaId, fileName, and mimeType are required" }, { status: 400 });
+    return apiBadRequest("schemaId, fileName, and mimeType are required");
   }
 
   // Log env var presence (not values) to confirm config is loaded
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
 
   if (!user?.organization) {
     console.log("[upload/sas] no organization for user", userId);
-    return NextResponse.json({ error: "You must belong to an organization to upload files" }, { status: 403 });
+    return apiForbidden("You must belong to an organization to upload files");
   }
 
   const access = await prisma.schemaProject.findFirst({
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   if (!access) {
     console.log("[upload/sas] schema not accessible:", schemaId);
-    return NextResponse.json({ error: "Schema not accessible to your organization" }, { status: 403 });
+    return apiForbidden("Schema not accessible to your organization");
   }
 
   const schema = await prisma.schema.findUnique({
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
     include: { projects: { include: { project: { select: { name: true } } } } },
   });
 
-  if (!schema) return NextResponse.json({ error: "Schema not found" }, { status: 404 });
+  if (!schema) return apiNotFound("Schema not found");
 
   // Build blob path
   const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
@@ -95,11 +96,10 @@ export async function POST(req: NextRequest) {
     console.log("[upload/sas] SAS URL generated successfully");
   } catch (err) {
     console.error("[upload/sas] generateUploadSasUrl failed:", err);
-    return NextResponse.json(
-      { error: `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 }
+    return apiInternalError(
+      `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
   return NextResponse.json({ sasUrl, blobName });
-}
+});

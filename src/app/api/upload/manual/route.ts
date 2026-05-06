@@ -6,13 +6,12 @@ import { uploadToBlob } from "@/lib/azure-storage";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { auditStore, clientIp } from "@/lib/audit-context";
+import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiBadGateway, withHandler } from "@/lib/api-error";
 import Papa from "papaparse";
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.id) return apiUnauthorized();
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     logAuthEvent({
@@ -21,7 +20,7 @@ export async function POST(req: NextRequest) {
       userEmail: session.user.email,
       ipAddress: clientIp(req),
     });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   const userId: string = session.user.id;
@@ -34,10 +33,7 @@ export async function POST(req: NextRequest) {
   const { schemaId, rows } = body;
 
   if (!schemaId || !Array.isArray(rows) || rows.length === 0) {
-    return NextResponse.json(
-      { error: "schemaId and at least one row are required" },
-      { status: 400 }
-    );
+    return apiBadRequest("schemaId and at least one row are required");
   }
 
   // Verify access: user must belong to an org linked to a project with this schema
@@ -47,10 +43,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!user?.organization) {
-    return NextResponse.json(
-      { error: "You must belong to an organization to submit data" },
-      { status: 403 }
-    );
+    return apiForbidden("You must belong to an organization to submit data");
   }
 
   const access = await prisma.schemaProject.findFirst({
@@ -61,12 +54,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!access) {
-    return NextResponse.json(
-      { error: "Schema not accessible to your organization" },
-      { status: 403 }
-    );
-  }
+  if (!access) return apiForbidden("Schema not accessible to your organization");
 
   const schema = await prisma.schema.findUnique({
     where: { id: schemaId },
@@ -76,9 +64,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!schema) {
-    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
-  }
+  if (!schema) return apiNotFound("Schema not found");
 
   // Convert rows to CSV with schema-ordered columns as headers
   const columnNames = schema.columns.map((c) => c.name);
@@ -141,10 +127,7 @@ export async function POST(req: NextRequest) {
     blobUrl = await uploadToBlob(buffer, blobName, "text/csv");
   } catch (err) {
     console.error("Azure upload failed:", err);
-    return NextResponse.json(
-      { error: "Failed to upload to storage. Please try again or contact an administrator." },
-      { status: 502 }
-    );
+    return apiBadGateway("Failed to upload to storage. Please try again or contact an administrator.");
   }
 
   const upload = await prisma.$transaction(async (tx) => {
@@ -187,4 +170,4 @@ export async function POST(req: NextRequest) {
     errorsCapped,
     errors: allErrors,
   });
-}
+});

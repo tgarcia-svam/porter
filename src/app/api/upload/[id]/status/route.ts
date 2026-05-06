@@ -9,51 +9,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { apiUnauthorized, apiForbidden, apiNotFound, withHandler } from "@/lib/api-error";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const GET = withHandler<{ params: Promise<{ id: string }> }>(
+  async (req, { params }) => {
+    const session = await auth();
+    if (!session?.user?.id) return apiUnauthorized();
 
-  const { id } = await params;
+    const { id } = await params;
 
-  const upload = await prisma.fileUpload.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      userId: true,
-      status: true,
-      errorCount: true,
-      rowCount: true,
-      errorsCapped: true,
-      results: {
-        select: { row: true, column: true, value: true, error: true },
-        orderBy: { row: "asc" },
-        take: 100, // matches MAX_ERRORS cap in validate.ts
+    const upload = await prisma.fileUpload.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        errorCount: true,
+        rowCount: true,
+        errorsCapped: true,
+        results: {
+          select: { row: true, column: true, value: true, error: true },
+          orderBy: { row: "asc" },
+          take: 100, // matches MAX_ERRORS cap in validate.ts
+        },
       },
-    },
-  });
+    });
 
-  if (!upload) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!upload) return apiNotFound();
+
+    // Users may only poll their own uploads
+    if (upload.userId !== session.user.id) return apiForbidden();
+
+    return NextResponse.json({
+      uploadId: upload.id,
+      status: upload.status,
+      rowCount: upload.rowCount,
+      errorCount: upload.errorCount,
+      errorsCapped: upload.errorsCapped,
+      // Only include errors when processing is complete
+      errors: upload.status === "PENDING" ? [] : upload.results,
+    });
   }
-
-  // Users may only poll their own uploads
-  if (upload.userId !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return NextResponse.json({
-    uploadId: upload.id,
-    status: upload.status,
-    rowCount: upload.rowCount,
-    errorCount: upload.errorCount,
-    errorsCapped: upload.errorsCapped,
-    // Only include errors when processing is complete
-    errors: upload.status === "PENDING" ? [] : upload.results,
-  });
-}
+);

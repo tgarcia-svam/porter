@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { validateFile } from "@/lib/validate";
 import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName } from "@/lib/azure-storage";
 import type { UploadJobMessage } from "@/lib/service-bus";
+import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
 
 // Allow up to 5 minutes — this endpoint does the heavy lifting
 export const maxDuration = 300;
@@ -31,20 +32,18 @@ function verifyWorkerSecret(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  if (!verifyWorkerSecret(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!verifyWorkerSecret(req)) return apiUnauthorized();
 
   let message: UploadJobMessage;
   try {
     message = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return apiBadRequest("Invalid JSON body");
   }
 
   const { uploadId, blobName, mimeType, sheetName } = message;
   if (!uploadId || !blobName || !mimeType) {
-    return NextResponse.json({ error: "uploadId, blobName, and mimeType are required" }, { status: 400 });
+    return apiBadRequest("uploadId, blobName, and mimeType are required");
   }
 
   // Verify the record exists and is still PENDING
@@ -53,9 +52,7 @@ export async function POST(req: NextRequest) {
     select: { id: true, status: true, schemaId: true },
   });
 
-  if (!upload) {
-    return NextResponse.json({ error: "Upload record not found" }, { status: 404 });
-  }
+  if (!upload) return apiNotFound("Upload record not found");
   if (upload.status !== "PENDING") {
     // Already processed (e.g. duplicate delivery) — idempotent no-op
     return NextResponse.json({ ok: true, skipped: true });
@@ -99,7 +96,7 @@ export async function POST(req: NextRequest) {
       where: { id: uploadId },
       data: { status: "INVALID", errorCount: 1 },
     });
-    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
+    return apiNotFound("Schema not found");
   }
 
   const classificationIds = schema.columns

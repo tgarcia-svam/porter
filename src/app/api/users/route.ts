@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, apiConflict, withHandler } from "@/lib/api-error";
 
 const CreateUserBody = z.object({
   email: z.string().email(),
@@ -10,9 +11,9 @@ const CreateUserBody = z.object({
   organizationId: z.string().optional().nullable(),
 });
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const users = await prisma.user.findMany({
     include: {
@@ -22,25 +23,21 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(users);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const body = await req.json();
   const parsed = CreateUserBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+  if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const email = parsed.data.email.toLowerCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "User already exists" }, { status: 409 });
-  }
+  if (existing) return apiConflict("User already exists");
 
   const user = await prisma.user.create({ data: { ...parsed.data, email } });
   return NextResponse.json(user, { status: 201 });
-}
+});

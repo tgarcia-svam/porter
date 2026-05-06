@@ -2,7 +2,6 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import * as XLSX from "xlsx";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
@@ -152,9 +151,12 @@ export default function FileUploader({
     const isExcel = ext === "xlsx" || ext === "xls";
     if (isExcel) {
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
-      setSheetNames(workbook.SheetNames);
-      setSelectedSheet(workbook.SheetNames[0] ?? "");
+      const { default: ExcelJS } = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+      const names = workbook.worksheets.map((ws) => ws.name);
+      setSheetNames(names);
+      setSelectedSheet(names[0] ?? "");
     } else {
       setSheetNames([]);
       setSelectedSheet("");

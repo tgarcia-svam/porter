@@ -7,16 +7,25 @@ import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import { auditStore, clientIp } from "@/lib/audit-context";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
+import {
+  apiUnauthorized,
+  apiForbidden,
+  apiNotFound,
+  apiBadRequest,
+  apiPayloadTooLarge,
+  apiUnsupportedMediaType,
+  apiUnprocessable,
+  apiServiceUnavailable,
+  withHandler,
+} from "@/lib/api-error";
 
 // Allow up to 5 minutes for large-file processing (inline fallback path only —
 // the async Service Bus path returns in seconds).
 export const maxDuration = 300;
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.id) return apiUnauthorized();
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     logAuthEvent({
@@ -25,7 +34,7 @@ export async function POST(req: NextRequest) {
       userEmail: session.user.email,
       ipAddress: clientIp(req),
     });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
   const userId: string = session.user.id;
   auditStore.enterWith({
@@ -39,9 +48,7 @@ export async function POST(req: NextRequest) {
   const schemaId = formData.get("schemaId") as string | null;
   const sheetName = (formData.get("sheetName") as string | null) ?? undefined;
 
-  if (!file || !schemaId) {
-    return NextResponse.json({ error: "file and schemaId are required" }, { status: 400 });
-  }
+  if (!file || !schemaId) return apiBadRequest("file and schemaId are required");
 
   // Verify access: user must belong to an org linked to a project that contains this schema
   const user = await prisma.user.findUnique({
@@ -50,10 +57,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!user?.organization) {
-    return NextResponse.json(
-      { error: "You must belong to an organization to upload files" },
-      { status: 403 }
-    );
+    return apiForbidden("You must belong to an organization to upload files");
   }
 
   const access = await prisma.schemaProject.findFirst({
@@ -64,12 +68,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!access) {
-    return NextResponse.json(
-      { error: "Schema not accessible to your organization" },
-      { status: 403 }
-    );
-  }
+  if (!access) return apiForbidden("Schema not accessible to your organization");
 
   const schema = await prisma.schema.findUnique({
     where: { id: schemaId },
@@ -79,12 +78,10 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!schema) return NextResponse.json({ error: "Schema not found" }, { status: 404 });
+  if (!schema) return apiNotFound("Schema not found");
 
   const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "File exceeds the 100 MB size limit." }, { status: 413 });
-  }
+  if (file.size > MAX_FILE_SIZE) return apiPayloadTooLarge("File exceeds the 100 MB size limit.");
 
   const ext = file.name.split(".").pop()?.toLowerCase();
   const allowedExts = ["csv", "xlsx", "xls"];
@@ -94,10 +91,7 @@ export async function POST(req: NextRequest) {
     "application/vnd.ms-excel",
   ];
   if (!allowedExts.includes(ext ?? "") && !allowedMimes.includes(file.type)) {
-    return NextResponse.json(
-      { error: "Only CSV and Excel files (.csv, .xlsx, .xls) are allowed." },
-      { status: 415 }
-    );
+    return apiUnsupportedMediaType("Only CSV and Excel files (.csv, .xlsx, .xls) are allowed.");
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -119,10 +113,7 @@ export async function POST(req: NextRequest) {
     blobUrl = await uploadToBlob(buffer, blobName, mimeType);
   } catch (err: unknown) {
     console.error("Azure upload failed:", err);
-    return NextResponse.json(
-      { error: "File storage is not configured. Please contact an administrator." },
-      { status: 503 }
-    );
+    return apiServiceUnavailable("File storage is not configured. Please contact an administrator.");
   }
 
   // Malware scan (Defender for Storage — no-op if not configured).
@@ -131,7 +122,7 @@ export async function POST(req: NextRequest) {
   const scanResult = await waitForMalwareScanResult(blobName);
   if (scanResult === "malicious") {
     await deleteBlobByName(blobName);
-    return NextResponse.json({ error: "File rejected: malware detected." }, { status: 422 });
+    return apiUnprocessable("File rejected: malware detected.");
   }
 
   // ── Async path (Service Bus configured) ───────────────────────────────────
@@ -247,13 +238,11 @@ export async function POST(req: NextRequest) {
     errorsCapped,
     errors: allErrors,
   });
-}
+});
 
-export async function GET() {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.id) return apiUnauthorized();
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -279,4 +268,4 @@ export async function GET() {
     : uploads.map(({ blobUrl: _blobUrl, ...rest }) => ({ ...rest, blobUrl: null }));
 
   return NextResponse.json(response);
-}
+});

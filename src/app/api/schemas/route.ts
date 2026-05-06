@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { upsertAllSchemaViews } from "@/lib/schema-view";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -21,9 +22,9 @@ const CreateSchemaBody = z.object({
   timeSeriesGranularity: z.enum(["DAY", "MONTH", "YEAR"]).nullable().optional(),
 });
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const schemas = await prisma.schema.findMany({
     where: { deletedAt: null },
@@ -38,17 +39,15 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(schemas);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const body = await req.json();
   const parsed = CreateSchemaBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+  if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
 
@@ -75,4 +74,4 @@ export async function POST(req: NextRequest) {
   await upsertAllSchemaViews(prisma, projects, schema.id, schema.name, schema.columns);
 
   return NextResponse.json(schema, { status: 201 });
-}
+});

@@ -4,15 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { clientIp } from "@/lib/audit-context";
+import { apiUnauthorized, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
 
 const TRUNC: Record<string, string> = { DAY: "day", MONTH: "month", YEAR: "year" };
 const FMT: Record<string, string> = { DAY: "YYYY-MM-DD", MONTH: "YYYY-MM", YEAR: "YYYY" };
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.id) return apiUnauthorized();
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     logAuthEvent({
@@ -21,15 +20,13 @@ export async function GET(req: NextRequest) {
       userEmail: session.user.email,
       ipAddress: clientIp(req),
     });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   const { searchParams } = req.nextUrl;
   const schemaId = searchParams.get("schemaId");
   const projectId = searchParams.get("projectId");
-  if (!schemaId || !projectId) {
-    return NextResponse.json({ error: "schemaId and projectId are required" }, { status: 400 });
-  }
+  if (!schemaId || !projectId) return apiBadRequest("schemaId and projectId are required");
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -43,9 +40,7 @@ export async function GET(req: NextRequest) {
     where: { id: schemaId },
     select: { timeSeriesColumn: true, timeSeriesGranularity: true },
   });
-  if (!schema) {
-    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
-  }
+  if (!schema) return apiNotFound("Schema not found");
 
   // Latest valid upload for this schema + project + org
   const upload = await prisma.fileUpload.findFirst({
@@ -94,4 +89,4 @@ export async function GET(req: NextRequest) {
     granularity: schema.timeSeriesGranularity,
     timeSeries: rows.map((r) => ({ label: r.label, count: Number(r.count) })),
   });
-}
+});

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, apiConflict, withHandler } from "@/lib/api-error";
+import { Prisma } from "@prisma/client";
 
 const CreateBody = z.object({
   name: z.string().min(1),
@@ -9,9 +11,9 @@ const CreateBody = z.object({
   caseSensitive: z.boolean().default(true),
 });
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const classifications = await prisma.classification.findMany({
     include: { _count: { select: { columns: true } } },
@@ -19,17 +21,15 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(classifications);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const body = await req.json();
   const parsed = CreateBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+  if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const { name, values, caseSensitive } = parsed.data;
 
@@ -39,10 +39,10 @@ export async function POST(req: NextRequest) {
       include: { _count: { select: { columns: true } } },
     });
     return NextResponse.json(classification, { status: 201 });
-  } catch (e: unknown) {
-    if ((e as { code?: string }).code === "P2002") {
-      return NextResponse.json({ error: "A classification with that name already exists" }, { status: 409 });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return apiConflict("A classification with that name already exists");
     }
     throw e;
   }
-}
+});

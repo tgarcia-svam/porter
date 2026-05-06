@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 
 const UpdateUserBody = z.object({
   role: z.enum(["ADMIN", "UPLOADER"]).optional(),
@@ -10,40 +11,36 @@ const UpdateUserBody = z.object({
   unlock: z.boolean().optional(),
 });
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
+  async (req, { params }) => {
+    const session = await requireAdmin(req);
+    if (!session) return apiForbidden();
 
-  const { id } = await params;
-  const body = await req.json();
-  const parsed = UpdateUserBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    const { id } = await params;
+    const body = await req.json();
+    const parsed = UpdateUserBody.safeParse(body);
+    if (!parsed.success) return apiBadRequest(parsed.error.flatten());
+
+    const { unlock, ...rest } = parsed.data;
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(unlock ? { failedLoginAttempts: 0, lockedUntil: null } : {}),
+      },
+    });
+
+    return NextResponse.json(user);
   }
+);
 
-  const { unlock, ...rest } = parsed.data;
-  const user = await prisma.user.update({
-    where: { id },
-    data: {
-      ...rest,
-      ...(unlock ? { failedLoginAttempts: 0, lockedUntil: null } : {}),
-    },
-  });
+export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
+  async (req, { params }) => {
+    const session = await requireAdmin(req);
+    if (!session) return apiForbidden();
 
-  return NextResponse.json(user);
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const { id } = await params;
-  await prisma.user.delete({ where: { id } });
-  return new NextResponse(null, { status: 204 });
-}
+    const { id } = await params;
+    await prisma.user.delete({ where: { id } });
+    return new NextResponse(null, { status: 204 });
+  }
+);

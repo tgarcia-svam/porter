@@ -4,12 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { clientIp } from "@/lib/audit-context";
+import { apiUnauthorized, apiBadRequest, withHandler } from "@/lib/api-error";
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.id) return apiUnauthorized();
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     logAuthEvent({
@@ -18,15 +17,13 @@ export async function GET(req: NextRequest) {
       userEmail: session.user.email,
       ipAddress: clientIp(req),
     });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   const { searchParams } = req.nextUrl;
   const schemaId = searchParams.get("schemaId");
   const projectId = searchParams.get("projectId");
-  if (!schemaId || !projectId) {
-    return NextResponse.json({ error: "schemaId and projectId are required" }, { status: 400 });
-  }
+  if (!schemaId || !projectId) return apiBadRequest("schemaId and projectId are required");
 
   const PAGE_SIZE_DEFAULT = 100;
   const PAGE_SIZE_MAX = 1000;
@@ -83,4 +80,4 @@ export async function GET(req: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     },
   });
-}
+});

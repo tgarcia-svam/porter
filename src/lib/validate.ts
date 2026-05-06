@@ -243,7 +243,8 @@ function cellToString(value: ExcelJS.CellValue): string {
 
 async function parseExcel(buffer: Buffer, sheetName?: string): Promise<Record<string, string>[]> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(buffer as any);
 
   const sheet = (sheetName ? workbook.getWorksheet(sheetName) : null) ?? workbook.worksheets[0];
   if (!sheet) return [];
