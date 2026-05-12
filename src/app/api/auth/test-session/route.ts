@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encode } from "@auth/core/jwt";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 
 const TEST_SECRET = process.env.PLAYWRIGHT_TEST_SECRET;
 const COOKIE_NAME = "authjs.session-token";

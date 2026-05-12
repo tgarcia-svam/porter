@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin } from "@/lib/prisma-admin";
+import { withOrgContext } from "@/lib/with-org-context";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { clientIp } from "@/lib/audit-context";
@@ -33,7 +34,8 @@ export const GET = withHandler(async (req: NextRequest) => {
     Math.max(1, parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
   );
 
-  const currentUser = await prisma.user.findUnique({
+  // Look up the user's org without RLS — there's no context yet to set.
+  const currentUser = await prismaAdmin.user.findUnique({
     where: { id: session.user.id },
     select: { organizationId: true },
   });
@@ -42,42 +44,44 @@ export const GET = withHandler(async (req: NextRequest) => {
     return NextResponse.json({ rows: [], pagination: { page, pageSize, total: 0, totalPages: 0 } });
   }
 
-  // Find the latest valid upload for this schema + project + org
-  const upload = await prisma.fileUpload.findFirst({
-    where: {
-      schemaId,
-      status: "VALID",
-      user: { organizationId: currentUser.organizationId },
-      schema: { deletedAt: null, projects: { some: { projectId } } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  // Subsequent queries are scoped to the user's org by RLS.
+  const result = await withOrgContext(currentUser.organizationId, async (tx) => {
+    const upload = await tx.fileUpload.findFirst({
+      where: {
+        schemaId,
+        status: "VALID",
+        schema: { deletedAt: null, projects: { some: { projectId } } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!upload) return null;
 
-  if (!upload) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const uploadRowModel = (tx as any).uploadRow;
+    const [uploadRows, total] = await Promise.all([
+      uploadRowModel.findMany({
+        where: { uploadId: upload.id },
+        orderBy: { rowIndex: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      uploadRowModel.count({ where: { uploadId: upload.id } }),
+    ]);
+    return { uploadRows, total };
+  }, session.user.id);
+
+  if (!result) {
     return NextResponse.json({ rows: [], pagination: { page, pageSize, total: 0, totalPages: 0 } });
   }
 
-  // Fetch page + total in parallel
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const uploadRowModel = (prisma as any).uploadRow;
-  const [uploadRows, total] = await Promise.all([
-    uploadRowModel.findMany({
-      where: { uploadId: upload.id },
-      orderBy: { rowIndex: "asc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    uploadRowModel.count({ where: { uploadId: upload.id } }),
-  ]);
-
   return NextResponse.json({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rows: uploadRows.map((r: any) => r.data),
+    rows: result.uploadRows.map((r: any) => r.data),
     pagination: {
       page,
       pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
+      total: result.total,
+      totalPages: Math.ceil(result.total / pageSize),
     },
   });
 });

@@ -1,7 +1,8 @@
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import { prisma } from "@/lib/prisma";
+// Authentication runs before any user/org context exists, so it must bypass RLS.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
 

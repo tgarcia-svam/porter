@@ -12,7 +12,8 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:rls": "tsx prisma/apply-rls.ts",
-    "db:create-app-user": "tsx prisma/create-app-user.ts"
+    "db:create-app-user": "tsx prisma/create-app-user.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",

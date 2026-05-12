@@ -12,7 +12,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// TODO(RLS): refactor to withOrgContext once the upload pipeline is split.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { generateUploadSasUrl } from "@/lib/azure-storage";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiConflict, withHandler } from "@/lib/api-error";
 import { Prisma } from "@prisma/client";

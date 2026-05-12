@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import SchemaEditor from "@/components/admin/SchemaEditor";
 
 export default async function EditSchemaPage({
@@ -18,6 +18,7 @@ export default async function EditSchemaPage({
       },
     }),
     prisma.project.findMany({
+      where: { deletedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -27,7 +28,7 @@ export default async function EditSchemaPage({
     }),
   ]);
 
-  if (!schema) notFound();
+  if (!schema || schema.deletedAt) notFound();
 
   return (
     <div className="space-y-6">

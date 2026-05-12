@@ -13,7 +13,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+// Worker has no user session — must bypass RLS to write across orgs.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName } from "@/lib/azure-storage";
 import type { UploadJobMessage } from "@/lib/service-bus";

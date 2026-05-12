@@ -1,6 +1,13 @@
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+// Seed runs with admin credentials — use DATABASE_URL_ADMIN when set so it
+// connects as the BYPASSRLS / owner role even after DATABASE_URL is switched
+// to porterapp. Naming matches docker-entrypoint.sh and bicep app settings.
+const prisma = new PrismaClient({
+  datasources: process.env.DATABASE_URL_ADMIN
+    ? { db: { url: process.env.DATABASE_URL_ADMIN } }
+    : undefined,
+});
 
 async function main() {
   const raw = process.env.SEED_ADMIN_EMAIL;

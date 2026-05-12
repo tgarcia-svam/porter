@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 
 // Public endpoint — no auth required.
 // Returns only which SSO providers are active (no secrets exposed).

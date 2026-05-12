@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import OrganizationManager from "@/components/admin/OrganizationManager";
@@ -10,6 +10,7 @@ export default async function OrganizationsPage() {
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
   const organizations = await prisma.organization.findMany({
+    where: { deletedAt: null },
     orderBy: { name: "asc" },
     include: { _count: { select: { users: true } } },
   });

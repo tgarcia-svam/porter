@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// TODO(RLS): refactor to withOrgContext once the upload pipeline is split.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import FileUploader from "@/components/uploader/FileUploader";
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,12 @@ export default async function UploadPage() {
   const rawProjects = user?.organizationId
     ? await prisma.project.findMany({
         where: {
+          deletedAt: null,
           organizations: { some: { organizationId: user.organizationId } },
         },
         include: {
           schemas: {
+            where: { schema: { deletedAt: null } },
             include: {
               schema: {
                 include: {

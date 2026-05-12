@@ -8,7 +8,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin } from "@/lib/prisma-admin";
+import { withOrgContext } from "@/lib/with-org-context";
 import { apiUnauthorized, apiForbidden, apiNotFound, withHandler } from "@/lib/api-error";
 
 export const GET = withHandler<{ params: Promise<{ id: string }> }>(
@@ -18,26 +19,36 @@ export const GET = withHandler<{ params: Promise<{ id: string }> }>(
 
     const { id } = await params;
 
-    const upload = await prisma.fileUpload.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        userId: true,
-        status: true,
-        errorCount: true,
-        rowCount: true,
-        errorsCapped: true,
-        results: {
-          select: { row: true, column: true, value: true, error: true },
-          orderBy: { row: "asc" },
-          take: 100, // matches MAX_ERRORS cap in validate.ts
-        },
-      },
+    const currentUser = await prismaAdmin.user.findUnique({
+      where: { id: session.user.id },
+      select: { organizationId: true },
     });
+
+    if (!currentUser?.organizationId) return apiNotFound();
+
+    // RLS will hide the row if it belongs to another org.
+    const upload = await withOrgContext(currentUser.organizationId, async (tx) => {
+      return tx.fileUpload.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          errorCount: true,
+          rowCount: true,
+          errorsCapped: true,
+          results: {
+            select: { row: true, column: true, value: true, error: true },
+            orderBy: { row: "asc" },
+            take: 100,
+          },
+        },
+      });
+    }, session.user.id);
 
     if (!upload) return apiNotFound();
 
-    // Users may only poll their own uploads
+    // Users may only poll their own uploads (within their org).
     if (upload.userId !== session.user.id) return apiForbidden();
 
     return NextResponse.json({
@@ -46,7 +57,6 @@ export const GET = withHandler<{ params: Promise<{ id: string }> }>(
       rowCount: upload.rowCount,
       errorCount: upload.errorCount,
       errorsCapped: upload.errorsCapped,
-      // Only include errors when processing is complete
       errors: upload.status === "PENDING" ? [] : upload.results,
     });
   }

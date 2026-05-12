@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// TODO(RLS): refactor this route to use withOrgContext for the user-upload
+// path; keep prismaAdmin for the admin GET listing. For now both use admin
+// access so app-layer checks remain the enforcement boundary.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
 import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";

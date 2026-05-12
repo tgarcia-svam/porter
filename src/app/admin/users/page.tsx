@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import UserManager from "@/components/admin/UserManager";
 
 export default async function UsersPage() {
@@ -10,6 +10,7 @@ export default async function UsersPage() {
       orderBy: { createdAt: "asc" },
     }),
     prisma.organization.findMany({
+      where: { deletedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
