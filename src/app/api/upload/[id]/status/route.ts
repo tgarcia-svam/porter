@@ -26,10 +26,10 @@ export const GET = withHandler<{ params: Promise<{ id: string }> }>(
 
     if (!currentUser?.organizationId) return apiNotFound();
 
-    // RLS will hide the row if it belongs to another org.
+    // RLS hides cross-org rows; soft-deleted uploads are also hidden.
     const upload = await withOrgContext(currentUser.organizationId, async (tx) => {
-      return tx.fileUpload.findUnique({
-        where: { id },
+      return tx.fileUpload.findFirst({
+        where: { id, deletedAt: null },
         select: {
           id: true,
           userId: true,

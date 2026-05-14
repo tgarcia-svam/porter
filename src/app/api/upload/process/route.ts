@@ -19,6 +19,11 @@ import { validateFile } from "@/lib/validate";
 import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName } from "@/lib/azure-storage";
 import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
+import {
+  resolveValidationColumns,
+  toMissingColumnErrors,
+  finalizeUpload,
+} from "@/lib/upload-service";
 
 // Allow up to 5 minutes — this endpoint does the heavy lifting
 export const maxDuration = 300;
@@ -100,24 +105,7 @@ export async function POST(req: NextRequest) {
     return apiNotFound("Schema not found");
   }
 
-  const classificationIds = schema.columns
-    .map((c) => c.classificationId)
-    .filter((id): id is string => id !== null && id !== undefined);
-
-  const clsfs = classificationIds.length > 0
-    ? await prisma.classification.findMany({
-        where: { id: { in: classificationIds } },
-        select: { id: true, values: true, caseSensitive: true },
-      })
-    : [];
-
-  const classMap = new Map<string, { values: string[]; caseSensitive: boolean }>();
-  for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
-
-  const columnsForValidation = schema.columns.map((c) => {
-    const clf = c.classificationId ? classMap.get(c.classificationId) : null;
-    return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
-  });
+  const columnsForValidation = await resolveValidationColumns(schema.columns);
 
   // ── Download blob ─────────────────────────────────────────────────────────
   const tDownload = Date.now();
@@ -147,62 +135,23 @@ export async function POST(req: NextRequest) {
   );
   console.log(`[process] validation: rows=${rowCount} errors=${errors.length} duration=${Date.now() - tValidate}ms elapsed=${elapsed()}`);
 
-  const missingColumnErrors = missingColumns.map((col) => ({
-    row: 0,
-    column: col,
-    value: "",
-    error: "Required column is missing from the file",
-  }));
-
-  const allErrors = [...missingColumnErrors, ...errors];
-  const isValid = allErrors.length === 0;
+  const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
 
   // ── Persist results ───────────────────────────────────────────────────────
   const tDb = Date.now();
-  await prisma.fileUpload.update({
-    where: { id: uploadId },
-    data: {
-      status: isValid ? "VALID" : "INVALID",
-      errorCount: allErrors.length,
-      rowCount,
-      errorsCapped,
-    },
+  const { status } = await finalizeUpload({
+    uploadId,
+    rowCount,
+    errorsCapped,
+    errors: allErrors,
+    rows,
   });
-
-  if (allErrors.length > 0) {
-    await prisma.validationResult.createMany({
-      data: allErrors.map((e) => ({ ...e, uploadId })),
-    });
-  }
-
-  // Insert valid rows — parallel chunks of 2 000 rows, 4 at a time
-  const CHUNK_SIZE = 2_000;
-  const CONCURRENCY = 4;
-  if (isValid && rows.length > 0) {
-    const chunks: Array<{ startIdx: number; data: typeof rows }> = [];
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      chunks.push({ startIdx: i, data: rows.slice(i, i + CHUNK_SIZE) });
-    }
-    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-      await Promise.all(
-        chunks.slice(i, i + CONCURRENCY).map(({ startIdx, data }) =>
-          prisma.uploadRow.createMany({
-            data: data.map((row, j) => ({
-              uploadId,
-              rowIndex: startIdx + j + 1,
-              data: row,
-            })),
-          })
-        )
-      );
-    }
-  }
   console.log(`[process] db writes: duration=${Date.now() - tDb}ms elapsed=${elapsed()}`);
-  console.log(`[process] uploadId=${uploadId} complete: status=${isValid ? "VALID" : "INVALID"} rows=${rowCount} total=${elapsed()}`);
+  console.log(`[process] uploadId=${uploadId} complete: status=${status} rows=${rowCount} total=${elapsed()}`);
 
   return NextResponse.json({
     ok: true,
-    status: isValid ? "VALID" : "INVALID",
+    status,
     rowCount,
     errorCount: allErrors.length,
   });

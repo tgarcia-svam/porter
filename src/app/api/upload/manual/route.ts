@@ -8,6 +8,13 @@ import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { auditStore, clientIp } from "@/lib/audit-context";
 import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiBadGateway, withHandler } from "@/lib/api-error";
+import {
+  resolveValidationColumns,
+  buildUploadBlobName,
+  toMissingColumnErrors,
+  createUploadWithResults,
+  uploadDatetime,
+} from "@/lib/upload-service";
 import Papa from "papaparse";
 
 export const POST = withHandler(async (req: NextRequest) => {
@@ -75,24 +82,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
   const buffer = Buffer.from(csv, "utf-8");
 
-  // Enrich columns with classification allowed values (separate query per MEMORY guidance)
-  const classificationIds = schema.columns
-    .map((c) => c.classificationId)
-    .filter((id): id is string => id !== null && id !== undefined);
-
-  const classMap = new Map<string, { values: string[]; caseSensitive: boolean }>();
-  if (classificationIds.length > 0) {
-    const clsfs = await prisma.classification.findMany({
-      where: { id: { in: classificationIds } },
-      select: { id: true, values: true, caseSensitive: true },
-    });
-    for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
-  }
-
-  const columnsForValidation = schema.columns.map((c) => {
-    const clf = c.classificationId ? classMap.get(c.classificationId) : null;
-    return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
-  });
+  const columnsForValidation = await resolveValidationColumns(schema.columns);
 
   const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } = await validateFile(
     buffer,
@@ -100,28 +90,19 @@ export const POST = withHandler(async (req: NextRequest) => {
     columnsForValidation
   );
 
-  const allErrors = [
-    ...missingColumns.map((col) => ({
-      row: 0,
-      column: col,
-      value: "",
-      error: "Required column is missing from the file",
-    })),
-    ...errors,
-  ];
-
+  const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
   const isValid = allErrors.length === 0;
 
-  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
-  const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
-  const orgSegment = sanitize(user.organization.name);
-  const schemaSegment = sanitize(schema.name);
-  const now = new Date();
-  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
+  const datetime = uploadDatetime();
   const fileName = `manual-entry-${datetime}.csv`;
-  const prefix = isValid ? "valid" : "error";
-  const blobName = `${prefix}/${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${fileName}`;
+  const { blobName } = buildUploadBlobName({
+    projectNames: schema.projects.map((sp) => sp.project.name),
+    orgName: user.organization.name,
+    schemaName: schema.name,
+    fileName,
+    prefix: isValid ? "valid" : "error",
+    datetime,
+  });
 
   let blobUrl: string;
   try {
@@ -131,36 +112,16 @@ export const POST = withHandler(async (req: NextRequest) => {
     return apiBadGateway("Failed to upload to storage. Please try again or contact an administrator.");
   }
 
-  const upload = await prisma.$transaction(async (tx) => {
-    const record = await tx.fileUpload.create({
-      data: {
-        userId,
-        schemaId,
-        schemaVersion: schema.version,
-        fileName,
-        blobUrl,
-        status: isValid ? "VALID" : "INVALID",
-        errorCount: allErrors.length,
-      },
-    });
-
-    if (allErrors.length > 0) {
-      await tx.validationResult.createMany({
-        data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
-      });
-    }
-
-    if (isValid && validatedRows.length > 0) {
-      await tx.uploadRow.createMany({
-        data: validatedRows.map((row, idx) => ({
-          uploadId: record.id,
-          rowIndex: idx + 1,
-          data: row,
-        })),
-      });
-    }
-
-    return record;
+  const upload = await createUploadWithResults({
+    userId,
+    schemaId,
+    schemaVersion: schema.version,
+    fileName,
+    blobUrl,
+    rowCount,
+    errorsCapped,
+    errors: allErrors,
+    rows: validatedRows,
   });
 
   return NextResponse.json({

@@ -78,7 +78,7 @@ function Field({
         {source !== undefined && <SourceBadge source={source} />}
       </div>
       {children}
-      {hint && <p className="text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="text-xs text-gray-500">{hint}</p>}
     </div>
   );
 }
@@ -93,7 +93,7 @@ function Feedback({ value }: { value: { ok: boolean; message: string } | null })
 }
 
 const inputCls =
-  "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
 
 const saveBtnCls =
   "inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50";
@@ -133,7 +133,7 @@ function AzureSection() {
             <p className="text-sm text-gray-500 font-mono break-all">{status.accountUrl}</p>
           )}
           {status && !status.accountUrlConfigured && (
-            <p className="text-xs text-gray-400">Set <code>AZURE_STORAGE_ACCOUNT_URL</code> in your environment to enable blob storage.</p>
+            <p className="text-xs text-gray-500">Set <code>AZURE_STORAGE_ACCOUNT_URL</code> in your environment to enable blob storage.</p>
           )}
         </div>
         <div className="space-y-1.5">
@@ -342,6 +342,163 @@ function MicrosoftSection() {
   );
 }
 
+// ── Retention section ─────────────────────────────────────────────────────────
+
+type RetentionSettings = {
+  uploadSoftDeleteDays: number;
+  uploadHardDeleteDays: number;
+  auditLogRetentionDays: number;
+};
+
+type RetentionResult = {
+  ranAt: string;
+  settings: RetentionSettings;
+  uploadsSoftDeleted: number;
+  uploadsHardDeleted: number;
+  auditLogsDeleted: number;
+};
+
+function RetentionSection() {
+  const [settings, setSettings] = useState<RetentionSettings | null>(null);
+  const [draft, setDraft] = useState<RetentionSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [lastRun, setLastRun] = useState<RetentionResult | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/retention")
+      .then((r) => r.json())
+      .then((data: RetentionSettings) => {
+        setSettings(data);
+        setDraft(data);
+      });
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const res = await apiFetch("/api/admin/retention", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const updated = await res.json();
+      if (!res.ok) {
+        setFeedback({ ok: false, message: typeof updated.error === "string" ? updated.error : "Failed to save settings." });
+        return;
+      }
+      setSettings(updated);
+      setDraft(updated);
+      setFeedback({ ok: true, message: "Retention settings saved." });
+    } catch {
+      setFeedback({ ok: false, message: "An error occurred while saving." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRunNow() {
+    setRunning(true);
+    setFeedback(null);
+    try {
+      const res = await apiFetch("/api/admin/retention/run", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setFeedback({ ok: false, message: "Retention sweep failed." });
+        return;
+      }
+      setLastRun(data);
+      setFeedback({
+        ok: true,
+        message: `Sweep complete: ${data.uploadsSoftDeleted} soft-deleted, ${data.uploadsHardDeleted} hard-deleted, ${data.auditLogsDeleted} audit rows removed.`,
+      });
+    } catch {
+      setFeedback({ ok: false, message: "An error occurred while running retention." });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const setField = (k: keyof RetentionSettings) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!draft) return;
+    const n = parseInt(e.target.value, 10);
+    setDraft({ ...draft, [k]: isNaN(n) || n < 0 ? 0 : n });
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+      <SectionHeader
+        title="Data Retention"
+        description="Soft-delete uploads after N days; hard-delete them after M days. Set any value to 0 for unlimited retention. Runs daily via a scheduled job, or trigger manually below."
+      />
+      <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
+        <Field
+          label="Soft-delete uploads after (days)"
+          hint="Uploads older than this are hidden from users but kept in the database. 0 = never."
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft?.uploadSoftDeleteDays ?? 0}
+            onChange={setField("uploadSoftDeleteDays")}
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Hard-delete uploads after (days)"
+          hint="Permanently removes uploads (including row data and validation errors). Must be ≥ soft-delete days. 0 = never."
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft?.uploadHardDeleteDays ?? 0}
+            onChange={setField("uploadHardDeleteDays")}
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Audit log retention (days)"
+          hint="Audit log entries older than this are permanently removed. 0 = never."
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft?.auditLogRetentionDays ?? 0}
+            onChange={setField("auditLogRetentionDays")}
+            className={inputCls}
+          />
+        </Field>
+        <Feedback value={feedback} />
+        <div className="flex items-center gap-3">
+          <button type="submit" disabled={saving || !draft} className={saveBtnCls}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={handleRunNow}
+            disabled={running || !settings}
+            className="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+          >
+            {running ? "Running…" : "Run sweep now"}
+          </button>
+        </div>
+        {lastRun && (
+          <p className="text-xs text-gray-500">
+            Last sweep at {new Date(lastRun.ranAt).toLocaleString()}:
+            {" "}{lastRun.uploadsSoftDeleted} soft-deleted,
+            {" "}{lastRun.uploadsHardDeleted} hard-deleted,
+            {" "}{lastRun.auditLogsDeleted} audit rows removed.
+          </p>
+        )}
+      </form>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -357,6 +514,7 @@ export default function SettingsPage() {
       <AzureSection />
       <GoogleSection />
       <MicrosoftSection />
+      <RetentionSection />
     </div>
   );
 }

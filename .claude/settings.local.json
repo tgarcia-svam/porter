@@ -12,7 +12,9 @@
       "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -5 {}')",
       "Bash(npm run *)",
       "Bash(npx tsc *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(node -e ' *)",
+      "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)"
     ]
   }
 }

@@ -87,6 +87,10 @@ param serviceBusQueueName string = 'porter-uploads'
 @secure()
 param uploadWorkerSecret string
 
+@description('Shared secret the scheduled retention job sends as x-worker-secret when calling /api/admin/retention/run. Generate with: openssl rand -hex 32')
+@secure()
+param retentionWorkerSecret string
+
 // ── Derived names ─────────────────────────────────────────────────────────────
 
 var appServicePlanName      = '${appServiceName}-plan'
@@ -484,6 +488,12 @@ resource kvUploadWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   properties: { value: uploadWorkerSecret }
 }
 
+resource kvRetentionWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'retention-worker-secret'
+  properties: { value: retentionWorkerSecret }
+}
+
 // ── App Service Plan ──────────────────────────────────────────────────────────
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
@@ -554,6 +564,9 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     // Shared secret authenticating /api/upload/process calls from the worker function
     UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
+
+    // Shared secret authenticating /api/admin/retention/run calls from the scheduled job
+    RETENTION_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=retention-worker-secret)'
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 

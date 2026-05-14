@@ -125,11 +125,17 @@ model FileUpload {
   rowCount      Int          @default(0)
   errorsCapped  Boolean      @default(false)
   createdAt     DateTime     @default(now())
+  deletedAt     DateTime?
 
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
   results ValidationResult[]
   rows    UploadRow[]
+
+  @@index([deletedAt])
+  @@index([createdAt])
+  // Accelerates "latest VALID upload for this schema" lookups (latest-data, stats).
+  @@index([schemaId, status, createdAt(sort: Desc)])
 }
 
 model UploadRow {
@@ -140,6 +146,10 @@ model UploadRow {
   createdAt DateTime   @default(now())
 
   upload FileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  // Compound index makes paginated reads (orderBy rowIndex, skip/take) a single
+  // index scan instead of a sort over all rows of a given upload.
+  @@index([uploadId, rowIndex])
 }
 
 model ValidationResult {

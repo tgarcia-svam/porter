@@ -51,7 +51,7 @@ export default async function UploadPage() {
 
   const recentUploads = user?.organizationId
     ? await prisma.fileUpload.findMany({
-        where: { user: { organizationId: user.organizationId } },
+        where: { deletedAt: null, user: { organizationId: user.organizationId } },
         include: {
           schema: { select: { name: true } },
           user: { select: { name: true, email: true } },

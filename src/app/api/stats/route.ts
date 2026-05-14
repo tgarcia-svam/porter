@@ -51,6 +51,7 @@ export const GET = withHandler(async (req: NextRequest) => {
       where: {
         schemaId,
         status: "VALID",
+        deletedAt: null,
         schema: { projects: { some: { projectId } } },
       },
       orderBy: { createdAt: "desc" },
