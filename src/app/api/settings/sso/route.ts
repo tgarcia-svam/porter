@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { invalidateAuth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 
 type SettingSource = "db" | "env" | null;
 
@@ -55,11 +56,11 @@ async function getSSOStatus() {
   };
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
   return NextResponse.json(await getSSOStatus());
-}
+});
 
 // Secrets (googleClientSecret, msClientSecret) are intentionally absent.
 // They must be managed directly in Azure Key Vault.
@@ -69,15 +70,13 @@ const UpdateBody = z.object({
   msTenantId: z.string().optional(),
 });
 
-export async function PUT(req: NextRequest) {
+export const PUT = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const body = await req.json();
   const parsed = UpdateBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+  if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const { googleClientId, msClientId, msTenantId } = parsed.data;
 
@@ -100,4 +99,4 @@ export async function PUT(req: NextRequest) {
   invalidateAuth();
 
   return NextResponse.json(await getSSOStatus());
-}
+});

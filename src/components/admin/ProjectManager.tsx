@@ -138,7 +138,7 @@ export default function ProjectManager({
       {/* Projects list */}
       {projects.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-          <p className="text-gray-400 text-sm">No projects yet. Add one above.</p>
+          <p className="text-gray-500 text-sm">No projects yet. Add one above.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -155,7 +155,7 @@ export default function ProjectManager({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-gray-900 text-sm">{project.name}</span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {project._count.schemas} {project._count.schemas === 1 ? "file format" : "file formats"}
                       </span>
                     </div>
@@ -165,7 +165,7 @@ export default function ProjectManager({
                     {/* Org badges */}
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {project.organizations.length === 0 ? (
-                        <span className="text-xs text-gray-400 italic">No organizations assigned</span>
+                        <span className="text-xs text-gray-500 italic">No organizations assigned</span>
                       ) : (
                         project.organizations.map((o) => (
                           <span
@@ -231,7 +231,7 @@ export default function ProjectManager({
                       File formats in this project
                     </p>
                     {allSchemas.length === 0 ? (
-                      <p className="text-xs text-gray-400">No file formats defined yet.</p>
+                      <p className="text-xs text-gray-500">No file formats defined yet.</p>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {allSchemas.map((schema) => {

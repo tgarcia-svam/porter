@@ -79,7 +79,7 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
             <h3 className="text-sm font-semibold text-gray-900">
               Validation errors
             </h3>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               Showing {page * PAGE_SIZE + 1}–
               {Math.min((page + 1) * PAGE_SIZE, result.errors.length)} of{" "}
               {result.errors.length}
@@ -101,7 +101,7 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
                   key={i}
                   className="border-b border-gray-50 last:border-0 hover:bg-red-50/40 transition-colors"
                 >
-                  <td className="px-5 py-2.5 text-gray-400 text-xs font-mono">
+                  <td className="px-5 py-2.5 text-gray-500 text-xs font-mono">
                     {err.row === 0 ? "header" : err.row}
                   </td>
                   <td className="px-5 py-2.5 text-gray-700 font-mono font-medium text-xs">
@@ -113,7 +113,7 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
                         {err.value}
                       </span>
                     ) : (
-                      <span className="text-gray-300 text-xs italic">empty</span>
+                      <span className="text-gray-500 text-xs italic">empty</span>
                     )}
                   </td>
                   <td className="px-5 py-2.5 text-red-600 text-xs">{err.error}</td>
@@ -132,7 +132,7 @@ export default function ValidationResults({ result }: { result: UploadResult }) 
               >
                 ← Previous
               </button>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 Page {page + 1} of {totalPages}
               </span>
               <button

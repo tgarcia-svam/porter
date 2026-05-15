@@ -1,16 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// TODO(RLS): refactor to withOrgContext once the upload pipeline is split.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
+import { verifySessionBinding } from "@/lib/session-binding";
+import { logAuthEvent } from "@/lib/auth-audit";
+import { auditStore, clientIp } from "@/lib/audit-context";
+import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiBadGateway, withHandler } from "@/lib/api-error";
+import {
+  resolveValidationColumns,
+  buildUploadBlobName,
+  toMissingColumnErrors,
+  createUploadWithResults,
+  uploadDatetime,
+} from "@/lib/upload-service";
 import Papa from "papaparse";
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) return apiUnauthorized();
+
+  if (!verifySessionBinding(session.user.uaHash, req)) {
+    logAuthEvent({
+      action: "auth.session.invalid",
+      userId: session.user.id,
+      userEmail: session.user.email,
+      ipAddress: clientIp(req),
+    });
+    return apiUnauthorized();
   }
+
   const userId: string = session.user.id;
+  auditStore.enterWith({ userId, userEmail: session.user.email ?? undefined, ip: clientIp(req) });
 
   const body = (await req.json()) as {
     schemaId?: string;
@@ -19,10 +41,7 @@ export async function POST(req: NextRequest) {
   const { schemaId, rows } = body;
 
   if (!schemaId || !Array.isArray(rows) || rows.length === 0) {
-    return NextResponse.json(
-      { error: "schemaId and at least one row are required" },
-      { status: 400 }
-    );
+    return apiBadRequest("schemaId and at least one row are required");
   }
 
   // Verify access: user must belong to an org linked to a project with this schema
@@ -32,27 +51,18 @@ export async function POST(req: NextRequest) {
   });
 
   if (!user?.organization) {
-    return NextResponse.json(
-      { error: "You must belong to an organization to submit data" },
-      { status: 403 }
-    );
+    return apiForbidden("You must belong to an organization to submit data");
   }
 
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
-      project: {
-        organizations: { some: { organizationId: user.organizationId! } },
-      },
+      schema: { deletedAt: null },
+      project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
   });
 
-  if (!access) {
-    return NextResponse.json(
-      { error: "Schema not accessible to your organization" },
-      { status: 403 }
-    );
-  }
+  if (!access) return apiForbidden("Schema not accessible to your organization");
 
   const schema = await prisma.schema.findUnique({
     where: { id: schemaId },
@@ -62,9 +72,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!schema) {
-    return NextResponse.json({ error: "Schema not found" }, { status: 404 });
-  }
+  if (!schema) return apiNotFound("Schema not found");
 
   // Convert rows to CSV with schema-ordered columns as headers
   const columnNames = schema.columns.map((c) => c.name);
@@ -74,24 +82,7 @@ export async function POST(req: NextRequest) {
   });
   const buffer = Buffer.from(csv, "utf-8");
 
-  // Enrich columns with classification allowed values (separate query per MEMORY guidance)
-  const classificationIds = schema.columns
-    .map((c) => c.classificationId)
-    .filter((id): id is string => id !== null && id !== undefined);
-
-  const classMap = new Map<string, { values: string[]; caseSensitive: boolean }>();
-  if (classificationIds.length > 0) {
-    const clsfs = await prisma.classification.findMany({
-      where: { id: { in: classificationIds } },
-      select: { id: true, values: true, caseSensitive: true },
-    });
-    for (const clf of clsfs) classMap.set(clf.id, { values: clf.values, caseSensitive: clf.caseSensitive });
-  }
-
-  const columnsForValidation = schema.columns.map((c) => {
-    const clf = c.classificationId ? classMap.get(c.classificationId) : null;
-    return { ...c, allowedValues: clf?.values ?? null, caseSensitive: clf?.caseSensitive ?? null };
-  });
+  const columnsForValidation = await resolveValidationColumns(schema.columns);
 
   const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } = await validateFile(
     buffer,
@@ -99,69 +90,38 @@ export async function POST(req: NextRequest) {
     columnsForValidation
   );
 
-  const allErrors = [
-    ...missingColumns.map((col) => ({
-      row: 0,
-      column: col,
-      value: "",
-      error: "Required column is missing from the file",
-    })),
-    ...errors,
-  ];
-
+  const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
   const isValid = allErrors.length === 0;
 
-  const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
-  const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
-  const orgSegment = sanitize(user.organization.name);
-  const schemaSegment = sanitize(schema.name);
-  const now = new Date();
-  const datetime = now.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
+  const datetime = uploadDatetime();
   const fileName = `manual-entry-${datetime}.csv`;
-  const prefix = isValid ? "valid" : "error";
-  const blobName = `${prefix}/${projectSegment}/${orgSegment}/${schemaSegment}/${datetime}/${fileName}`;
+  const { blobName } = buildUploadBlobName({
+    projectNames: schema.projects.map((sp) => sp.project.name),
+    orgName: user.organization.name,
+    schemaName: schema.name,
+    fileName,
+    prefix: isValid ? "valid" : "error",
+    datetime,
+  });
 
   let blobUrl: string;
   try {
     blobUrl = await uploadToBlob(buffer, blobName, "text/csv");
   } catch (err) {
     console.error("Azure upload failed:", err);
-    return NextResponse.json(
-      { error: "Failed to upload to storage. Please try again or contact an administrator." },
-      { status: 502 }
-    );
+    return apiBadGateway("Failed to upload to storage. Please try again or contact an administrator.");
   }
 
-  const upload = await prisma.$transaction(async (tx) => {
-    const record = await tx.fileUpload.create({
-      data: {
-        userId,
-        schemaId,
-        fileName,
-        blobUrl,
-        status: isValid ? "VALID" : "INVALID",
-        errorCount: allErrors.length,
-      },
-    });
-
-    if (allErrors.length > 0) {
-      await tx.validationResult.createMany({
-        data: allErrors.map((e) => ({ ...e, uploadId: record.id })),
-      });
-    }
-
-    if (isValid && validatedRows.length > 0) {
-      await tx.uploadRow.createMany({
-        data: validatedRows.map((row, idx) => ({
-          uploadId: record.id,
-          rowIndex: idx + 1,
-          data: row,
-        })),
-      });
-    }
-
-    return record;
+  const upload = await createUploadWithResults({
+    userId,
+    schemaId,
+    schemaVersion: schema.version,
+    fileName,
+    blobUrl,
+    rowCount,
+    errorsCapped,
+    errors: allErrors,
+    rows: validatedRows,
   });
 
   return NextResponse.json({
@@ -172,4 +132,4 @@ export async function POST(req: NextRequest) {
     errorsCapped,
     errors: allErrors,
   });
-}
+});

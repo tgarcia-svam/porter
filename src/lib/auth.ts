@@ -1,7 +1,8 @@
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import { prisma } from "@/lib/prisma";
+// Authentication runs before any user/org context exists, so it must bypass RLS.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
 
@@ -88,13 +89,13 @@ const callbacks: NextAuthConfig["callbacks"] = {
         user?.email ??
         (profile as Record<string, unknown>)?.preferred_username as string | undefined ??
         profile?.email;
-      console.log("[auth] jwt — resolved email:", email, "token.preferred_username:", token["preferred_username"]);
+      console.log("[auth] jwt — email resolved:", !!email);
       if (email) {
         const dbUser = await prisma.user.findFirst({
           where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
           select: { id: true, role: true },
         });
-        console.log("[auth] jwt DB lookup for", email, "→", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
+        console.log("[auth] jwt DB lookup →", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
         if (dbUser) {
           token["id"] = dbUser.id;
           token["role"] = dbUser.role;

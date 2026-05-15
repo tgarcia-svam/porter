@@ -1,13 +1,14 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import Link from "next/link";
 
 export default async function AdminDashboard() {
   const [userCount, schemaCount, uploadCount, recentUploads] =
     await Promise.all([
       prisma.user.count(),
-      prisma.schema.count(),
-      prisma.fileUpload.count(),
+      prisma.schema.count({ where: { deletedAt: null } }),
+      prisma.fileUpload.count({ where: { deletedAt: null } }),
       prisma.fileUpload.findMany({
+        where: { deletedAt: null },
         take: 5,
         orderBy: { createdAt: "desc" },
         include: {
@@ -59,7 +60,7 @@ export default async function AdminDashboard() {
           <h2 className="font-semibold text-gray-900">Recent Uploads</h2>
         </div>
         {recentUploads.length === 0 ? (
-          <p className="px-6 py-8 text-sm text-gray-400 text-center">
+          <p className="px-6 py-8 text-sm text-gray-500 text-center">
             No uploads yet.
           </p>
         ) : (
@@ -86,7 +87,7 @@ export default async function AdminDashboard() {
                   <td className="px-6 py-3">
                     <StatusBadge status={upload.status} />
                   </td>
-                  <td className="px-6 py-3 text-gray-400 text-xs">
+                  <td className="px-6 py-3 text-gray-500 text-xs">
                     {new Date(upload.createdAt).toLocaleDateString()}
                   </td>
                 </tr>

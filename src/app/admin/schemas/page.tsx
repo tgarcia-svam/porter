@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import Link from "next/link";
 import SchemaListClient from "@/components/admin/SchemaListClient";
 
@@ -6,12 +6,16 @@ export const dynamic = 'force-dynamic';
 
 export default async function SchemasPage() {
   const schemas = await prisma.schema.findMany({
+    where: { deletedAt: null },
     include: {
       columns: {
         orderBy: { order: "asc" },
         include: { classification: { select: { name: true } } },
       },
-      projects: { include: { project: { select: { id: true, name: true } } } },
+      projects: {
+        where: { project: { deletedAt: null } },
+        include: { project: { select: { id: true, name: true } } },
+      },
       _count: { select: { uploads: true } },
     },
     orderBy: { createdAt: "desc" },

@@ -1,54 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
 
 const UpdateBody = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
 });
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
+  async (req, { params }) => {
+    const session = await requireAdmin(req);
+    if (!session) return apiForbidden();
 
-  const { id } = await params;
-  const body = await req.json();
-  const parsed = UpdateBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+    const { id } = await params;
 
-  const project = await prisma.project.update({
-    where: { id },
-    data: {
-      ...(parsed.data.name && { name: parsed.data.name.trim() }),
-      ...(parsed.data.description !== undefined && {
-        description: parsed.data.description.trim() || null,
-      }),
-    },
-    include: {
-      organizations: {
-        include: { organization: { select: { id: true, name: true } } },
+    const existing = await prisma.project.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt) return apiNotFound();
+
+    const body = await req.json();
+    const parsed = UpdateBody.safeParse(body);
+    if (!parsed.success) return apiBadRequest(parsed.error.flatten());
+
+    const project = await prisma.project.update({
+      where: { id },
+      data: {
+        ...(parsed.data.name && { name: parsed.data.name.trim() }),
+        ...(parsed.data.description !== undefined && {
+          description: parsed.data.description.trim() || null,
+        }),
       },
-      _count: { select: { schemas: true } },
-    },
-  });
+      include: {
+        organizations: {
+          include: { organization: { select: { id: true, name: true } } },
+        },
+        _count: { select: { schemas: true } },
+      },
+    });
 
-  return NextResponse.json(project);
-}
+    return NextResponse.json(project);
+  }
+);
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
+  async (req, { params }) => {
+    const session = await requireAdmin(req);
+    if (!session) return apiForbidden();
 
-  const { id } = await params;
-  await prisma.project.delete({ where: { id } });
-  return new NextResponse(null, { status: 204 });
-}
+    const { id } = await params;
+    const existing = await prisma.project.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt) return apiNotFound();
+
+    await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
+    return new NextResponse(null, { status: 204 });
+  }
+);

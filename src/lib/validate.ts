@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { Readable } from "stream";
 
 export type ValidationError = {
@@ -225,32 +225,59 @@ async function parseCsvStreaming(
 // Excel — must be fully buffered (binary format, no streaming API)
 // ---------------------------------------------------------------------------
 
-function parseExcel(buffer: Buffer, sheetName?: string): Record<string, string>[] {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const name =
-    sheetName && workbook.SheetNames.includes(sheetName)
-      ? sheetName
-      : workbook.SheetNames[0];
-  const sheet = workbook.Sheets[name];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: "",
-    raw: false,
-  });
-  return rawRows.map((row) =>
-    Object.fromEntries(
-      Object.entries(row).map(([k, v]) => [k.trim(), String(v).trim()])
-    )
-  );
+function cellToString(value: ExcelJS.CellValue): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") {
+    if ("richText" in value) return value.richText.map((rt) => rt.text).join("");
+    // Formula cell — use the cached result
+    if ("formula" in value || "sharedFormula" in value) {
+      const result = (value as ExcelJS.CellFormulaValue).result;
+      return result !== undefined ? cellToString(result as ExcelJS.CellValue) : "";
+    }
+    if ("text" in value) return String((value as ExcelJS.CellHyperlinkValue).text);
+    if ("error" in value) return "";
+  }
+  return String(value);
 }
 
-function validateExcel(
+async function parseExcel(buffer: Buffer, sheetName?: string): Promise<Record<string, string>[]> {
+  const workbook = new ExcelJS.Workbook();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(buffer as any);
+
+  const sheet = (sheetName ? workbook.getWorksheet(sheetName) : null) ?? workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const headerRow = sheet.getRow(1);
+  const headers: string[] = [];
+  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    headers[colNumber - 1] = cellToString(cell.value).trim();
+  });
+
+  const rows: Record<string, string>[] = [];
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record: Record<string, string> = {};
+    headers.forEach((header, idx) => {
+      if (!header) return;
+      const cell = row.getCell(idx + 1);
+      record[header] = cellToString(cell.value).trim();
+    });
+    rows.push(record);
+  });
+
+  return rows;
+}
+
+async function validateExcel(
   buffer: Buffer,
   columns: ColumnDef[],
   sheetName?: string
-): Omit<ValidationReport, "missingColumns"> & { headerMap: Map<string, string>; missingColumns: string[] } {
+): Promise<Omit<ValidationReport, "missingColumns"> & { headerMap: Map<string, string>; missingColumns: string[] }> {
   let rawRows: Record<string, string>[];
   try {
-    rawRows = parseExcel(buffer, sheetName);
+    rawRows = await parseExcel(buffer, sheetName);
   } catch {
     return {
       errors: [{ row: 0, column: "", value: "", error: "Could not parse file" }],
@@ -320,7 +347,7 @@ export async function validateFile(
     mimeType === "application/octet-stream";
 
   if (isExcel) {
-    const { headerMap: _hm, ...result } = validateExcel(buffer, columns, sheetName);
+    const { headerMap: _hm, ...result } = await validateExcel(buffer, columns, sheetName);
     return result;
   }
 

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import ProjectManager from "@/components/admin/ProjectManager";
@@ -11,15 +11,22 @@ export default async function ProjectsPage() {
 
   const [projects, allOrganizations, allSchemas] = await Promise.all([
     prisma.project.findMany({
+      where: { deletedAt: null },
       orderBy: { name: "asc" },
       include: {
-        organizations: { include: { organization: true } },
-        schemas: { include: { schema: { select: { id: true, name: true } } } },
+        organizations: {
+          where: { organization: { deletedAt: null } },
+          include: { organization: true },
+        },
+        schemas: {
+          where: { schema: { deletedAt: null } },
+          include: { schema: { select: { id: true, name: true } } },
+        },
         _count: { select: { schemas: true } },
       },
     }),
-    prisma.organization.findMany({ orderBy: { name: "asc" } }),
-    prisma.schema.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.organization.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
+    prisma.schema.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
   return (

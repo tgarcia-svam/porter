@@ -1,11 +1,11 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import SchemaEditor from "@/components/admin/SchemaEditor";
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewSchemaPage() {
   const [allProjects, allClassifications] = await Promise.all([
-    prisma.project.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.classification.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 

@@ -43,6 +43,7 @@ jobs:
               azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
               uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
+              retentionWorkerSecret=${{ secrets.RETENTION_WORKER_SECRET }} \
               seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
               containerTag=${{ github.sha }}
 

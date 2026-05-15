@@ -104,7 +104,7 @@ export default function OrganizationManager({
       {/* Organizations list */}
       {organizations.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-          <p className="text-gray-400 text-sm">No organizations yet. Add one above.</p>
+          <p className="text-gray-500 text-sm">No organizations yet. Add one above.</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
@@ -125,7 +125,7 @@ export default function OrganizationManager({
                 <span className="flex-1 text-sm font-medium text-gray-900">{org.name}</span>
               )}
 
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 {org._count.users} {org._count.users === 1 ? "user" : "users"}
               </span>
 
@@ -139,7 +139,7 @@ export default function OrganizationManager({
                   </button>
                   <button
                     onClick={() => setEditingId(null)}
-                    className="text-xs text-gray-400 hover:underline"
+                    className="text-xs text-gray-500 hover:underline"
                   >
                     Cancel
                   </button>

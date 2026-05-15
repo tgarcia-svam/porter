@@ -187,7 +187,7 @@ export default function DataEntryTable({
       <div className="flex items-center gap-3 flex-wrap">
         <div className="mr-auto">
           <h2 className="text-sm font-semibold text-gray-900">Manual data entry</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-500 mt-0.5">
             {loadingData
               ? "Loading latest data…"
               : "Edit rows below and click Submit to save to storage."}
@@ -197,16 +197,19 @@ export default function DataEntryTable({
         <div className="relative w-56 shrink-0">
           <SearchIcon />
           <input
-            type="text"
+            type="search"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder="Search all columns…"
+            aria-label="Search rows"
             className="w-full rounded-lg border border-gray-300 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => handleSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
             >
               <ClearIcon />
             </button>
@@ -237,18 +240,18 @@ export default function DataEntryTable({
         <table className="min-w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="px-3 py-2 w-10 text-left font-medium text-gray-400 text-xs">#</th>
+              <th className="px-3 py-2 w-10 text-left font-medium text-gray-600 text-xs">#</th>
               {schema.columns.map((col) => (
                 <th
                   key={col.id}
-                  className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap"
+                  className="px-3 py-2 text-left font-medium text-gray-700 whitespace-nowrap"
                 >
                   <span className="font-mono">{col.name}</span>
-                  <span className="ml-1.5 text-gray-400 font-normal text-xs">
+                  <span className="ml-1.5 text-gray-600 font-normal text-xs">
                     {col.dataType}
                   </span>
                   {col.required && (
-                    <span className="ml-0.5 text-red-400 font-bold text-xs">*</span>
+                    <span className="ml-0.5 text-red-600 font-bold text-xs" aria-label="required">*</span>
                   )}
                 </th>
               ))}
@@ -260,7 +263,7 @@ export default function DataEntryTable({
               <tr>
                 <td
                   colSpan={schema.columns.length + 2}
-                  className="px-3 py-6 text-center text-sm text-gray-400"
+                  className="px-3 py-6 text-center text-sm text-gray-600"
                 >
                   {q ? "No matching rows." : "No data."}
                 </td>
@@ -271,7 +274,7 @@ export default function DataEntryTable({
                   key={originalIdx}
                   className="border-b border-gray-100 last:border-0 hover:bg-gray-50/40"
                 >
-                  <td className="px-3 py-1.5 text-xs text-gray-400 select-none">
+                  <td className="px-3 py-1.5 text-xs text-gray-600 select-none">
                     {originalIdx + 1}
                   </td>
                   {schema.columns.map((col) => (
@@ -280,6 +283,7 @@ export default function DataEntryTable({
                         <select
                           value={row[col.name] ?? ""}
                           onChange={(e) => updateCell(originalIdx, col.name, e.target.value)}
+                          aria-label={`${col.name}, row ${originalIdx + 1}`}
                           className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
                         >
                           <option value="">—</option>
@@ -292,7 +296,8 @@ export default function DataEntryTable({
                           type={inputType(col.dataType)}
                           value={row[col.name] ?? ""}
                           onChange={(e) => updateCell(originalIdx, col.name, e.target.value)}
-                          className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-300 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+                          aria-label={`${col.name}, row ${originalIdx + 1}`}
+                          className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
                           placeholder="—"
                         />
                       )}
@@ -303,7 +308,8 @@ export default function DataEntryTable({
                       type="button"
                       onClick={() => deleteRow(originalIdx)}
                       disabled={rows.length === 1}
-                      className="p-1 text-gray-300 hover:text-red-400 disabled:opacity-20 disabled:cursor-not-allowed rounded transition-colors"
+                      aria-label="Delete row"
+                      className="p-1 text-gray-500 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors"
                       title="Delete row"
                     >
                       <TrashIcon />
@@ -345,7 +351,7 @@ export default function DataEntryTable({
           </div>
         )}
 
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-gray-500">
           {rows.length} {rows.length === 1 ? "row" : "rows"} total
         </span>
 
@@ -373,7 +379,7 @@ export default function DataEntryTable({
 function SearchIcon() {
   return (
     <svg
-      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none"
+      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"

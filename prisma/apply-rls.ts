@@ -1,137 +1,216 @@
 import { PrismaClient } from "@prisma/client";
 
+/**
+ * RLS bootstrap. Applies row-level security with organisational predicates.
+ *
+ * Architecture:
+ *   - `porterapp` role: connects with the runtime DATABASE_URL. Subject to RLS.
+ *   - `<admin>` role (whatever ran this script): superuser/owner with implicit
+ *     BYPASSRLS. Used by migrations and by the runtime via DATABASE_ADMIN_URL
+ *     for the worker and admin routes.
+ *
+ * Session variables read by the policies:
+ *   - app.current_org_id  — set by withOrgContext() before each user-facing tx.
+ *     Empty when unset, which makes every predicate fail safely.
+ *   - app.current_user_id — optional; used only by the User-self-read policy.
+ *
+ * Idempotent: every statement is safe to re-run.
+ */
+
 const prisma = new PrismaClient();
 
-// Helper: enable RLS + FORCE on a table (idempotent — ALTER TABLE is safe to re-run)
-async function enableRls(table: string) {
-  await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
+async function exec(sql: string) {
+  await prisma.$executeRawUnsafe(sql);
 }
 
-// Helper: create a policy only if it doesn't already exist
-async function createPolicy(
-  table: string,
-  name: string,
-  operation: string,
-  clause: string  // USING(...) or WITH CHECK(...) or both
-) {
-  await prisma.$executeRawUnsafe(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE tablename = '${table}' AND policyname = '${name}'
-      ) THEN
-        CREATE POLICY ${name} ON "${table}" FOR ${operation} ${clause};
-      END IF;
-    END $$
-  `);
+async function enableRls(table: string) {
+  await exec(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
+  // Do NOT FORCE: we want table owners (migrations, seed, the admin
+  // role used for DATABASE_ADMIN_URL) to bypass RLS implicitly. Non-owner
+  // roles like `porterapp` are still subject to RLS via the policies below.
+  await exec(`ALTER TABLE "${table}" NO FORCE ROW LEVEL SECURITY`);
+}
+
+async function dropPolicy(table: string, name: string) {
+  await exec(`DROP POLICY IF EXISTS ${name} ON "${table}"`);
+}
+
+async function createPolicy(table: string, name: string, operation: string, clause: string) {
+  await dropPolicy(table, name);
+  await exec(`CREATE POLICY ${name} ON "${table}" FOR ${operation} ${clause}`);
 }
 
 async function main() {
-  // ── AuditLog ─────────────────────────────────────────────────────────────
-  // Immutable append-only log: allow SELECT and INSERT, block UPDATE/DELETE.
+  // ── Helper functions ──────────────────────────────────────────────────────
+  // current_setting(..., true) returns '' when the var is unset, which makes
+  // every comparison below false — fail-safe default.
+  await exec(`
+    CREATE OR REPLACE FUNCTION current_app_org() RETURNS text AS $$
+      SELECT NULLIF(current_setting('app.current_org_id', true), '')
+    $$ LANGUAGE sql STABLE
+  `);
+  await exec(`
+    CREATE OR REPLACE FUNCTION current_app_user() RETURNS text AS $$
+      SELECT NULLIF(current_setting('app.current_user_id', true), '')
+    $$ LANGUAGE sql STABLE
+  `);
+  console.log("  helpers   current_app_org() / current_app_user() installed");
+
+  // ── AuditLog: append-only ──────────────────────────────────────────────────
   await enableRls("AuditLog");
   await createPolicy("AuditLog", "audit_log_select", "SELECT", "USING (true)");
   await createPolicy("AuditLog", "audit_log_insert", "INSERT", "WITH CHECK (true)");
-  console.log("  AuditLog  — SELECT/INSERT allowed, UPDATE/DELETE blocked");
+  // No UPDATE/DELETE policies → those operations are denied.
+  console.log("  AuditLog  append-only");
 
-  // ── User ─────────────────────────────────────────────────────────────────
-  // Full CRUD: app creates users on first SSO login, admins manage roles/lockout.
+  // ── User: own row + same-org siblings ──────────────────────────────────────
+  // Without an org set, the policy denies everything (current_app_org() = NULL).
   await enableRls("User");
-  await createPolicy("User", "user_select", "SELECT", "USING (true)");
+  await createPolicy("User", "user_select", "SELECT",
+    `USING (
+      id = current_app_user()
+      OR "organizationId" IS NOT NULL AND "organizationId" = current_app_org()
+    )`);
   await createPolicy("User", "user_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("User", "user_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("User", "user_delete", "DELETE", "USING (true)");
-  console.log("  User      — full CRUD allowed");
+  await createPolicy("User", "user_update", "UPDATE",
+    `USING (id = current_app_user()) WITH CHECK (id = current_app_user())`);
+  // DELETE: admin-only via BYPASSRLS — no policy.
+  console.log("  User      self-read + same-org list");
 
-  // ── Organization ─────────────────────────────────────────────────────────
+  // ── Organization: own org only ─────────────────────────────────────────────
   await enableRls("Organization");
-  await createPolicy("Organization", "org_select", "SELECT", "USING (true)");
-  await createPolicy("Organization", "org_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("Organization", "org_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("Organization", "org_delete", "DELETE", "USING (true)");
-  console.log("  Organization — full CRUD allowed");
+  await createPolicy("Organization", "org_select", "SELECT",
+    `USING (id = current_app_org())`);
+  // INSERT/UPDATE/DELETE: admin-only via BYPASSRLS.
+  console.log("  Organization  own org only");
 
-  // ── Project ───────────────────────────────────────────────────────────────
-  await enableRls("Project");
-  await createPolicy("Project", "project_select", "SELECT", "USING (true)");
-  await createPolicy("Project", "project_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("Project", "project_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("Project", "project_delete", "DELETE", "USING (true)");
-  console.log("  Project   — full CRUD allowed");
-
-  // ── ProjectOrganization ───────────────────────────────────────────────────
-  // Junction table: no UPDATE needed, just INSERT/SELECT/DELETE.
+  // ── ProjectOrganization: current org's links only ──────────────────────────
   await enableRls("ProjectOrganization");
-  await createPolicy("ProjectOrganization", "projorg_select", "SELECT", "USING (true)");
-  await createPolicy("ProjectOrganization", "projorg_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("ProjectOrganization", "projorg_delete", "DELETE", "USING (true)");
-  console.log("  ProjectOrganization — SELECT/INSERT/DELETE allowed, UPDATE blocked");
+  await createPolicy("ProjectOrganization", "projorg_select", "SELECT",
+    `USING ("organizationId" = current_app_org())`);
+  // No INSERT/DELETE for porterapp — admins manage assignments via BYPASSRLS.
+  console.log("  ProjectOrganization  own links only");
 
-  // ── Schema ────────────────────────────────────────────────────────────────
+  // ── Project: linked to current org via ProjectOrganization ─────────────────
+  await enableRls("Project");
+  await createPolicy("Project", "project_select", "SELECT", `
+    USING (EXISTS (
+      SELECT 1 FROM "ProjectOrganization" po
+      WHERE po."projectId" = "Project".id
+        AND po."organizationId" = current_app_org()
+    ))
+  `);
+  // INSERT/UPDATE/DELETE: admin via BYPASSRLS.
+  console.log("  Project   linked-org SELECT");
+
+  // ── Schema: visible if any of its projects links to current org ────────────
   await enableRls("Schema");
-  await createPolicy("Schema", "schema_select", "SELECT", "USING (true)");
-  await createPolicy("Schema", "schema_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("Schema", "schema_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("Schema", "schema_delete", "DELETE", "USING (true)");
-  console.log("  Schema    — full CRUD allowed");
+  await createPolicy("Schema", "schema_select", "SELECT", `
+    USING (EXISTS (
+      SELECT 1 FROM "SchemaProject" sp
+      JOIN "ProjectOrganization" po ON po."projectId" = sp."projectId"
+      WHERE sp."schemaId" = "Schema".id
+        AND po."organizationId" = current_app_org()
+    ))
+  `);
+  // Admin-only mutations via BYPASSRLS.
+  console.log("  Schema    linked-org SELECT");
 
-  // ── SchemaProject ─────────────────────────────────────────────────────────
-  // Junction table: no UPDATE needed.
+  // ── SchemaProject: filter by linked org via ProjectOrganization ────────────
   await enableRls("SchemaProject");
-  await createPolicy("SchemaProject", "schemaproj_select", "SELECT", "USING (true)");
-  await createPolicy("SchemaProject", "schemaproj_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("SchemaProject", "schemaproj_delete", "DELETE", "USING (true)");
-  console.log("  SchemaProject — SELECT/INSERT/DELETE allowed, UPDATE blocked");
+  await createPolicy("SchemaProject", "schemaproj_select", "SELECT", `
+    USING (EXISTS (
+      SELECT 1 FROM "ProjectOrganization" po
+      WHERE po."projectId" = "SchemaProject"."projectId"
+        AND po."organizationId" = current_app_org()
+    ))
+  `);
+  console.log("  SchemaProject  linked-org SELECT");
 
-  // ── SchemaColumn ──────────────────────────────────────────────────────────
+  // ── SchemaColumn: inherit visibility from parent schema ───────────────────
   await enableRls("SchemaColumn");
-  await createPolicy("SchemaColumn", "schemacol_select", "SELECT", "USING (true)");
-  await createPolicy("SchemaColumn", "schemacol_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("SchemaColumn", "schemacol_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("SchemaColumn", "schemacol_delete", "DELETE", "USING (true)");
-  console.log("  SchemaColumn — full CRUD allowed");
+  await createPolicy("SchemaColumn", "schemacol_select", "SELECT", `
+    USING (EXISTS (
+      SELECT 1 FROM "Schema" s
+      JOIN "SchemaProject" sp ON sp."schemaId" = s.id
+      JOIN "ProjectOrganization" po ON po."projectId" = sp."projectId"
+      WHERE s.id = "SchemaColumn"."schemaId"
+        AND po."organizationId" = current_app_org()
+    ))
+  `);
+  console.log("  SchemaColumn  inherited SELECT");
 
-  // ── FileUpload ────────────────────────────────────────────────────────────
-  // App inserts on upload, updates status after validation, deletes via cascade from Schema.
+  // ── FileUpload: filter by uploader's organization ──────────────────────────
+  // INSERT/UPDATE require the inserted/updated row's userId to be in the
+  // current org — defence-in-depth against an authenticated user planting
+  // rows under another org's user id.
   await enableRls("FileUpload");
-  await createPolicy("FileUpload", "fileupload_select", "SELECT", "USING (true)");
-  await createPolicy("FileUpload", "fileupload_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("FileUpload", "fileupload_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("FileUpload", "fileupload_delete", "DELETE", "USING (true)");
-  console.log("  FileUpload — full CRUD allowed");
+  const fileUploadOrgCheck = `
+    EXISTS (
+      SELECT 1 FROM "User" u
+      WHERE u.id = "FileUpload"."userId"
+        AND u."organizationId" = current_app_org()
+    )
+  `;
+  await createPolicy("FileUpload", "fileupload_select", "SELECT", `USING (${fileUploadOrgCheck})`);
+  await createPolicy("FileUpload", "fileupload_insert", "INSERT", `WITH CHECK (${fileUploadOrgCheck})`);
+  await createPolicy("FileUpload", "fileupload_update", "UPDATE",
+    `USING (${fileUploadOrgCheck}) WITH CHECK (${fileUploadOrgCheck})`);
+  await createPolicy("FileUpload", "fileupload_delete", "DELETE", `USING (${fileUploadOrgCheck})`);
+  console.log("  FileUpload  org-scoped CRUD");
 
-  // ── UploadRow ─────────────────────────────────────────────────────────────
-  // Immutable raw data rows. UPDATE blocked; DELETE allowed for FK cascade.
+  // ── UploadRow: inherit isolation through FileUpload → User → Org ───────────
   await enableRls("UploadRow");
-  await createPolicy("UploadRow", "uploadrow_select", "SELECT", "USING (true)");
-  await createPolicy("UploadRow", "uploadrow_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("UploadRow", "uploadrow_delete", "DELETE", "USING (true)");
-  console.log("  UploadRow — SELECT/INSERT/DELETE allowed, UPDATE blocked");
+  const uploadRowOrgCheck = `
+    EXISTS (
+      SELECT 1 FROM "FileUpload" fu
+      JOIN "User" u ON u.id = fu."userId"
+      WHERE fu.id = "UploadRow"."uploadId"
+        AND u."organizationId" = current_app_org()
+    )
+  `;
+  await createPolicy("UploadRow", "uploadrow_select", "SELECT", `USING (${uploadRowOrgCheck})`);
+  await createPolicy("UploadRow", "uploadrow_insert", "INSERT", `WITH CHECK (${uploadRowOrgCheck})`);
+  await createPolicy("UploadRow", "uploadrow_delete", "DELETE", `USING (${uploadRowOrgCheck})`);
+  // No UPDATE policy — rows are immutable.
+  console.log("  UploadRow  org-scoped SELECT/INSERT/DELETE");
 
-  // ── ValidationResult ──────────────────────────────────────────────────────
-  // Immutable validation output. UPDATE blocked; DELETE allowed for FK cascade.
+  // ── ValidationResult: same inheritance as UploadRow ────────────────────────
   await enableRls("ValidationResult");
-  await createPolicy("ValidationResult", "valresult_select", "SELECT", "USING (true)");
-  await createPolicy("ValidationResult", "valresult_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("ValidationResult", "valresult_delete", "DELETE", "USING (true)");
-  console.log("  ValidationResult — SELECT/INSERT/DELETE allowed, UPDATE blocked");
+  const validationOrgCheck = `
+    EXISTS (
+      SELECT 1 FROM "FileUpload" fu
+      JOIN "User" u ON u.id = fu."userId"
+      WHERE fu.id = "ValidationResult"."uploadId"
+        AND u."organizationId" = current_app_org()
+    )
+  `;
+  await createPolicy("ValidationResult", "valresult_select", "SELECT", `USING (${validationOrgCheck})`);
+  await createPolicy("ValidationResult", "valresult_insert", "INSERT", `WITH CHECK (${validationOrgCheck})`);
+  await createPolicy("ValidationResult", "valresult_delete", "DELETE", `USING (${validationOrgCheck})`);
+  console.log("  ValidationResult  org-scoped SELECT/INSERT/DELETE");
 
-  // ── Classification ────────────────────────────────────────────────────────
+  // ── Classification & AppSetting: admin-managed, no porterapp access ────────
+  // RLS enabled with no policies → all operations denied for porterapp.
+  // Admin role bypasses via BYPASSRLS.
   await enableRls("Classification");
+  await dropPolicy("Classification", "classification_select");
+  await dropPolicy("Classification", "classification_insert");
+  await dropPolicy("Classification", "classification_update");
+  await dropPolicy("Classification", "classification_delete");
+  // Classifications are referenced by SchemaColumn for validation — expose
+  // read-only to porterapp so the upload pipeline can resolve allowed values.
   await createPolicy("Classification", "classification_select", "SELECT", "USING (true)");
-  await createPolicy("Classification", "classification_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("Classification", "classification_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("Classification", "classification_delete", "DELETE", "USING (true)");
-  console.log("  Classification — full CRUD allowed");
+  console.log("  Classification  read-only");
 
-  // ── AppSetting ────────────────────────────────────────────────────────────
   await enableRls("AppSetting");
+  await dropPolicy("AppSetting", "appsetting_select");
+  await dropPolicy("AppSetting", "appsetting_insert");
+  await dropPolicy("AppSetting", "appsetting_update");
+  await dropPolicy("AppSetting", "appsetting_delete");
+  // AppSetting holds SSO config read at runtime — expose read-only.
   await createPolicy("AppSetting", "appsetting_select", "SELECT", "USING (true)");
-  await createPolicy("AppSetting", "appsetting_insert", "INSERT", "WITH CHECK (true)");
-  await createPolicy("AppSetting", "appsetting_update", "UPDATE", "USING (true) WITH CHECK (true)");
-  await createPolicy("AppSetting", "appsetting_delete", "DELETE", "USING (true)");
-  console.log("  AppSetting — full CRUD allowed");
+  console.log("  AppSetting  read-only");
 
   console.log("\nAll RLS policies applied.");
 }

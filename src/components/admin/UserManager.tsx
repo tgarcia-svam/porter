@@ -164,7 +164,7 @@ export default function UserManager({
       {/* User List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         {users.length === 0 ? (
-          <p className="px-6 py-12 text-center text-sm text-gray-400">
+          <p className="px-6 py-12 text-center text-sm text-gray-500">
             No users yet. Add one above.
           </p>
         ) : (
@@ -187,7 +187,7 @@ export default function UserManager({
                           {user.name ?? user.email}
                         </div>
                         {user.name && (
-                          <div className="text-xs text-gray-400">{user.email}</div>
+                          <div className="text-xs text-gray-500">{user.email}</div>
                         )}
                       </div>
                       {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (

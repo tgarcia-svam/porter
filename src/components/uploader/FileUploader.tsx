@@ -2,7 +2,6 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import * as XLSX from "xlsx";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
@@ -152,9 +151,12 @@ export default function FileUploader({
     const isExcel = ext === "xlsx" || ext === "xls";
     if (isExcel) {
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array", bookSheets: true });
-      setSheetNames(workbook.SheetNames);
-      setSelectedSheet(workbook.SheetNames[0] ?? "");
+      const { default: ExcelJS } = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+      const names = workbook.worksheets.map((ws) => ws.name);
+      setSheetNames(names);
+      setSelectedSheet(names[0] ?? "");
     } else {
       setSheetNames([]);
       setSelectedSheet("");
@@ -336,7 +338,7 @@ export default function FileUploader({
     return (
       <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
         <p className="text-gray-500 text-sm font-medium">No projects available</p>
-        <p className="mt-1 text-gray-400 text-sm">
+        <p className="mt-1 text-gray-500 text-sm">
           An administrator needs to assign your organization to a project with
           schemas before you can upload files.
         </p>
@@ -356,10 +358,11 @@ export default function FileUploader({
       {/* ── Left sidebar: project + schema selectors ── */}
       <div className="w-full lg:w-56 shrink-0 bg-white rounded-xl border border-gray-200 p-5 space-y-5">
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+          <label htmlFor="upload-project-select" className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
             Project
           </label>
           <select
+            id="upload-project-select"
             value={selectedProjectId}
             onChange={(e) => handleProjectChange(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -371,10 +374,11 @@ export default function FileUploader({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+          <label htmlFor="upload-schema-select" className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
             File Format
           </label>
           <select
+            id="upload-schema-select"
             value={selectedSchemaId}
             onChange={(e) => {
                 setSelectedSchemaId(e.target.value);
@@ -388,7 +392,7 @@ export default function FileUploader({
             ))}
           </select>
           {selectedSchema?.description && (
-            <p className="mt-1.5 text-xs text-gray-400 leading-snug">{selectedSchema.description}</p>
+            <p className="mt-1.5 text-xs text-gray-500 leading-snug">{selectedSchema.description}</p>
           )}
         </div>
       </div>
@@ -428,7 +432,7 @@ export default function FileUploader({
                     <table className="text-xs w-auto">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
-                          <th className="px-2 py-1.5 text-left font-semibold text-gray-400 whitespace-nowrap border-r border-gray-200">
+                          <th className="px-2 py-1.5 text-left font-semibold text-gray-500 whitespace-nowrap border-r border-gray-200">
                             Headers
                           </th>
                           {selectedSchema.columns.map((col) => (
@@ -446,7 +450,7 @@ export default function FileUploader({
                       </thead>
                       <tbody>
                         <tr className="border-b border-gray-100">
-                          <td className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap border-r border-gray-200">
+                          <td className="px-2 py-1.5 text-gray-500 font-medium whitespace-nowrap border-r border-gray-200">
                             Data Type
                           </td>
                           {selectedSchema.columns.map((col) => (
@@ -456,7 +460,7 @@ export default function FileUploader({
                           ))}
                         </tr>
                         <tr>
-                          <td className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap border-r border-gray-200">
+                          <td className="px-2 py-1.5 text-gray-500 font-medium whitespace-nowrap border-r border-gray-200">
                             Value Requirements
                           </td>
                           {selectedSchema.columns.map((col) => (
@@ -470,7 +474,7 @@ export default function FileUploader({
                                   ))}
                                 </div>
                               ) : (
-                                <span className="text-gray-300">—</span>
+                                <span aria-hidden="true" className="text-gray-500">—</span>
                               )}
                             </td>
                           ))}
@@ -478,7 +482,7 @@ export default function FileUploader({
                       </tbody>
                     </table>
                   </div>
-                  <p className="mt-1.5 text-xs text-gray-400">
+                  <p className="mt-1.5 text-xs text-gray-500">
                     <span className="text-red-500 font-bold">*</span> required
                   </p>
                 </div>
@@ -508,7 +512,7 @@ export default function FileUploader({
                       <FileIcon />
                       <span className="text-sm font-medium text-gray-900">{selectedFile.name}</span>
                     </div>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-500">
                       {(selectedFile.size / 1024).toFixed(1)} KB — click to change
                     </p>
                   </div>
@@ -516,15 +520,16 @@ export default function FileUploader({
                   <div className="space-y-2">
                     <UploadIcon />
                     <p className="text-sm font-medium text-gray-600">Drop a CSV or Excel file here</p>
-                    <p className="text-xs text-gray-400">or click to browse</p>
+                    <p className="text-xs text-gray-500">or click to browse</p>
                   </div>
                 )}
               </div>
 
               {sheetNames.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Worksheet</label>
+                  <label htmlFor="upload-worksheet-select" className="block text-sm font-medium text-gray-700 mb-1.5">Worksheet</label>
                   <select
+                    id="upload-worksheet-select"
                     value={selectedSheet}
                     onChange={(e) => setSelectedSheet(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -588,9 +593,9 @@ export default function FileUploader({
                         <td className="px-6 py-3 text-gray-500">
                           {u.errorCount > 0
                             ? <span className="text-red-600 font-medium">{u.errorCount}</span>
-                            : <span className="text-gray-400">—</span>}
+                            : <span className="text-gray-500">—</span>}
                         </td>
-                        <td className="px-6 py-3 text-gray-400 text-xs">
+                        <td className="px-6 py-3 text-gray-500 text-xs">
                           {new Date(u.createdAt).toLocaleString()}
                         </td>
                       </tr>
@@ -616,7 +621,7 @@ export default function FileUploader({
           selectedSchemaId && selectedProjectId
             ? <StatsPanel schemaId={selectedSchemaId} projectId={selectedProjectId} />
             : (
-              <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
                 Select a project and file format to view statistics.
               </div>
             )
@@ -673,7 +678,7 @@ function FileIcon() {
 function UploadIcon() {
   return (
     <div className="flex justify-center">
-      <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg aria-hidden="true" className="w-10 h-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
       </svg>
     </div>

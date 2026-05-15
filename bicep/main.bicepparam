@@ -43,3 +43,6 @@ param containerTag = 'latest'
 // ── Service Bus / async worker ────────────────────────────────────────────────
 param serviceBusQueueName  = 'porter-uploads'
 param uploadWorkerSecret   = ''   // overridden in main.secrets.bicepparam
+
+// ── Retention job (daily cleanup) ─────────────────────────────────────────────
+param retentionWorkerSecret = ''   // overridden in main.secrets.bicepparam

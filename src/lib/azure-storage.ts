@@ -1,23 +1,40 @@
 import { BlobServiceClient, BlobSASPermissions, generateBlobSASQueryParameters, StorageSharedKeyCredential } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
+// App Service managed identity must be assigned Storage Blob Data Contributor
+// (read + write + create, NO delete). Delete operations use the account key
+// explicitly via getAdminContainerClient() below.
 function getContainerClient() {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
 
   if (!accountUrl) {
     throw new Error("AZURE_STORAGE_ACCOUNT_URL environment variable is not set");
   }
 
-  // Use key-based credential when available (production), fall back to
-  // DefaultAzureCredential for local dev with `az login`.
-  const credential = accountName && accountKey
-    ? new StorageSharedKeyCredential(accountName, accountKey)
-    : new DefaultAzureCredential();
+  const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
+  return blobServiceClient.getContainerClient(containerName);
+}
 
-  const blobServiceClient = new BlobServiceClient(accountUrl, credential);
+// Delete requires an explicit account-key credential. The managed identity role
+// intentionally excludes delete; this function must only be called from
+// admin-gated paths (malware cleanup, admin blob removal).
+function getAdminContainerClient() {
+  const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+  const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
+
+  if (!accountUrl || !accountName || !accountKey) {
+    throw new Error(
+      "AZURE_STORAGE_ACCOUNT_URL, AZURE_STORAGE_ACCOUNT_NAME, and AZURE_STORAGE_ACCOUNT_KEY are required for delete operations"
+    );
+  }
+
+  const blobServiceClient = new BlobServiceClient(
+    accountUrl,
+    new StorageSharedKeyCredential(accountName, accountKey)
+  );
   return blobServiceClient.getContainerClient(containerName);
 }
 
@@ -40,7 +57,7 @@ export async function waitForMalwareScanResult(
 }
 
 export async function deleteBlobByName(blobName: string): Promise<void> {
-  const containerClient = getContainerClient();
+  const containerClient = getAdminContainerClient();
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   await blockBlobClient.deleteIfExists();
 }

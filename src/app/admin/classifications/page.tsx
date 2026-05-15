@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import ClassificationManager from "@/components/admin/ClassificationManager";
 
 export const dynamic = 'force-dynamic';

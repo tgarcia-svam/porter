@@ -265,7 +265,7 @@ export default function SchemaEditor({
                   <button
                     type="button"
                     onClick={() => removeColumn(i)}
-                    className="text-gray-400 hover:text-red-500 transition-colors"
+                    className="text-gray-500 hover:text-red-500 transition-colors"
                     aria-label="Remove column"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -278,7 +278,7 @@ export default function SchemaEditor({
           ))}
         </div>
 
-        <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-400">
+        <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-500">
           Non-nullable fields will reject empty or blank values on upload. A classification restricts the column to a predefined list of values.
         </div>
       </div>

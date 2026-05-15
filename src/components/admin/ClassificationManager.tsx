@@ -283,7 +283,7 @@ export default function ClassificationManager({
       {/* List */}
       {classifications.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-          <p className="text-gray-400 text-sm">No classifications yet. Create one above.</p>
+          <p className="text-gray-500 text-sm">No classifications yet. Create one above.</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -372,7 +372,7 @@ export default function ClassificationManager({
                   <div className="min-w-0 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm text-gray-900">{c.name}</span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {c._count.columns} column{c._count.columns === 1 ? "" : "s"}
                       </span>
                       <span className={`text-xs rounded-full px-2 py-0.5 ring-1 ring-inset ${

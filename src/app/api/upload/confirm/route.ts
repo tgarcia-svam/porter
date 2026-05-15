@@ -8,31 +8,33 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// TODO(RLS): refactor to withOrgContext once the upload pipeline is split.
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { enqueueUploadJob } from "@/lib/service-bus";
 import { verifySessionBinding } from "@/lib/session-binding";
+import { apiUnauthorized, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   console.log("[upload/confirm] request received");
 
   const session = await auth();
   if (!session?.user?.id) {
     console.log("[upload/confirm] unauthorized — no session");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   if (!verifySessionBinding(session.user.uaHash, req)) {
     console.log("[upload/confirm] unauthorized — session binding failed");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiUnauthorized();
   }
 
   const userId = session.user.id;
   const body = await req.json();
   const { blobName, schemaId, fileName, mimeType, sheetName } = body;
-  console.log("[upload/confirm] body:", { blobName, schemaId, fileName, mimeType, sheetName });
+  console.log("[upload/confirm] body:", { schemaId, mimeType, sheetName });
 
   if (!blobName || !schemaId || !fileName || !mimeType) {
-    return NextResponse.json({ error: "blobName, schemaId, fileName, and mimeType are required" }, { status: 400 });
+    return apiBadRequest("blobName, schemaId, fileName, and mimeType are required");
   }
 
   // Log env var presence
@@ -47,16 +49,21 @@ export async function POST(req: NextRequest) {
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
   const blobUrl = `${accountUrl}/${containerName}/${blobName}`;
 
+  // Capture schema version at upload time so the record can always be
+  // interpreted against the exact column definitions that were in effect.
+  const schema = await prisma.schema.findUnique({ where: { id: schemaId }, select: { version: true } });
+  if (!schema) return apiNotFound("Schema not found");
+
   console.log("[upload/confirm] creating DB record...");
   let record: { id: string };
   try {
     record = await prisma.fileUpload.create({
-      data: { userId, schemaId, fileName, blobUrl, status: "PENDING" },
+      data: { userId, schemaId, schemaVersion: schema.version, fileName, blobUrl, status: "PENDING" },
     });
     console.log("[upload/confirm] DB record created:", record.id);
   } catch (err) {
     console.error("[upload/confirm] DB create failed:", err);
-    return NextResponse.json({ error: "Failed to create upload record." }, { status: 500 });
+    return apiInternalError("Failed to create upload record.");
   }
 
   console.log("[upload/confirm] enqueueing job...");
@@ -65,7 +72,9 @@ export async function POST(req: NextRequest) {
     console.log("[upload/confirm] job enqueued successfully");
   } catch (err) {
     console.error("[upload/confirm] enqueueUploadJob failed:", err);
-    return NextResponse.json({ error: `Failed to queue processing job: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
+    return apiInternalError(
+      `Failed to queue processing job: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   return NextResponse.json({
@@ -76,4 +85,4 @@ export async function POST(req: NextRequest) {
     errorsCapped: false,
     errors: [],
   });
-}
+});

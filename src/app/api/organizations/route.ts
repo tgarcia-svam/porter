@@ -1,33 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const organizations = await prisma.organization.findMany({
+    where: { deletedAt: null },
     include: { _count: { select: { users: true } } },
     orderBy: { name: "asc" },
   });
 
   return NextResponse.json(organizations);
-}
+});
 
 const CreateBody = z.object({
   name: z.string().min(1),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const body = await req.json();
   const parsed = CreateBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+  if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const organization = await prisma.organization.create({
     data: { name: parsed.data.name.trim() },
@@ -35,4 +35,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(organization, { status: 201 });
-}
+});

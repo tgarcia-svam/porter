@@ -38,7 +38,7 @@ export default function SchemaListClient({
   if (initialSchemas.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-        <p className="text-gray-400 text-sm">No file formats yet.</p>
+        <p className="text-gray-500 text-sm">No file formats yet.</p>
         <Link
           href="/admin/schemas/new"
           className="mt-3 inline-block text-sm text-blue-600 hover:underline"
@@ -81,7 +81,7 @@ export default function SchemaListClient({
                     className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
                   >
                     <span className="font-medium">{col.name}</span>
-                    <span className="text-gray-400">{col.dataType}</span>
+                    <span className="text-gray-500">{col.dataType}</span>
                     {col.classification && (
                       <span className="rounded-full bg-green-50 px-1.5 text-green-700 ring-1 ring-inset ring-green-600/20">
                         {col.classification.name}
@@ -95,7 +95,7 @@ export default function SchemaListClient({
               </div>
             </div>
 
-            <div className="shrink-0 flex items-center gap-4 text-xs text-gray-400">
+            <div className="shrink-0 flex items-center gap-4 text-xs text-gray-500">
               <span>{schema._count.uploads} uploads</span>
               <Link
                 href={`/admin/schemas/${schema.id}`}

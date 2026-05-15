@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
+import { apiForbidden, withHandler } from "@/lib/api-error";
 
-export async function GET(req: NextRequest) {
+export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!session) return apiForbidden();
 
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL ?? null;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
@@ -14,4 +15,4 @@ export async function GET(req: NextRequest) {
     containerName,
     containerNameSource: process.env.AZURE_STORAGE_CONTAINER ? "env" : "default",
   });
-}
+});
