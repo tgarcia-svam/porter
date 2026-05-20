@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Spinner from "@/components/Spinner";
 
 type TimeSeriesPoint = { label: string; count: number };
 
@@ -178,9 +179,9 @@ export default function StatsPanel({ schemaId, projectId }: { schemaId: string; 
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 animate-pulse">
-        <div className="h-4 bg-gray-100 rounded w-32 mb-4" />
-        <div className="h-8 bg-gray-100 rounded w-24" />
+      <div className="bg-white rounded-xl border border-gray-200 p-10 flex flex-col items-center justify-center gap-3">
+        <Spinner size="lg" label="Loading statistics" />
+        <p className="text-sm text-gray-500">Loading statistics…</p>
       </div>
     );
   }

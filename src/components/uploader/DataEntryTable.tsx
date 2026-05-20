@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
+import Spinner from "@/components/Spinner";
 
 const PAGE_SIZE = 50;
 
@@ -241,7 +242,8 @@ export default function DataEntryTable({
       <div className="flex items-center gap-3 flex-wrap">
         <div className="mr-auto">
           <h2 className="text-sm font-semibold text-gray-900">Manual data entry</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1.5">
+            {loadingData && <Spinner size="xs" label="Loading data" />}
             {loadingData
               ? "Loading…"
               : pendingCount > 0
@@ -258,7 +260,10 @@ export default function DataEntryTable({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search all rows…"
             aria-label="Search rows"
-            className="w-full rounded-lg border border-gray-300 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            // [&::-webkit-search-cancel-button] hides the native clear (X) so it
+            // doesn't overlap our custom one. Keeps type="search" semantics for
+            // screen readers and mobile keyboards.
+            className="w-full rounded-lg border border-gray-300 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 [&::-webkit-search-cancel-button]:hidden"
           />
           {searchQuery && (
             <button
@@ -281,8 +286,20 @@ export default function DataEntryTable({
         </button>
       </div>
 
-      {/* Scrollable table */}
-      <div className="overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-gray-200">
+      {/* Scrollable table — dimmed while fetching so users see the load is in progress */}
+      <div
+        className={`relative overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-gray-200 transition-opacity ${
+          loadingData && (pinnedNewRows.length > 0 || visibleServerRows.length > 0)
+            ? "opacity-60"
+            : ""
+        }`}
+        aria-busy={loadingData}
+      >
+        {loadingData && (pinnedNewRows.length > 0 || visibleServerRows.length > 0) && (
+          <div className="absolute top-2 right-2 z-20 rounded-full bg-white/80 backdrop-blur-sm px-2 py-1 shadow-sm">
+            <Spinner size="xs" label="Loading data" />
+          </div>
+        )}
         <table className="min-w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -305,8 +322,15 @@ export default function DataEntryTable({
           <tbody>
             {pinnedNewRows.length === 0 && visibleServerRows.length === 0 ? (
               <tr>
-                <td colSpan={schema.columns.length + 2} className="px-3 py-6 text-center text-sm text-gray-600">
-                  {loadingData ? "Loading…" : (debouncedQ ? "No matching rows." : "No data. Click Add row to start entering.")}
+                <td colSpan={schema.columns.length + 2} className="px-3 py-10 text-center text-sm text-gray-600">
+                  {loadingData ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Spinner size="md" label="Loading data" />
+                      <span>Loading…</span>
+                    </span>
+                  ) : (
+                    debouncedQ ? "No matching rows." : "No data. Click Add row to start entering."
+                  )}
                 </td>
               </tr>
             ) : (
