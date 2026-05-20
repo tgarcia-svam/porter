@@ -39,6 +39,52 @@ const EXCEL_MAX_ROWS = 200_000;
 // Type checkers
 // ---------------------------------------------------------------------------
 
+/**
+ * Strict date parser. Accepts only:
+ *   - ISO 8601:  YYYY-MM-DD  (optionally followed by Thh:mm:ss... — used by
+ *                              Excel cells which exceljs converts via toISOString)
+ *   - US slash:  M/D/YYYY or MM/DD/YYYY
+ *
+ * Rejects calendar-invalid dates (Feb 30, Apr 31, Feb 29 in non-leap years)
+ * and any other format. Returns midnight UTC on the parsed calendar day, or
+ * null. Note: `new Date()` and `Date.parse()` would silently roll Feb 30 over
+ * to March 2 — this function catches that by extracting Y/M/D components and
+ * verifying they round-trip through the Date constructor.
+ */
+function parseDateStrict(value: string): Date | null {
+  const v = value.trim();
+  if (!v) return null;
+
+  let y: number;
+  let m: number;
+  let d: number;
+
+  const iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/);
+  if (iso) {
+    y = +iso[1];
+    m = +iso[2];
+    d = +iso[3];
+  } else {
+    const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!slash) return null;
+    m = +slash[1];
+    d = +slash[2];
+    y = +slash[3];
+  }
+
+  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== m - 1 ||
+    date.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return date;
+}
+
 function checkValue(value: string, dataType: string): string | null {
   const v = value.trim();
 
@@ -63,7 +109,9 @@ function checkValue(value: string, dataType: string): string | null {
     }
 
     case "DATE":
-      if (v === "" || isNaN(Date.parse(v))) return "Expected a valid date";
+      if (parseDateStrict(v) === null) {
+        return "Expected a valid date (YYYY-MM-DD or M/D/YYYY)";
+      }
       return null;
 
     case "EMAIL":
@@ -144,8 +192,8 @@ function normalizeDates(
     if (!actualHeader) continue;
     const v = String(out[actualHeader] ?? "").trim();
     if (!v) continue;
-    const d = new Date(v);
-    if (!isNaN(d.getTime())) out[actualHeader] = d.toISOString();
+    const d = parseDateStrict(v);
+    if (d) out[actualHeader] = d.toISOString();
   }
   return out;
 }
