@@ -34,7 +34,7 @@ function SourceBadge({ source }: { source: SettingSource }) {
   if (!source) return null;
   const styles: Record<NonNullable<SettingSource>, string> = {
     db: "bg-green-50 text-green-700 ring-green-600/20",
-    env: "bg-blue-50 text-blue-700 ring-blue-600/20",
+    env: "bg-brand-50 text-brand-700 ring-brand-600/20",
     default: "bg-gray-50 text-gray-600 ring-gray-500/20",
   };
   const labels: Record<NonNullable<SettingSource>, string> = {
@@ -93,10 +93,10 @@ function Feedback({ value }: { value: { ok: boolean; message: string } | null })
 }
 
 const inputCls =
-  "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500";
 
 const saveBtnCls =
-  "inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50";
+  "inline-flex items-center rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50";
 
 // ── Azure Storage section ─────────────────────────────────────────────────────
 
@@ -481,7 +481,7 @@ function RetentionSection() {
             type="button"
             onClick={handleRunNow}
             disabled={running || !settings}
-            className="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+            className="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
           >
             {running ? "Running…" : "Run sweep now"}
           </button>

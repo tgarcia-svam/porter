@@ -98,8 +98,8 @@ function LineChart({ points, granularity }: { points: TimeSeriesPoint[]; granula
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="overflow-visible">
       <defs>
         <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#3b82f6" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+          <stop offset="0%"   stopColor="#09a2c5" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#09a2c5" stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -135,11 +135,11 @@ function LineChart({ points, granularity }: { points: TimeSeriesPoint[]; granula
       <path d={areaPath} fill="url(#area-fill)" />
 
       {/* Line */}
-      <path d={linePath} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath} fill="none" stroke="#09a2c5" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
 
       {/* Dots at each point */}
       {points.map((p, i) => (
-        <circle key={i} cx={xOf(i)} cy={yOf(p.count)} r="2.5" fill="#3b82f6">
+        <circle key={i} cx={xOf(i)} cy={yOf(p.count)} r="2.5" fill="#09a2c5">
           <title>{`${displayLabel(p.label, granularity)}: ${p.count.toLocaleString()}`}</title>
         </circle>
       ))}

@@ -33,7 +33,7 @@ export default function Spinner({
     >
       <span
         aria-hidden="true"
-        className={`${SIZE[size]} inline-block rounded-full border-blue-600 border-t-transparent animate-spin`}
+        className={`${SIZE[size]} inline-block rounded-full border-brand-600 border-t-transparent animate-spin`}
       />
       <span className="sr-only">{label}</span>
     </span>

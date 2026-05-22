@@ -277,7 +277,7 @@ export default function DataEntryTable({
             // [&::-webkit-search-cancel-button] hides the native clear (X) so it
             // doesn't overlap our custom one. Keeps type="search" semantics for
             // screen readers and mobile keyboards.
-            className="w-full rounded-lg border border-gray-300 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 [&::-webkit-search-cancel-button]:hidden"
+            className="w-full rounded-lg border border-gray-300 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 [&::-webkit-search-cancel-button]:hidden"
           />
           {searchQuery && (
             <button
@@ -411,7 +411,7 @@ export default function DataEntryTable({
           type="button"
           onClick={handleSubmit}
           disabled={submitting || pendingCount === 0}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? "Submitting…" : "Submit data"}
         </button>
@@ -463,7 +463,7 @@ function Row({
               value={data[col.name] ?? ""}
               onChange={(e) => onChange(col.name, e.target.value)}
               aria-label={`${col.name}, row ${rowKey}`}
-              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
             >
               <option value="">—</option>
               {col.classification.values.map((v) => (
@@ -476,7 +476,7 @@ function Row({
               value={data[col.name] ?? ""}
               onChange={(e) => onChange(col.name, e.target.value)}
               aria-label={`${col.name}, row ${rowKey}`}
-              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
               placeholder="—"
             />
           )}

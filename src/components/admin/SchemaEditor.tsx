@@ -147,7 +147,7 @@ export default function SchemaEditor({
             onChange={(e) => setName(e.target.value)}
             required
             placeholder="e.g. Monthly Sales Report"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
         <div>
@@ -159,7 +159,7 @@ export default function SchemaEditor({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Optional description"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
         {allProjects.length > 0 && (
@@ -177,7 +177,7 @@ export default function SchemaEditor({
                     type="checkbox"
                     checked={projectIds.includes(p.id)}
                     onChange={() => toggleProject(p.id)}
-                    className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                   />
                   <span className="text-sm text-gray-700">{p.name}</span>
                 </label>
@@ -194,7 +194,7 @@ export default function SchemaEditor({
           <button
             type="button"
             onClick={addColumn}
-            className="text-sm text-blue-600 hover:underline font-medium"
+            className="text-sm text-brand-600 hover:underline font-medium"
           >
             + Add column
           </button>
@@ -218,7 +218,7 @@ export default function SchemaEditor({
                   value={col.name}
                   onChange={(e) => updateColumn(i, { name: e.target.value })}
                   placeholder="column_name"
-                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
               <div className="col-span-3">
@@ -227,7 +227,7 @@ export default function SchemaEditor({
                   onChange={(e) =>
                     updateColumn(i, { dataType: e.target.value as DataType })
                   }
-                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   {DATA_TYPES.map((dt) => (
                     <option key={dt.value} value={dt.value}>
@@ -242,7 +242,7 @@ export default function SchemaEditor({
                   onChange={(e) =>
                     updateColumn(i, { classificationId: e.target.value || null })
                   }
-                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">— None —</option>
                   {allClassifications.map((c) => (
@@ -257,7 +257,7 @@ export default function SchemaEditor({
                   type="checkbox"
                   checked={!col.required}
                   onChange={(e) => updateColumn(i, { required: !e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                 />
               </div>
               <div className="col-span-1 flex justify-end">
@@ -298,7 +298,7 @@ export default function SchemaEditor({
           <select
             value={timeSeriesColumn}
             onChange={(e) => setTimeSeriesColumn(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="">— None —</option>
             {columns
@@ -324,7 +324,7 @@ export default function SchemaEditor({
                     value={g}
                     checked={timeSeriesGranularity === g}
                     onChange={() => setTimeSeriesGranularity(g)}
-                    className="text-blue-600 focus:ring-blue-500"
+                    className="text-brand-600 focus:ring-brand-500"
                   />
                   <span className="text-sm text-gray-700 capitalize">{g.toLowerCase()}</span>
                 </label>
@@ -344,7 +344,7 @@ export default function SchemaEditor({
         <button
           type="submit"
           disabled={saving}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
         >
           {saving ? "Saving…" : initialData ? "Save changes" : "Create file format"}
         </button>

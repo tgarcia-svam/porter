@@ -117,7 +117,7 @@ export default function UserManager({
               onChange={(e) => setNewEmail(e.target.value)}
               required
               placeholder="user@example.com"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div>
@@ -127,7 +127,7 @@ export default function UserManager({
             <select
               value={newRole}
               onChange={(e) => setNewRole(e.target.value as "ADMIN" | "UPLOADER")}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="UPLOADER">Uploader</option>
               <option value="ADMIN">Admin</option>
@@ -140,7 +140,7 @@ export default function UserManager({
             <select
               value={newOrgId}
               onChange={(e) => setNewOrgId(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">No organization</option>
               {allOrganizations.map((org) => (
@@ -151,7 +151,7 @@ export default function UserManager({
           <button
             type="submit"
             disabled={adding}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {adding ? "Adding…" : "Add user"}
           </button>
@@ -203,7 +203,7 @@ export default function UserManager({
                       onChange={(e) =>
                         handleRoleChange(user.id, e.target.value as "ADMIN" | "UPLOADER")
                       }
-                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                       <option value="UPLOADER">Uploader</option>
                       <option value="ADMIN">Admin</option>
@@ -215,7 +215,7 @@ export default function UserManager({
                       onChange={(e) =>
                         handleOrgChange(user.id, e.target.value || null)
                       }
-                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[160px]"
+                      className="rounded-md border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 max-w-[160px]"
                     >
                       <option value="">No organization</option>
                       {allOrganizations.map((org) => (

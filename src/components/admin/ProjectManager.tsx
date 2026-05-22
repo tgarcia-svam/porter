@@ -114,12 +114,12 @@ export default function ProjectManager({
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Project name"
               required
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <button
               type="submit"
               disabled={adding || !newName.trim()}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
             >
               {adding ? "Adding…" : "Add"}
             </button>
@@ -129,7 +129,7 @@ export default function ProjectManager({
             value={newDesc}
             onChange={(e) => setNewDesc(e.target.value)}
             placeholder="Description (optional)"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </form>
         {addError && <p className="mt-2 text-sm text-red-600">{addError}</p>}
@@ -170,7 +170,7 @@ export default function ProjectManager({
                         project.organizations.map((o) => (
                           <span
                             key={o.organization.id}
-                            className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20"
+                            className="inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20"
                           >
                             {o.organization.name}
                           </span>
@@ -210,7 +210,7 @@ export default function ProjectManager({
                           setExpandedOrgId(isOrgExpanded ? null : project.id);
                           setExpandedSchemaId(null);
                         }}
-                        className="text-xs text-blue-600 hover:underline font-medium"
+                        className="text-xs text-brand-600 hover:underline font-medium"
                       >
                         {isOrgExpanded ? "Done" : "Assign orgs"}
                       </button>
@@ -274,7 +274,7 @@ export default function ProjectManager({
                               type="checkbox"
                               checked={assigned}
                               onChange={() => toggleOrg(project.id, org.id, assigned)}
-                              className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                             />
                             <span className="text-xs text-gray-700 truncate">{org.name}</span>
                           </label>
