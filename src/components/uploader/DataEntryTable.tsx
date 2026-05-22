@@ -112,8 +112,16 @@ export default function DataEntryTable({
     setPagination((p) => ({ ...p, page: 1 }));
   }, [debouncedQ]);
 
+  // Tracks the most recent fetch. Each call increments the id; only the
+  // response whose id matches `requestIdRef.current` at completion time is
+  // allowed to update state. This prevents a slow in-flight search
+  // ("xyz" matching nothing, scanning many rows) from clobbering the
+  // subsequent fast "cleared" fetch that returns the full dataset.
+  const requestIdRef = useRef(0);
+
   // Fetch the current page from the server whenever page or query changes.
   const fetchPage = useCallback(async () => {
+    const myId = ++requestIdRef.current;
     setLoadingData(true);
     try {
       const params = new URLSearchParams({
@@ -124,20 +132,26 @@ export default function DataEntryTable({
       });
       if (debouncedQ) params.set("q", debouncedQ);
       const res = await fetch(`/api/upload/latest-data?${params}`);
+
+      if (requestIdRef.current !== myId) return; // a newer fetch is in flight — drop this response
+
       if (!res.ok) {
         setPageRows([]);
         return;
       }
       const data: { rows: ServerRow[]; pagination: Pagination } = await res.json();
+
+      if (requestIdRef.current !== myId) return; // recheck after the await
+
       setPageRows(data.rows.map((r) => ({
         rowIndex: r.rowIndex,
         data: normaliseForInput(r.data, schema.columns),
       })));
       setPagination(data.pagination);
     } catch {
-      setPageRows([]);
+      if (requestIdRef.current === myId) setPageRows([]);
     } finally {
-      setLoadingData(false);
+      if (requestIdRef.current === myId) setLoadingData(false);
     }
   }, [schema.id, projectId, pagination.page, debouncedQ, schema.columns]);
 
