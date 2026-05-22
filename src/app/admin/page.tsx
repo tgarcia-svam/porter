@@ -45,7 +45,7 @@ export default async function AdminDashboard() {
             {stat.href && (
               <Link
                 href={stat.href}
-                className="mt-3 inline-block text-xs text-blue-600 hover:underline"
+                className="mt-3 inline-block text-xs text-brand-600 hover:underline"
               >
                 Manage →
               </Link>

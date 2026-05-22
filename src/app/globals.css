@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/* ── Brand palette ──────────────────────────────────────────────────────────
+   Centred on the Porter logo colour #09a2c5. Used as `text-brand-500`,
+   `bg-brand-600`, etc. — `brand-500` is the canonical brand colour;
+   the scale below extends to lighter/darker shades that coordinate with it.
+   ──────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-brand-50:  #f0fafb;
+  --color-brand-100: #d9f0f5;
+  --color-brand-200: #b3e2eb;
+  --color-brand-300: #80cedd;
+  --color-brand-400: #45b3cc;
+  --color-brand-500: #09a2c5;
+  --color-brand-600: #0888a3;
+  --color-brand-700: #086e83;
+  --color-brand-800: #0a566a;
+  --color-brand-900: #0c4757;
+  --color-brand-950: #042830;
+
+  /* Apply Montserrat globally. The variable is set on <html> by the
+     next/font binding in layout.tsx. */
+  --font-sans: var(--font-montserrat), system-ui, sans-serif;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -15,5 +38,5 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }

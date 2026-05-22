@@ -14,7 +14,9 @@
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
       "Bash(node -e ' *)",
-      "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)"
+      "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)",
+      "Bash(xargs grep -l \"blue-[0-9]\")",
+      "Bash(xargs sed -i 's/\\\\bblue-\\\\\\([0-9]\\\\+\\\\\\)\\\\b/brand-\\\\1/g')"
     ]
   }
 }

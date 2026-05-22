@@ -88,12 +88,12 @@ export default function OrganizationManager({
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Organization name"
             required
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <button
             type="submit"
             disabled={adding || !newName.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {adding ? "Adding…" : "Add"}
           </button>
@@ -119,7 +119,7 @@ export default function OrganizationManager({
                     if (e.key === "Enter") handleRename(org.id);
                     if (e.key === "Escape") setEditingId(null);
                   }}
-                  className="flex-1 rounded-md border border-blue-400 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 rounded-md border border-brand-400 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               ) : (
                 <span className="flex-1 text-sm font-medium text-gray-900">{org.name}</span>
@@ -133,7 +133,7 @@ export default function OrganizationManager({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleRename(org.id)}
-                    className="text-xs text-blue-600 hover:underline font-medium"
+                    className="text-xs text-brand-600 hover:underline font-medium"
                   >
                     Save
                   </button>
@@ -148,7 +148,7 @@ export default function OrganizationManager({
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => startEdit(org)}
-                    className="text-xs text-blue-600 hover:underline font-medium"
+                    className="text-xs text-brand-600 hover:underline font-medium"
                   >
                     Rename
                   </button>

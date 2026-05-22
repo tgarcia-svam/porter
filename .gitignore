@@ -55,4 +55,4 @@ playwright-report/
 test-results/
 .auth/
 
-functions/**/function.zip
+**/function.zip

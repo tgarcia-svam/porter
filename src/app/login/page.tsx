@@ -22,7 +22,7 @@ function LoginContent() {
         <div className="bg-white rounded-2xl shadow-lg p-8 space-y-6">
           {/* Logo / wordmark */}
           <div className="text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 mb-4">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600 mb-4">
               <svg
                 className="w-8 h-8 text-white"
                 fill="none"
@@ -58,7 +58,7 @@ function LoginContent() {
           <div className="space-y-2">
             <button
               onClick={() => signIn("google", { callbackUrl: "/" })}
-              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
             >
               <GoogleIcon />
               Continue with Google
@@ -66,7 +66,7 @@ function LoginContent() {
 
             <button
               onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}
-              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
             >
               <MicrosoftIcon />
               Continue with Microsoft

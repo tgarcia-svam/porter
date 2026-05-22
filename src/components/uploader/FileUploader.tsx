@@ -365,7 +365,7 @@ export default function FileUploader({
             id="upload-project-select"
             value={selectedProjectId}
             onChange={(e) => handleProjectChange(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -385,7 +385,7 @@ export default function FileUploader({
                 localStorage.setItem("porter:schemaId", e.target.value);
                 clearFileState();
               }}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             {availableSchemas.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -409,7 +409,7 @@ export default function FileUploader({
                 onClick={() => handleTabChange(key)}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === key
-                    ? "border-blue-600 text-blue-600"
+                    ? "border-brand-600 text-brand-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}
               >
@@ -494,7 +494,7 @@ export default function FileUploader({
                 onDrop={onDrop}
                 onClick={() => fileInputRef.current?.click()}
                 className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                  dragging ? "border-blue-400 bg-blue-50"
+                  dragging ? "border-brand-400 bg-brand-50"
                   : selectedFile ? "border-green-400 bg-green-50"
                   : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
                 }`}
@@ -532,7 +532,7 @@ export default function FileUploader({
                     id="upload-worksheet-select"
                     value={selectedSheet}
                     onChange={(e) => setSelectedSheet(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     {sheetNames.map((name) => (
                       <option key={name} value={name}>{name}</option>
@@ -544,7 +544,7 @@ export default function FileUploader({
               <button
                 onClick={handleUpload}
                 disabled={!selectedFile || uploading || (sheetNames.length > 0 && !selectedSheet)}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {uploading ? "Processing…" : "Upload and validate"}
               </button>
@@ -582,7 +582,7 @@ export default function FileUploader({
                       <tr key={u.id} className="border-b border-gray-50 last:border-0">
                         <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
                           {u.blobUrl ? (
-                            <a href={u.blobUrl} className="text-blue-600 hover:underline" target="_blank" rel="noreferrer">
+                            <a href={u.blobUrl} className="text-brand-600 hover:underline" target="_blank" rel="noreferrer">
                               {u.fileName}
                             </a>
                           ) : u.fileName}
@@ -649,9 +649,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function UploadProgressBanner() {
   return (
-    <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 flex items-center gap-3">
+    <div className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 flex items-center gap-3">
       <Spinner />
-      <span className="text-sm text-blue-700 font-medium">
+      <span className="text-sm text-brand-700 font-medium">
         Scanning and validating (this may take a few minutes)…
       </span>
     </div>
@@ -660,7 +660,7 @@ function UploadProgressBanner() {
 
 function Spinner() {
   return (
-    <svg className="w-4 h-4 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-brand-600 animate-spin" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
     </svg>
