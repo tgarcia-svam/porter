@@ -90,13 +90,14 @@ export function middleware(req: NextRequest) {
   // present in the browser before any client-side mutation. The client reads
   // it from document.cookie to send the X-CSRF-Token header.
   //
-  // Skip NextAuth routes. They emit their own Set-Cookie headers (pkce
-  // code_verifier, state, nonce, session token); writing a cookie on this
-  // response races with those headers and drops them. Because we only set the
-  // cookie when it's absent — i.e. the very first request from a fresh browser
-  // — this manifested as the OAuth callback failing on the *first* sign-in
-  // attempt ("pkceCodeVerifier value could not be parsed") and succeeding on
-  // retry once the cookie existed.
+  // NOTE: NextAuth routes (/api/auth/*) are excluded from the matcher entirely,
+  // so the middleware never runs on them. This is deliberate: NextAuth emits
+  // multiple Set-Cookie headers (pkce code_verifier, state, nonce, session
+  // token) on its OAuth redirects, and a middleware that runs on those routes —
+  // even just returning NextResponse.next() — can drop those Set-Cookie headers
+  // in a production standalone build. A dropped pkce cookie surfaces at the
+  // callback as "pkceCodeVerifier value could not be parsed". The isAuthRoute
+  // guard below is belt-and-suspenders in case the matcher is ever loosened.
   const res = NextResponse.next();
   const isAuthRoute = path.startsWith("/api/auth");
   if (!isAuthRoute && !req.cookies.get(CSRF_COOKIE)) {
@@ -111,7 +112,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on API routes (rate limit + CSRF validation) and on page navigations
-  // (to seed the CSRF cookie), excluding Next.js internals and static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Run on API routes (rate limit + CSRF validation) and page navigations (to
+  // seed the CSRF cookie), but NEVER on /api/auth/* — NextAuth manages its own
+  // cookies there and middleware running on those routes can drop the OAuth
+  // Set-Cookie headers (pkce/state/nonce) in production, breaking sign-in.
+  // Also excludes Next.js internals and static assets.
+  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
 };
