@@ -52,6 +52,23 @@ const CSRF_EXEMPT = [
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {
+  // ── Canonical host ─────────────────────────────────────────────────────────
+  // NextAuth's OAuth cookies (pkce code_verifier, state) are host-only — bound
+  // to the exact hostname that set them. If sign-in starts on www.<domain> but
+  // the callback lands on the apex <domain> (both are registered redirect URIs),
+  // the pkce cookie set on www is never sent to apex and login fails with
+  // "pkceCodeVerifier cookie was missing", succeeding only on a retry once the
+  // browser is on the apex host. NEXTAUTH_URL is the apex (https://porterdata.com),
+  // so redirect www.* → apex (308) here, before any sign-in, to keep the whole
+  // OAuth flow on a single host. Runs on the initial page load; the 308 is
+  // cached so the browser won't return to www.
+  const host = req.headers.get("host") ?? "";
+  if (host.startsWith("www.")) {
+    const url = req.nextUrl.clone();
+    url.host = host.slice(4); // strip "www."
+    return NextResponse.redirect(url, 308);
+  }
+
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     req.headers.get("x-real-ip") ??
