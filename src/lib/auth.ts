@@ -170,6 +170,22 @@ async function buildInstance(): Promise<AuthInstance> {
     pages: { signIn: "/login", error: "/login" },
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
+    logger: {
+      // Surface the real cause behind generic Auth.js errors. InvalidCheck
+      // ("pkceCodeVerifier value could not be parsed") hides whether the cookie
+      // was MISSING or failed to DECRYPT inside error.cause — log it so prod
+      // failures are diagnosable via App Insights (console is auto-collected).
+      error(error: Error & { cause?: unknown }) {
+        console.error(
+          "[auth][error]",
+          error?.name,
+          "|",
+          error?.message,
+          "| cause:",
+          error?.cause ?? "(none)"
+        );
+      },
+    },
     events: {
       async signOut(message) {
         const token = "token" in message ? message.token : null;
