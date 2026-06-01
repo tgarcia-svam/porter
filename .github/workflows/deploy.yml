@@ -41,6 +41,7 @@ jobs:
             --parameters \
               nextauthSecret=${{ secrets.NEXTAUTH_SECRET }} \
               dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
+              dbAppUserPassword=${{ secrets.DB_APP_USER_PASSWORD }} \
               azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
               uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
