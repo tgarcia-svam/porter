@@ -62,10 +62,15 @@ export function middleware(req: NextRequest) {
   // so redirect www.* → apex (308) here, before any sign-in, to keep the whole
   // OAuth flow on a single host. Runs on the initial page load; the 308 is
   // cached so the browser won't return to www.
-  const host = req.headers.get("host") ?? "";
-  if (host.startsWith("www.")) {
+  // Use the public Host header (strip any port), not req.nextUrl's host — behind
+  // App Service the request URL carries the container's internal port (3000) and
+  // http, which would otherwise leak into the redirect (e.g. porterdata.com:3000).
+  const hostname = (req.headers.get("host") ?? "").split(":")[0];
+  if (hostname.startsWith("www.")) {
     const url = req.nextUrl.clone();
-    url.host = host.slice(4); // strip "www."
+    url.protocol = "https:";
+    url.hostname = hostname.slice(4); // strip "www."
+    url.port = ""; // drop the internal :3000
     return NextResponse.redirect(url, 308);
   }
 
