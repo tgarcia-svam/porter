@@ -293,12 +293,13 @@ export default function FileUploader({
         if (selectedSheet) formData.append("sheetName", selectedSheet);
 
         const res = await apiFetch("/api/upload", { method: "POST", body: formData });
-        const resData = await res.json();
+        let resData: Record<string, unknown> = {};
+        try { resData = await res.json(); } catch { /* non-JSON error body (e.g. 403 text) */ }
         if (!res.ok) {
-          setUploadError(resData?.error ?? "An unexpected error occurred. Please try again.");
+          setUploadError((resData?.error as string) ?? `An unexpected error occurred (HTTP ${res.status}). Please try again.`);
           return;
         }
-        data = resData;
+        data = resData as typeof data;
       }
 
       if (data.status === "PENDING") {
@@ -329,6 +330,10 @@ export default function FileUploader({
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
+    } catch (err) {
+      // Never fail silently — surface something the user can act on.
+      console.error("[upload] unexpected error:", err);
+      setUploadError("An unexpected error occurred. Please try again.");
     } finally {
       if (!isAsyncPath) setUploading(false);
     }

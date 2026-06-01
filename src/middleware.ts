@@ -58,30 +58,48 @@ export function middleware(req: NextRequest) {
     "unknown";
 
   const path = req.nextUrl.pathname;
-  const rule = LIMITS.find((r) => path.startsWith(r.prefix));
+  const isApi = path.startsWith("/api");
 
-  if (rule && !isAllowed(`${ip}:${rule.prefix}`, rule.max, rule.windowMs)) {
-    return new NextResponse("Too Many Requests", {
-      status: 429,
-      headers: {
-        "Retry-After": String(Math.ceil(rule.windowMs / 1000)),
-        "Content-Type": "text/plain",
-      },
-    });
-  }
+  // Rate limiting and CSRF validation only apply to API routes. The middleware
+  // also runs on page navigations (see matcher) solely to seed the CSRF cookie.
+  if (isApi) {
+    const rule = LIMITS.find((r) => path.startsWith(r.prefix));
 
-  // ── CSRF validation ────────────────────────────────────────────────────────
-  const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
-  if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
-    return new NextResponse("Invalid CSRF token", {
-      status: 403,
-      headers: { "Content-Type": "text/plain" },
-    });
+    if (rule && !isAllowed(`${ip}:${rule.prefix}`, rule.max, rule.windowMs)) {
+      return new NextResponse("Too Many Requests", {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rule.windowMs / 1000)),
+          "Content-Type": "text/plain",
+        },
+      });
+    }
+
+    // ── CSRF validation ──────────────────────────────────────────────────────
+    const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
+    if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
+      return new NextResponse("Invalid CSRF token", {
+        status: 403,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
   }
 
   // ── Ensure CSRF cookie is set ──────────────────────────────────────────────
+  // Seed the cookie on page navigations (and non-auth API requests) so it's
+  // present in the browser before any client-side mutation. The client reads
+  // it from document.cookie to send the X-CSRF-Token header.
+  //
+  // Skip NextAuth routes. They emit their own Set-Cookie headers (pkce
+  // code_verifier, state, nonce, session token); writing a cookie on this
+  // response races with those headers and drops them. Because we only set the
+  // cookie when it's absent — i.e. the very first request from a fresh browser
+  // — this manifested as the OAuth callback failing on the *first* sign-in
+  // attempt ("pkceCodeVerifier value could not be parsed") and succeeding on
+  // retry once the cookie existed.
   const res = NextResponse.next();
-  if (!req.cookies.get(CSRF_COOKIE)) {
+  const isAuthRoute = path.startsWith("/api/auth");
+  if (!isAuthRoute && !req.cookies.get(CSRF_COOKIE)) {
     res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
       httpOnly: false, // must be readable by client JS
       sameSite: "strict",
@@ -93,5 +111,7 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  // Run on API routes (rate limit + CSRF validation) and on page navigations
+  // (to seed the CSRF cookie), excluding Next.js internals and static assets.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
