@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 // access so app-layer checks remain the enforcement boundary.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
-import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
+import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName, isMalwareScanFailClosed } from "@/lib/azure-storage";
 import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import {
   resolveValidationColumns,
@@ -129,6 +129,12 @@ export const POST = withHandler(async (req: NextRequest) => {
   if (scanResult === "malicious") {
     await deleteBlobByName(blobName);
     return apiUnprocessable("File rejected: malware detected.");
+  }
+  // Fail-closed: if the scan hasn't completed in time, don't let an unscanned
+  // file through. Drop the blob and ask the user to retry.
+  if (scanResult === "pending" && isMalwareScanFailClosed()) {
+    await deleteBlobByName(blobName);
+    return apiServiceUnavailable("File could not be virus-scanned in time. Please try again.");
   }
 
   // ── Async path (Service Bus configured) ───────────────────────────────────
