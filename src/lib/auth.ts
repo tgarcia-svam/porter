@@ -151,8 +151,18 @@ async function buildInstance(): Promise<AuthInstance> {
 
   const providers: NextAuthConfig["providers"] = [];
 
+  // prompt=select_account forces the IdP to show the account chooser on every
+  // sign-in. Without it, signing out of the app leaves the IdP session intact,
+  // so the next "Sign in" silently re-authenticates the previous account with
+  // no way to pick a different one.
   if (googleId && googleSecret) {
-    providers.push(Google({ clientId: googleId, clientSecret: googleSecret }));
+    providers.push(
+      Google({
+        clientId: googleId,
+        clientSecret: googleSecret,
+        authorization: { params: { prompt: "select_account" } },
+      })
+    );
   }
 
   if (msId && msSecret) {
@@ -161,6 +171,7 @@ async function buildInstance(): Promise<AuthInstance> {
         clientId: msId,
         clientSecret: msSecret,
         issuer: `https://login.microsoftonline.com/${msTenant}/v2.0`,
+        authorization: { params: { prompt: "select_account" } },
       })
     );
   }
