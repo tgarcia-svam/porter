@@ -40,7 +40,13 @@ export async function waitForMalwareScanResult(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const { tags } = await blockBlobClient.getTags();
-    const result = tags["Malware Scanning.scan results"];
+    // Defender writes a blob index tag with the verdict. The exact key has
+    // varied across Defender versions (currently "Malware Scanning scan
+    // result"), so match by pattern rather than a brittle exact string —
+    // a mismatch here silently reads as "pending" forever under fail-closed.
+    const result = Object.entries(tags).find(([k]) =>
+      /malware scanning.*result/i.test(k)
+    )?.[1];
     if (result === "No threats found") return "clean";
     if (result === "Malicious") return "malicious";
     await new Promise<void>((r) => setTimeout(r, pollIntervalMs));
