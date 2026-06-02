@@ -40,11 +40,11 @@ export const POST = withHandler(async (req: NextRequest) => {
     return apiBadRequest("schemaId, fileName, and mimeType are required");
   }
 
-  // Log env var presence (not values) to confirm config is loaded
+  // Log env var presence (not values) to confirm config is loaded. SAS issuance
+  // uses the managed identity (user delegation key), not the account key.
   console.log("[upload/sas] env check:", {
     AZURE_STORAGE_ACCOUNT_URL: !!process.env.AZURE_STORAGE_ACCOUNT_URL,
     AZURE_STORAGE_ACCOUNT_NAME: !!process.env.AZURE_STORAGE_ACCOUNT_NAME,
-    AZURE_STORAGE_ACCOUNT_KEY: !!process.env.AZURE_STORAGE_ACCOUNT_KEY,
     AZURE_DIRECT_UPLOAD_ENABLED: process.env.AZURE_DIRECT_UPLOAD_ENABLED,
   });
 

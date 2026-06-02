@@ -272,6 +272,35 @@ resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
   properties: { publicAccess: 'None' }
 }
 
+// ── Defender for Storage (malware scanning) ──────────────────────────────────
+// Enables on-upload malware scanning for this account. Defender writes the scan
+// verdict to each blob's index tags ("Malware Scanning.scan results"), which the
+// app polls in waitForMalwareScanResult(). overrideSubscriptionLevelSettings lets
+// this account-level config take effect regardless of subscription defaults.
+// This is what makes MALWARE_SCAN_FAIL_CLOSED='true' safe — scanning is guaranteed
+// on, so uploads resolve to clean/malicious rather than stalling at "pending".
+// Cost scales per GB scanned; capGBPerMonth bounds it (-1 = unlimited).
+@description('Monthly cap (GB) on malware scanning to bound cost; -1 for unlimited')
+param malwareScanCapGBPerMonth int = 5000
+
+resource defenderForStorage 'Microsoft.Security/defenderForStorageSettings@2022-12-01-preview' = {
+  name: 'current'
+  scope: storageAccount
+  properties: {
+    isEnabled: true
+    malwareScanning: {
+      onUpload: {
+        isEnabled: true
+        capGBPerMonth: malwareScanCapGBPerMonth
+      }
+    }
+    sensitiveDataDiscovery: {
+      isEnabled: false
+    }
+    overrideSubscriptionLevelSettings: true
+  }
+}
+
 // ── Azure Service Bus ─────────────────────────────────────────────────────────
 // Standard tier is required for queues with dead-lettering and sessions.
 // The queue is used to decouple file upload acceptance from heavy validation
@@ -462,12 +491,6 @@ resource kvGoogleClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = i
   properties: { value: googleClientSecret }
 }
 
-resource kvStorageAccountKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'storage-account-key'
-  properties: { value: storageAccount.listKeys().keys[0].value }
-}
-
 resource kvServiceBusConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'service-bus-connection-string'
@@ -553,9 +576,17 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     AZURE_STORAGE_ACCOUNT_URL:      'https://${storageAccount.name}.blob.${environment().suffixes.storage}'
     AZURE_STORAGE_ACCOUNT_NAME:     storageAccount.name
-    AZURE_STORAGE_ACCOUNT_KEY:      '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=storage-account-key)'
+    // No storage account key: all blob ops (incl. delete) and SAS issuance use
+    // the managed identity (Blob Data Contributor + Blob Delegator).
     AZURE_STORAGE_CONTAINER:        storageContainerName
     AZURE_DIRECT_UPLOAD_ENABLED:    'true'
+
+    // Malware scan (Defender for Storage). Fail-closed: uploads whose scan hasn't
+    // completed within MALWARE_SCAN_TIMEOUT_MS are held instead of let through.
+    // Safe to enable because the defenderForStorage resource above guarantees
+    // on-upload scanning is active for this account.
+    MALWARE_SCAN_TIMEOUT_MS:   '60000'
+    MALWARE_SCAN_FAIL_CLOSED:  'true'
 
     // Service Bus — enables async background processing of large file uploads
     AZURE_SERVICE_BUS_NAMESPACE:           '${serviceBusNamespaceName}.servicebus.windows.net'
@@ -576,7 +607,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
-  dependsOn: [kvUploadWorkerSecret, kvStorageAccountKey, kvServiceBusConnectionString, kvDatabaseUrlApp, kvDatabaseUrl]
+  dependsOn: [kvUploadWorkerSecret, kvServiceBusConnectionString, kvDatabaseUrlApp, kvDatabaseUrl]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────
@@ -655,9 +686,9 @@ resource storageDelegatorAssignment 'Microsoft.Authorization/roleAssignments@202
   }
 }
 
-// App Service — read/write uploads storage (Contributor, not Owner — delete is
-// handled via the account key in getAdminContainerClient; Contributor includes
-// blobs/read which covers GetBlobTags for Defender malware scan results)
+// App Service — read/write/delete uploads storage. Storage Blob Data Contributor
+// covers create/read/write/delete (so no account key is needed for deletes) and
+// blobs/read covers GetBlobTags for Defender malware scan results.
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, appServiceName, storageBlobDataContributorRoleId)
   scope: storageAccount
