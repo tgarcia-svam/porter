@@ -52,36 +52,77 @@ const CSRF_EXEMPT = [
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {
+  // ── Canonical host ─────────────────────────────────────────────────────────
+  // NextAuth's OAuth cookies (pkce code_verifier, state) are host-only — bound
+  // to the exact hostname that set them. If sign-in starts on www.<domain> but
+  // the callback lands on the apex <domain> (both are registered redirect URIs),
+  // the pkce cookie set on www is never sent to apex and login fails with
+  // "pkceCodeVerifier cookie was missing", succeeding only on a retry once the
+  // browser is on the apex host. NEXTAUTH_URL is the apex (https://porterdata.com),
+  // so redirect www.* → apex (308) here, before any sign-in, to keep the whole
+  // OAuth flow on a single host. Runs on the initial page load; the 308 is
+  // cached so the browser won't return to www.
+  // Use the public Host header (strip any port), not req.nextUrl's host — behind
+  // App Service the request URL carries the container's internal port (3000) and
+  // http, which would otherwise leak into the redirect (e.g. porterdata.com:3000).
+  const hostname = (req.headers.get("host") ?? "").split(":")[0];
+  if (hostname.startsWith("www.")) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https:";
+    url.hostname = hostname.slice(4); // strip "www."
+    url.port = ""; // drop the internal :3000
+    return NextResponse.redirect(url, 308);
+  }
+
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     req.headers.get("x-real-ip") ??
     "unknown";
 
   const path = req.nextUrl.pathname;
-  const rule = LIMITS.find((r) => path.startsWith(r.prefix));
+  const isApi = path.startsWith("/api");
 
-  if (rule && !isAllowed(`${ip}:${rule.prefix}`, rule.max, rule.windowMs)) {
-    return new NextResponse("Too Many Requests", {
-      status: 429,
-      headers: {
-        "Retry-After": String(Math.ceil(rule.windowMs / 1000)),
-        "Content-Type": "text/plain",
-      },
-    });
-  }
+  // Rate limiting and CSRF validation only apply to API routes. The middleware
+  // also runs on page navigations (see matcher) solely to seed the CSRF cookie.
+  if (isApi) {
+    const rule = LIMITS.find((r) => path.startsWith(r.prefix));
 
-  // ── CSRF validation ────────────────────────────────────────────────────────
-  const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
-  if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
-    return new NextResponse("Invalid CSRF token", {
-      status: 403,
-      headers: { "Content-Type": "text/plain" },
-    });
+    if (rule && !isAllowed(`${ip}:${rule.prefix}`, rule.max, rule.windowMs)) {
+      return new NextResponse("Too Many Requests", {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rule.windowMs / 1000)),
+          "Content-Type": "text/plain",
+        },
+      });
+    }
+
+    // ── CSRF validation ──────────────────────────────────────────────────────
+    const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
+    if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
+      return new NextResponse("Invalid CSRF token", {
+        status: 403,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
   }
 
   // ── Ensure CSRF cookie is set ──────────────────────────────────────────────
+  // Seed the cookie on page navigations (and non-auth API requests) so it's
+  // present in the browser before any client-side mutation. The client reads
+  // it from document.cookie to send the X-CSRF-Token header.
+  //
+  // NOTE: NextAuth routes (/api/auth/*) are excluded from the matcher entirely,
+  // so the middleware never runs on them. This is deliberate: NextAuth emits
+  // multiple Set-Cookie headers (pkce code_verifier, state, nonce, session
+  // token) on its OAuth redirects, and a middleware that runs on those routes —
+  // even just returning NextResponse.next() — can drop those Set-Cookie headers
+  // in a production standalone build. A dropped pkce cookie surfaces at the
+  // callback as "pkceCodeVerifier value could not be parsed". The isAuthRoute
+  // guard below is belt-and-suspenders in case the matcher is ever loosened.
   const res = NextResponse.next();
-  if (!req.cookies.get(CSRF_COOKIE)) {
+  const isAuthRoute = path.startsWith("/api/auth");
+  if (!isAuthRoute && !req.cookies.get(CSRF_COOKIE)) {
     res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
       httpOnly: false, // must be readable by client JS
       sameSite: "strict",
@@ -93,5 +134,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  // Run on API routes (rate limit + CSRF validation) and page navigations (to
+  // seed the CSRF cookie), but NEVER on /api/auth/* — NextAuth manages its own
+  // cookies there and middleware running on those routes can drop the OAuth
+  // Set-Cookie headers (pkce/state/nonce) in production, breaking sign-in.
+  // Also excludes Next.js internals and static assets.
+  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
 };

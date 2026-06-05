@@ -22,7 +22,7 @@ param dbSkuName         = 'Standard_B1ms'
 param dbSkuTier         = 'Burstable'
 
 // ── NextAuth ──────────────────────────────────────────────────────────────────
-param nextauthUrl = 'https://www.porterdata.com'
+param nextauthUrl = 'https://porterdata.com'
 // nextauthSecret  → secret in main.secrets.bicepparam
 
 // ── Google SSO (optional — leave empty to disable) ────────────────────────────
@@ -30,7 +30,7 @@ param googleClientId = ''
 // googleClientSecret → secret in main.secrets.bicepparam
 
 // ── Microsoft Entra ID SSO ────────────────────────────────────────────────────
-param azureAdClientId = '2dee6845-f88d-48b7-b411-b0c43aa6d7f1'
+param azureAdClientId = '6f2fb008-8f5e-4f18-a8d1-6267514660f6'
 param azureAdTenantId = 'common'
 // azureAdClientSecret → secret in main.secrets.bicepparam
 

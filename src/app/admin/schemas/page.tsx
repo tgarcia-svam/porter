@@ -32,7 +32,7 @@ export default async function SchemasPage() {
         </div>
         <Link
           href="/admin/schemas/new"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
         >
           New file format
         </Link>

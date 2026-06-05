@@ -16,8 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 // Worker has no user session — must bypass RLS to write across orgs.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
-import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName } from "@/lib/azure-storage";
-import { exportUploadToWarehouse } from "@/lib/warehouse-export";
+import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName, isMalwareScanFailClosed } from "@/lib/azure-storage";
 import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
 import {
@@ -90,6 +89,18 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ ok: true, status: "INVALID", reason: "malware" });
+  }
+
+  // Fail-closed: scan didn't complete in time. Leave the record PENDING and
+  // return a non-2xx so the Azure Function throws and Service Bus redelivers
+  // (up to maxDeliveryCount, then dead-letters). Each retry re-scans, giving
+  // Defender more wall-clock time; an unscannable file is never marked VALID.
+  if (scanResult === "pending" && isMalwareScanFailClosed()) {
+    console.warn(`[process] scan still pending after timeout — holding for retry (uploadId=${uploadId})`);
+    return NextResponse.json(
+      { ok: false, reason: "scan_pending" },
+      { status: 503 }
+    );
   }
 
   // ── Fetch schema + classifications ────────────────────────────────────────

@@ -151,8 +151,18 @@ async function buildInstance(): Promise<AuthInstance> {
 
   const providers: NextAuthConfig["providers"] = [];
 
+  // prompt=select_account forces the IdP to show the account chooser on every
+  // sign-in. Without it, signing out of the app leaves the IdP session intact,
+  // so the next "Sign in" silently re-authenticates the previous account with
+  // no way to pick a different one.
   if (googleId && googleSecret) {
-    providers.push(Google({ clientId: googleId, clientSecret: googleSecret }));
+    providers.push(
+      Google({
+        clientId: googleId,
+        clientSecret: googleSecret,
+        authorization: { params: { prompt: "select_account" } },
+      })
+    );
   }
 
   if (msId && msSecret) {
@@ -161,6 +171,7 @@ async function buildInstance(): Promise<AuthInstance> {
         clientId: msId,
         clientSecret: msSecret,
         issuer: `https://login.microsoftonline.com/${msTenant}/v2.0`,
+        authorization: { params: { prompt: "select_account" } },
       })
     );
   }
@@ -170,6 +181,22 @@ async function buildInstance(): Promise<AuthInstance> {
     pages: { signIn: "/login", error: "/login" },
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
+    logger: {
+      // Surface the real cause behind generic Auth.js errors. InvalidCheck
+      // ("pkceCodeVerifier value could not be parsed") hides whether the cookie
+      // was MISSING or failed to DECRYPT inside error.cause — log it so prod
+      // failures are diagnosable via App Insights (console is auto-collected).
+      error(error: Error & { cause?: unknown }) {
+        console.error(
+          "[auth][error]",
+          error?.name,
+          "|",
+          error?.message,
+          "| cause:",
+          error?.cause ?? "(none)"
+        );
+      },
+    },
     events: {
       async signOut(message) {
         const token = "token" in message ? message.token : null;
@@ -195,18 +222,75 @@ export function invalidateAuth(): void {
 
 // ── Proxy exports ─────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reqPath(req: any): string {
+  try {
+    return req?.nextUrl?.pathname ?? new URL(req.url).pathname;
+  } catch {
+    return "";
+  }
+}
+
+/** Comma-joined cookie NAMES from an incoming Cookie header (values omitted). */
+function inCookieNames(header: string | null | undefined): string {
+  if (!header) return "(none)";
+  return (
+    header
+      .split(";")
+      .map((c) => c.split("=")[0].trim())
+      .filter(Boolean)
+      .join(", ") || "(none)"
+  );
+}
+
 export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GET: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
-    return (await getInstance()).handlers.GET(req);
+    const res = await (await getInstance()).handlers.GET(req);
+    // DIAG: on the OAuth callback, log the host the request arrived on plus the
+    // cookies the browser actually sent. Compare the host against the sign-in
+    // host below — if they differ, the host-only pkce cookie won't be sent.
+    const path = reqPath(req);
+    if (path.includes("/callback/")) {
+      console.log(
+        "[auth][diag] callback IN —",
+        diagHost(req),
+        "| cookies:",
+        inCookieNames(req?.headers?.get?.("cookie"))
+      );
+    }
+    return res;
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   POST: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
-    return (await getInstance()).handlers.POST(req);
+    const res = await (await getInstance()).handlers.POST(req);
+    // DIAG: on sign-in, log the host plus the Set-Cookie names/flags Auth.js
+    // emitted (e.g. __Secure- prefix, SameSite, Secure, Domain).
+    const path = reqPath(req);
+    if (path.includes("/signin/")) {
+      const sc =
+        typeof res?.headers?.getSetCookie === "function" ? res.headers.getSetCookie() : [];
+      console.log(
+        "[auth][diag] signin OUT —",
+        diagHost(req),
+        "| set-cookie:",
+        sc.length
+          ? sc.map((c: string) => c.split(";")[0].split("=")[0] + " [" + c.split(";").slice(1).map((a: string) => a.trim()).join(" ") + "]").join(" | ")
+          : "(none)"
+      );
+    }
+    return res;
   },
 };
+
+/** host / x-forwarded-host / proto, for spotting host mismatches between legs. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function diagHost(req: any): string {
+  const h = (k: string) => req?.headers?.get?.(k) ?? "-";
+  return `host=${h("host")} xfh=${h("x-forwarded-host")} xfp=${h("x-forwarded-proto")} url=${reqPath(req)}`;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const auth: AuthInstance["auth"] = ((...args: any[]) =>

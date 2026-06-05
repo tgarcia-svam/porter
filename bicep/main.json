@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "15351286924268069310"
+      "templateHash": "7844913133446482014"
     }
   },
   "parameters": {
@@ -166,6 +166,19 @@
       "type": "securestring",
       "metadata": {
         "description": "Shared secret the Azure Function sends as X-Worker-Secret when calling /api/upload/process. Generate with: openssl rand -hex 32"
+      }
+    },
+    "retentionWorkerSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Shared secret the scheduled retention job sends as x-worker-secret when calling /api/admin/retention/run. Generate with: openssl rand -hex 32"
+      }
+    },
+    "malwareScanCapGBPerMonth": {
+      "type": "int",
+      "defaultValue": 5000,
+      "metadata": {
+        "description": "Monthly cap (GB) on malware scanning to bound cost; -1 for unlimited"
       }
     }
   },
@@ -405,6 +418,28 @@
       ]
     },
     {
+      "type": "Microsoft.Security/defenderForStorageSettings",
+      "apiVersion": "2022-12-01-preview",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "name": "current",
+      "properties": {
+        "isEnabled": true,
+        "malwareScanning": {
+          "onUpload": {
+            "isEnabled": true,
+            "capGBPerMonth": "[parameters('malwareScanCapGBPerMonth')]"
+          }
+        },
+        "sensitiveDataDiscovery": {
+          "isEnabled": false
+        },
+        "overrideSubscriptionLevelSettings": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.ServiceBus/namespaces",
       "apiVersion": "2022-10-01-preview",
       "name": "[variables('serviceBusNamespaceName')]",
@@ -617,18 +652,6 @@
     {
       "type": "Microsoft.KeyVault/vaults/secrets",
       "apiVersion": "2023-07-01",
-      "name": "[format('{0}/{1}', variables('keyVaultName'), 'storage-account-key')]",
-      "properties": {
-        "value": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').keys[0].value]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2023-07-01",
       "name": "[format('{0}/{1}', variables('keyVaultName'), 'service-bus-connection-string')]",
       "properties": {
         "value": "[listKeys(format('{0}/AuthorizationRules/RootManageSharedAccessKey', resourceId('Microsoft.ServiceBus/namespaces', variables('serviceBusNamespaceName'))), '2022-10-01-preview').primaryConnectionString]"
@@ -656,6 +679,17 @@
       "name": "[format('{0}/{1}', variables('keyVaultName'), 'upload-worker-secret')]",
       "properties": {
         "value": "[parameters('uploadWorkerSecret')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'retention-worker-secret')]",
+      "properties": {
+        "value": "[parameters('retentionWorkerSecret')]"
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
@@ -715,13 +749,15 @@
         "AZURE_AD_TENANT_ID": "[parameters('azureAdTenantId')]",
         "AZURE_STORAGE_ACCOUNT_URL": "[format('https://{0}.blob.{1}', parameters('storageAccountName'), environment().suffixes.storage)]",
         "AZURE_STORAGE_ACCOUNT_NAME": "[parameters('storageAccountName')]",
-        "AZURE_STORAGE_ACCOUNT_KEY": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=storage-account-key)', variables('keyVaultName'))]",
         "AZURE_STORAGE_CONTAINER": "[parameters('storageContainerName')]",
         "AZURE_DIRECT_UPLOAD_ENABLED": "true",
+        "MALWARE_SCAN_TIMEOUT_MS": "60000",
+        "MALWARE_SCAN_FAIL_CLOSED": "true",
         "AZURE_SERVICE_BUS_NAMESPACE": "[format('{0}.servicebus.windows.net', variables('serviceBusNamespaceName'))]",
         "AZURE_SERVICE_BUS_QUEUE_NAME": "[parameters('serviceBusQueueName')]",
         "AZURE_SERVICE_BUS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=service-bus-connection-string)', variables('keyVaultName'))]",
         "UPLOAD_WORKER_SECRET": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=upload-worker-secret)', variables('keyVaultName'))]",
+        "RETENTION_WORKER_SECRET": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=retention-worker-secret)', variables('keyVaultName'))]",
         "DOCKER_REGISTRY_SERVER_URL": "[format('https://{0}', reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').loginServer)]",
         "SEED_ADMIN_EMAIL": "[parameters('seedAdminEmail')]",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=appinsights-connection-string)', variables('keyVaultName'))]",
@@ -733,7 +769,6 @@
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url-app')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'service-bus-connection-string')]",
-        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'storage-account-key')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'upload-worker-secret')]",
         "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
       ]
