@@ -185,6 +185,11 @@ export const POST = withHandler(async (req: NextRequest) => {
     rows,
   });
 
+  // Best-effort warehouse export (inline fallback path only — never throws).
+  if (record.status === "VALID") {
+    await exportUploadToWarehouse(record.id);
+  }
+
   return NextResponse.json({
     uploadId: record.id,
     status: record.status,

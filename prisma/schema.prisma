@@ -127,6 +127,15 @@ model FileUpload {
   createdAt     DateTime     @default(now())
   deletedAt     DateTime?
 
+  // Data-warehouse export tracking. Export runs best-effort after an upload
+  // finalizes VALID; failure here never changes `status`. exportPath is the
+  // blob path written in the external (data-team-owned) storage account.
+  exportStatus   ExportStatus @default(NOT_EXPORTED)
+  exportedAt     DateTime?
+  exportPath     String?
+  exportError    String?
+  exportAttempts Int          @default(0)
+
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
   results ValidationResult[]
@@ -202,6 +211,12 @@ enum UploadStatus {
   PENDING
   VALID
   INVALID
+}
+
+enum ExportStatus {
+  NOT_EXPORTED
+  EXPORTED
+  FAILED
 }
 
 enum Granularity {

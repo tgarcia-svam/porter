@@ -23,6 +23,7 @@ import { auth } from "@/lib/auth";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
+import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { auditStore, clientIp } from "@/lib/audit-context";
@@ -181,6 +182,11 @@ export const POST = withHandler(async (req: NextRequest) => {
     errors: allErrors,
     rows: validatedRows,
   });
+
+  // Best-effort warehouse export (never throws).
+  if (upload.status === "VALID") {
+    await exportUploadToWarehouse(upload.id);
+  }
 
   return NextResponse.json({
     uploadId: upload.id,
