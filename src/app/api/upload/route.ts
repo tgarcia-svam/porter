@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName, isMalwareScanFailClosed } from "@/lib/azure-storage";
+import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import {
   resolveValidationColumns,
