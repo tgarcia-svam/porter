@@ -216,7 +216,7 @@ export default function ClassificationManager({
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Classification name (e.g. Product Category)"
             required
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
 
           <CaseSensitiveToggle value={newCaseSensitive} onChange={setNewCaseSensitive} />
@@ -235,7 +235,7 @@ export default function ClassificationManager({
                   if (e.key === ",") { e.preventDefault(); addNewValue(); }
                 }}
                 placeholder="Type a value and press Enter"
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
               <button
                 type="button"
@@ -273,7 +273,7 @@ export default function ClassificationManager({
           <button
             type="submit"
             disabled={adding || !newName.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {adding ? "Creating…" : "Create classification"}
           </button>
@@ -290,12 +290,12 @@ export default function ClassificationManager({
           {classifications.map((c) =>
             editingId === c.id ? (
               // ── Edit row ──────────────────────────────────────────────────
-              <div key={c.id} className="bg-white rounded-xl border border-blue-200 p-5 space-y-3">
+              <div key={c.id} className="bg-white rounded-xl border border-brand-200 p-5 space-y-3">
                 <input
                   autoFocus
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
 
                 <CaseSensitiveToggle value={editCaseSensitive} onChange={setEditCaseSensitive} />
@@ -314,7 +314,7 @@ export default function ClassificationManager({
                         if (e.key === ",") { e.preventDefault(); addEditValue(); }
                       }}
                       placeholder="Type a value and press Enter"
-                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
                     <button
                       type="button"
@@ -353,7 +353,7 @@ export default function ClassificationManager({
                   <button
                     onClick={() => handleSave(c.id)}
                     disabled={saving || !editName.trim()}
-                    className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    className="rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
                   >
                     {saving ? "Saving…" : "Save"}
                   </button>
@@ -397,7 +397,7 @@ export default function ClassificationManager({
                   <div className="shrink-0 flex items-center gap-3 text-xs">
                     <button
                       onClick={() => startEdit(c)}
-                      className="text-blue-600 hover:underline font-medium"
+                      className="text-brand-600 hover:underline font-medium"
                     >
                       Edit
                     </button>

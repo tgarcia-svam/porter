@@ -41,7 +41,7 @@ export default function SchemaListClient({
         <p className="text-gray-500 text-sm">No file formats yet.</p>
         <Link
           href="/admin/schemas/new"
-          className="mt-3 inline-block text-sm text-blue-600 hover:underline"
+          className="mt-3 inline-block text-sm text-brand-600 hover:underline"
         >
           Create your first file format →
         </Link>
@@ -99,7 +99,7 @@ export default function SchemaListClient({
               <span>{schema._count.uploads} uploads</span>
               <Link
                 href={`/admin/schemas/${schema.id}`}
-                className="text-blue-600 hover:underline font-medium"
+                className="text-brand-600 hover:underline font-medium"
               >
                 Edit
               </Link>

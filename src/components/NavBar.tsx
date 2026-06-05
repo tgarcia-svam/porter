@@ -34,7 +34,7 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-14 items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link href="/" className="text-base font-bold text-blue-600 tracking-tight">
+            <Link href="/" className="text-base font-bold text-brand-500 tracking-tight">
               Porter
             </Link>
             <div className="hidden sm:flex items-center gap-1">
@@ -49,7 +49,7 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
                     href={link.href}
                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                       active
-                        ? "bg-blue-50 text-blue-700"
+                        ? "bg-brand-50 text-brand-700"
                         : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                     }`}
                   >

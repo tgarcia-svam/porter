@@ -102,23 +102,56 @@ describe("BOOLEAN type", () => {
 describe("DATE type", () => {
   const cols = [col("v", "DATE")];
 
-  it.each(["2024-01-15", "01/15/2024", "January 15, 2024"])(
-    "accepts parseable date %s",
+  it.each([
+    "2024-01-15",      // ISO basic
+    "2024-1-15",       // ISO single-digit month
+    "2024-01-5",       // ISO single-digit day
+    "01/15/2024",      // US slash zero-padded
+    "1/15/2024",       // US slash single-digit
+    "2024-02-29",      // valid leap-day
+    "2024-01-15T00:00:00.000Z", // ISO with time (exceljs serializes Excel date cells this way)
+  ])(
+    "accepts valid date %s",
     async (val) => {
       const r = await validateFile(csv("v", val), TEXT_CSV, cols);
       expect(r.errors).toHaveLength(0);
     }
   );
 
-  it("rejects non-date string", async () => {
-    const r = await validateFile(csv("v", "not-a-date"), TEXT_CSV, cols);
-    expect(r.errors[0].error).toBe("Expected a valid date");
-  });
+  it.each([
+    "2/30/2023",       // Feb has no 30th
+    "02/30/2023",
+    "2023-02-30",
+    "4/31/2024",       // Apr has no 31st
+    "2024-04-31",
+    "2023-02-29",      // Feb 29 in a non-leap year
+    "13/1/2023",       // month > 12
+    "2023-13-01",
+    "1/32/2023",       // day > 31
+    "0/15/2024",       // month 0
+    "2024-00-15",
+    "not-a-date",
+    "January 15, 2024", // long-form no longer accepted — strict parser only
+    "15-Jan-2024",
+    "2024/01/15",      // wrong separator order for slash format
+  ])(
+    "rejects invalid date %s",
+    async (val) => {
+      const r = await validateFile(csv("v", val), TEXT_CSV, cols);
+      expect(r.errors[0].error).toMatch(/Expected a valid date/);
+    }
+  );
 
-  it("normalizes valid date to ISO 8601", async () => {
+  it("normalizes valid date to midnight UTC ISO 8601", async () => {
     const r = await validateFile(csv("v", "2024-06-15"), TEXT_CSV, cols);
     expect(r.errors).toHaveLength(0);
-    expect(r.rows[0]["v"]).toMatch(/^2024-06-15T/);
+    expect(r.rows[0]["v"]).toBe("2024-06-15T00:00:00.000Z");
+  });
+
+  it("normalizes US-slash dates to ISO 8601", async () => {
+    const r = await validateFile(csv("v", "6/15/2024"), TEXT_CSV, cols);
+    expect(r.errors).toHaveLength(0);
+    expect(r.rows[0]["v"]).toBe("2024-06-15T00:00:00.000Z");
   });
 });
 
