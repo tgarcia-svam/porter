@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName, isMalwareScanFailClosed } from "@/lib/azure-storage";
+import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
 import {
