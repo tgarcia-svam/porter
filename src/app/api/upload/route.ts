@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName } from "@/lib/azure-storage";
+import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import {
   resolveValidationColumns,
@@ -178,6 +179,11 @@ export const POST = withHandler(async (req: NextRequest) => {
     errors: allErrors,
     rows,
   });
+
+  // Best-effort warehouse export (inline fallback path only — never throws).
+  if (record.status === "VALID") {
+    await exportUploadToWarehouse(record.id);
+  }
 
   return NextResponse.json({
     uploadId: record.id,

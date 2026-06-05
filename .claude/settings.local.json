@@ -14,7 +14,8 @@
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
       "Bash(node -e ' *)",
-      "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)"
+      "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)",
+      "Bash(node -e \"const p=require\\('@dsnp/parquetjs'\\); console.log\\(Object.keys\\(p\\)\\)\")"
     ]
   }
 }

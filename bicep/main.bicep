@@ -91,6 +91,15 @@ param uploadWorkerSecret string
 @secure()
 param retentionWorkerSecret string
 
+@description('External data-warehouse storage account URL, e.g. https://<account>.blob.core.windows.net/ (leave empty to disable export)')
+param warehouseStorageAccountUrl string = ''
+
+@description('Entra ID tenant ID of the data team that owns the warehouse account (home tenant of the federated app)')
+param warehouseTenantId string = ''
+
+@description('Client (application) ID of the data-team app registration that Porter federates into. The data team grants this app Storage Blob Data Contributor and adds a federated credential trusting the user-assigned identity output by this deployment.')
+param warehouseClientId string = ''
+
 // ── Derived names ─────────────────────────────────────────────────────────────
 
 var appServicePlanName      = '${appServiceName}-plan'
@@ -100,6 +109,7 @@ var logAnalyticsName        = '${appServiceName}-logs'
 var appInsightsName         = '${appServiceName}-insights'
 var serviceBusNamespaceName = '${appServiceName}-bus'
 var workerFunctionName      = '${appServiceName}-worker'
+var warehouseIdentityName   = '${appServiceName}-warehouse-id'
 // Storage account names: max 24 chars, alphanumeric only
 var workerStorageName       = take('fnwrk${uniqueString(resourceGroup().id, appServiceName)}', 24)
 
@@ -494,6 +504,17 @@ resource kvRetentionWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' 
   properties: { value: retentionWorkerSecret }
 }
 
+// User-assigned managed identity Porter uses to federate into the data team's
+// warehouse app (cross-tenant workload identity federation). A user-assigned
+// identity is a native ARM resource — re-deploys are idempotent and never
+// regenerate it, so its issuer/subject stay stable for the federated credential.
+// No secret is stored anywhere. The data team adds a federated credential on
+// their app trusting this identity (see the warehouse* outputs below).
+resource warehouseIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: warehouseIdentityName
+  location: location
+}
+
 // ── App Service Plan ──────────────────────────────────────────────────────────
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
@@ -512,7 +533,14 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
 resource appService 'Microsoft.Web/sites@2023-12-01' = {
   name: appServiceName
   location: location
-  identity: { type: 'SystemAssigned' }
+  // System-assigned drives all the in-tenant role assignments below; the
+  // user-assigned warehouseIdentity is the cross-tenant federation identity.
+  identity: {
+    type: 'SystemAssigned, UserAssigned'
+    userAssignedIdentities: {
+      '${warehouseIdentity.id}': {}
+    }
+  }
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
@@ -567,6 +595,15 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     // Shared secret authenticating /api/admin/retention/run calls from the scheduled job
     RETENTION_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=retention-worker-secret)'
+
+    // External data-warehouse export — secret-less cross-tenant access. Porter
+    // uses the user-assigned warehouseIdentity to federate into the data team's
+    // app (WAREHOUSE_CLIENT_ID/TENANT_ID). No secret is stored. Destination
+    // container + root path are set in the admin UI (AppSetting).
+    WAREHOUSE_STORAGE_ACCOUNT_URL: warehouseStorageAccountUrl
+    WAREHOUSE_TENANT_ID:           warehouseTenantId
+    WAREHOUSE_CLIENT_ID:           warehouseClientId
+    WAREHOUSE_MI_CLIENT_ID:        warehouseIdentity.properties.clientId
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 
@@ -751,3 +788,13 @@ output dbHostname              string = postgresServer.properties.fullyQualified
 output keyVaultUri             string = keyVault.properties.vaultUri
 output serviceBusNamespaceFqdn string = '${serviceBusNamespaceName}.servicebus.windows.net'
 output workerFunctionName      string = workerFunction.name
+
+// Hand these to the data team to configure the federated identity credential on
+// their warehouse app (one-time, in their tenant). The FIC subject is the
+// identity's principal (object) ID; issuer is our tenant; audience is the
+// standard token-exchange audience. They also grant this identity (by client ID)
+// Storage Blob Data Contributor on the target container.
+output warehouseIdentityClientId   string = warehouseIdentity.properties.clientId
+output warehouseIdentityPrincipalId string = warehouseIdentity.properties.principalId
+output warehouseFederationIssuer   string = '${environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
+output warehouseFederationAudience string = 'api://AzureADTokenExchange'

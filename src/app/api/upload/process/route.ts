@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { validateFile } from "@/lib/validate";
 import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName } from "@/lib/azure-storage";
+import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
 import {
@@ -148,6 +149,14 @@ export async function POST(req: NextRequest) {
   });
   console.log(`[process] db writes: duration=${Date.now() - tDb}ms elapsed=${elapsed()}`);
   console.log(`[process] uploadId=${uploadId} complete: status=${status} rows=${rowCount} total=${elapsed()}`);
+
+  // ── Data-warehouse export ───────────────────────────────────────────────────
+  // Best-effort: never throws, records its own outcome on the FileUpload record.
+  if (status === "VALID") {
+    const tExport = Date.now();
+    const exportResult = await exportUploadToWarehouse(uploadId);
+    console.log(`[process] warehouse export: ${exportResult.status}${exportResult.reason ? ` (${exportResult.reason})` : ""} duration=${Date.now() - tExport}ms`);
+  }
 
   return NextResponse.json({
     ok: true,

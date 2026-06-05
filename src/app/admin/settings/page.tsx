@@ -499,6 +499,137 @@ function RetentionSection() {
   );
 }
 
+// ── Warehouse export section ──────────────────────────────────────────────────
+
+type WarehouseExportConfig = {
+  enabled: boolean;
+  container: string;
+  rootPath: string;
+  credentialsConfigured: boolean;
+};
+
+function WarehouseExportSection() {
+  const [config, setConfig] = useState<WarehouseExportConfig | null>(null);
+  const [draft, setDraft] = useState<WarehouseExportConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/warehouse-export")
+      .then((r) => r.json())
+      .then((data: WarehouseExportConfig) => {
+        setConfig(data);
+        setDraft(data);
+      });
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const res = await apiFetch("/api/admin/warehouse-export", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: draft.enabled,
+          container: draft.container,
+          rootPath: draft.rootPath,
+        }),
+      });
+      const updated = await res.json();
+      if (!res.ok) {
+        setFeedback({ ok: false, message: typeof updated.error === "string" ? updated.error : "Failed to save settings." });
+        return;
+      }
+      setConfig(updated);
+      setDraft(updated);
+      setFeedback({ ok: true, message: "Warehouse export settings saved." });
+    } catch {
+      setFeedback({ ok: false, message: "An error occurred while saving." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+      <SectionHeader
+        title="Data Warehouse Export"
+        description="When enabled, each upload that passes validation is written as a Parquet file to an external storage container for downstream warehouse ingestion. The connection identity is configured via environment variables (secret-less, cross-tenant managed identity); the destination below is editable here."
+      />
+      <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Connection identity</span>
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                config?.credentialsConfigured
+                  ? "bg-green-50 text-green-700 ring-green-600/20"
+                  : "bg-red-50 text-red-700 ring-red-600/20"
+              }`}
+            >
+              {config === null ? "Loading…" : config.credentialsConfigured ? "Configured" : "Not configured"}
+            </span>
+          </div>
+          {config && !config.credentialsConfigured && (
+            <p className="text-xs text-gray-500">
+              Set <code>WAREHOUSE_STORAGE_ACCOUNT_URL</code>, <code>WAREHOUSE_TENANT_ID</code>,{" "}
+              <code>WAREHOUSE_CLIENT_ID</code> and <code>WAREHOUSE_MI_CLIENT_ID</code> in the environment
+              (set automatically on Azure by the deployment). Until then, exports are skipped even if enabled below.
+            </p>
+          )}
+        </div>
+        <Field
+          label="Enable export"
+          hint="When off, validated uploads are not exported (left as NOT_EXPORTED)."
+        >
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={draft?.enabled ?? false}
+              onChange={(e) => draft && setDraft({ ...draft, enabled: e.target.checked })}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Export validated uploads to the warehouse
+          </label>
+        </Field>
+        <Field
+          label="Container name"
+          hint="The destination container in the external warehouse storage account."
+        >
+          <input
+            type="text"
+            value={draft?.container ?? ""}
+            onChange={(e) => draft && setDraft({ ...draft, container: e.target.value })}
+            placeholder="data-warehouse"
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Root path"
+          hint="Prefix within the container. Files are written to {rootPath}/{schema}/dt=YYYY-MM-DD/{uploadId}.parquet. Leave blank for the container root."
+        >
+          <input
+            type="text"
+            value={draft?.rootPath ?? ""}
+            onChange={(e) => draft && setDraft({ ...draft, rootPath: e.target.value })}
+            placeholder="porter/bronze"
+            className={inputCls}
+          />
+        </Field>
+        <Feedback value={feedback} />
+        <div>
+          <button type="submit" disabled={saving || !draft} className={saveBtnCls}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -514,6 +645,7 @@ export default function SettingsPage() {
       <AzureSection />
       <GoogleSection />
       <MicrosoftSection />
+      <WarehouseExportSection />
       <RetentionSection />
     </div>
   );
