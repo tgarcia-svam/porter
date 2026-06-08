@@ -7,13 +7,6 @@ type SettingSource = "db" | "env" | "default" | null;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type AzureStatus = {
-  accountUrlConfigured: boolean;
-  accountUrl: string | null;
-  containerName: string;
-  containerNameSource: SettingSource;
-};
-
 type ProviderStatus = {
   configured: boolean;
   clientIdSource: SettingSource;
@@ -97,56 +90,6 @@ const inputCls =
 
 const saveBtnCls =
   "inline-flex items-center rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50";
-
-// ── Azure Storage section ─────────────────────────────────────────────────────
-
-function AzureSection() {
-  const [status, setStatus] = useState<AzureStatus | null>(null);
-
-  useEffect(() => {
-    fetch("/api/settings/azure")
-      .then((r) => r.json())
-      .then((data: AzureStatus) => setStatus(data));
-  }, []);
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
-      <SectionHeader
-        title="Azure Blob Storage"
-        description="Storage is configured via environment variables. Access uses managed identity — no connection string is required."
-      />
-      <div className="px-6 py-5 space-y-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Storage Account URL</span>
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                status?.accountUrlConfigured
-                  ? "bg-green-50 text-green-700 ring-green-600/20"
-                  : "bg-red-50 text-red-700 ring-red-600/20"
-              }`}
-            >
-              {status === null ? "Loading…" : status.accountUrlConfigured ? "Configured" : "Not set"}
-            </span>
-          </div>
-          {status?.accountUrl && (
-            <p className="text-sm text-gray-500 font-mono break-all">{status.accountUrl}</p>
-          )}
-          {status && !status.accountUrlConfigured && (
-            <p className="text-xs text-gray-500">Set <code>AZURE_STORAGE_ACCOUNT_URL</code> in your environment to enable blob storage.</p>
-          )}
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Container Name</span>
-            <SourceBadge source={status?.containerNameSource ?? null} />
-          </div>
-          <p className="text-sm text-gray-500">{status?.containerName ?? "porter-uploads"}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Google SSO section ────────────────────────────────────────────────────────
 
@@ -503,9 +446,12 @@ function RetentionSection() {
 
 type WarehouseExportConfig = {
   enabled: boolean;
+  accountUrl: string;
+  tenantId: string;
+  clientId: string;
   container: string;
   rootPath: string;
-  credentialsConfigured: boolean;
+  managedIdentityConfigured: boolean;
 };
 
 function WarehouseExportSection() {
@@ -534,6 +480,9 @@ function WarehouseExportSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled: draft.enabled,
+          accountUrl: draft.accountUrl,
+          tenantId: draft.tenantId,
+          clientId: draft.clientId,
           container: draft.container,
           rootPath: draft.rootPath,
         }),
@@ -553,33 +502,34 @@ function WarehouseExportSection() {
     }
   }
 
+  const setText = (k: "accountUrl" | "tenantId" | "clientId" | "container" | "rootPath") =>
+    (e: React.ChangeEvent<HTMLInputElement>) => draft && setDraft({ ...draft, [k]: e.target.value });
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
       <SectionHeader
         title="Data Warehouse Export"
-        description="When enabled, each upload that passes validation is written as a Parquet file to an external storage container for downstream warehouse ingestion. The connection identity is configured via environment variables (secret-less, cross-tenant managed identity); the destination below is editable here."
+        description="When enabled, each upload that passes validation is written as a Parquet file to an external storage container for downstream warehouse ingestion. Auth is secret-less via a cross-tenant managed identity; configure the destination below."
       />
       <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Connection identity</span>
+            <span className="text-sm font-medium text-gray-700">Managed identity (federation)</span>
             <span
               className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                config?.credentialsConfigured
+                config?.managedIdentityConfigured
                   ? "bg-green-50 text-green-700 ring-green-600/20"
                   : "bg-red-50 text-red-700 ring-red-600/20"
               }`}
             >
-              {config === null ? "Loading…" : config.credentialsConfigured ? "Configured" : "Not configured"}
+              {config === null ? "Loading…" : config.managedIdentityConfigured ? "Available" : "Not available"}
             </span>
           </div>
-          {config && !config.credentialsConfigured && (
-            <p className="text-xs text-gray-500">
-              Set <code>WAREHOUSE_STORAGE_ACCOUNT_URL</code>, <code>WAREHOUSE_TENANT_ID</code>,{" "}
-              <code>WAREHOUSE_CLIENT_ID</code> and <code>WAREHOUSE_MI_CLIENT_ID</code> in the environment
-              (set automatically on Azure by the deployment). Until then, exports are skipped even if enabled below.
-            </p>
-          )}
+          <p className="text-xs text-gray-500">
+            Porter federates into the data team&apos;s app using a managed identity provisioned by the
+            deployment (<code>WAREHOUSE_MI_CLIENT_ID</code>). This is the only piece not editable here; it
+            is absent in local dev, so exports are skipped there even when enabled.
+          </p>
         </div>
         <Field
           label="Enable export"
@@ -596,13 +546,49 @@ function WarehouseExportSection() {
           </label>
         </Field>
         <Field
+          label="Storage account URL"
+          hint="The external warehouse account, e.g. https://datawarehouse.blob.core.windows.net/"
+        >
+          <input
+            type="text"
+            value={draft?.accountUrl ?? ""}
+            onChange={setText("accountUrl")}
+            placeholder="https://<account>.blob.core.windows.net/"
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Tenant ID"
+          hint="Entra tenant of the data team's app that Porter federates into."
+        >
+          <input
+            type="text"
+            value={draft?.tenantId ?? ""}
+            onChange={setText("tenantId")}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Client ID"
+          hint="Application (client) ID of the data team's federated app, granted Storage Blob Data Contributor on the container."
+        >
+          <input
+            type="text"
+            value={draft?.clientId ?? ""}
+            onChange={setText("clientId")}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            className={inputCls}
+          />
+        </Field>
+        <Field
           label="Container name"
           hint="The destination container in the external warehouse storage account."
         >
           <input
             type="text"
             value={draft?.container ?? ""}
-            onChange={(e) => draft && setDraft({ ...draft, container: e.target.value })}
+            onChange={setText("container")}
             placeholder="data-warehouse"
             className={inputCls}
           />
@@ -614,7 +600,7 @@ function WarehouseExportSection() {
           <input
             type="text"
             value={draft?.rootPath ?? ""}
-            onChange={(e) => draft && setDraft({ ...draft, rootPath: e.target.value })}
+            onChange={setText("rootPath")}
             placeholder="porter/bronze"
             className={inputCls}
           />
@@ -642,7 +628,6 @@ export default function SettingsPage() {
           environment variables.
         </p>
       </div>
-      <AzureSection />
       <GoogleSection />
       <MicrosoftSection />
       <WarehouseExportSection />
