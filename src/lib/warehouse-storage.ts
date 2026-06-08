@@ -50,6 +50,15 @@ export function isManagedIdentityConfigured(): boolean {
   return !!managedIdentityClientId();
 }
 
+/**
+ * Object/principal ID of Porter's managed identity (bicep injects it as
+ * WAREHOUSE_MI_PRINCIPAL_ID). The admin UI shows this read-only — it is the
+ * Subject the data team puts on the federated identity credential of their app.
+ */
+export function getManagedIdentityPrincipalId(): string | undefined {
+  return process.env.WAREHOUSE_MI_PRINCIPAL_ID || undefined;
+}
+
 function getWarehouseContainerClient(
   conn: WarehouseConnection,
   containerName: string

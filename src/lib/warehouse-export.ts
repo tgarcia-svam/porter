@@ -7,10 +7,14 @@
  * FileUpload export-tracking fields and never propagates to the caller, so a
  * warehouse outage can't flip a VALID upload or break the upload response.
  *
- * Idempotent: the blob is keyed by uploadId, so a Service Bus redelivery (or a
- * manual re-run) overwrites the same file rather than duplicating warehouse rows.
+ * Idempotent: the path is derived from stable upload metadata and the filename
+ * is keyed by uploadId, so a Service Bus redelivery (or a manual re-run)
+ * overwrites the same file rather than duplicating warehouse rows.
  *
- *   {rootPath}/{schemaName}/dt=YYYY-MM-DD/{uploadId}.parquet
+ * The path mirrors the upload blob layout (buildUploadBlobName), under the
+ * admin-configured root path:
+ *
+ *   {rootPath}/{projects}/{org}/{schema}/{datetime}/{uploadId}.parquet
  *
  * Typing comes from SchemaColumn.dataType (DB rows are all strings; empty cells
  * become null). See the DataType enum in prisma/schema.prisma.
@@ -20,7 +24,7 @@ import { PassThrough } from "node:stream";
 import { ParquetSchema, ParquetWriter } from "@dsnp/parquetjs";
 import type { DataType } from "@prisma/client";
 import { prismaAdmin } from "./prisma-admin";
-import { sanitizePathSegment } from "./upload-service";
+import { buildUploadBlobName } from "./upload-service";
 import { isManagedIdentityConfigured, uploadParquetToWarehouse } from "./warehouse-storage";
 import { getWarehouseExportConfig } from "./warehouse-export-service";
 
@@ -78,17 +82,13 @@ function coerceCell(raw: string | undefined, type: ParquetFieldType): unknown {
   }
 }
 
-/** Build the deterministic warehouse blob path for an upload. */
-function buildExportBlobName(opts: {
-  rootPath: string;
-  schemaName: string;
-  uploadId: string;
-  createdAt: Date;
-}): string {
-  const date = opts.createdAt.toISOString().slice(0, 10); // YYYY-MM-DD
-  const schemaSegment = sanitizePathSegment(opts.schemaName);
-  const root = opts.rootPath ? `${opts.rootPath}/` : "";
-  return `${root}${schemaSegment}/dt=${date}/${opts.uploadId}.parquet`;
+/**
+ * Format a date as the "YYYY-MM-DDTHH-MM-SS" datetime segment used by the upload
+ * blob layout (matches uploadDatetime() in upload-service). Derived from the
+ * upload's createdAt so the export path is stable across re-runs (idempotent).
+ */
+function exportDatetime(date: Date): string {
+  return date.toISOString().replace(/:/g, "-").replace(/\..+$/, "");
 }
 
 /**
@@ -170,7 +170,7 @@ export async function exportUploadToWarehouse(
 
     const upload = await prismaAdmin.fileUpload.findUnique({
       where: { id: uploadId },
-      select: { id: true, status: true, schemaId: true, createdAt: true },
+      select: { id: true, status: true, schemaId: true, userId: true, createdAt: true },
     });
     if (!upload) return { status: "skipped", reason: "upload_not_found" };
     if (upload.status !== "VALID") return { status: "skipped", reason: "not_valid" };
@@ -184,14 +184,30 @@ export async function exportUploadToWarehouse(
     const columns = schema.columns.map((c) => ({ name: c.name, dataType: c.dataType }));
     if (columns.length === 0) return { status: "skipped", reason: "no_columns" };
 
+    // Mirror the upload blob layout: project/org/schema/datetime. Fetch the
+    // uploader's org + the schema's projects the same way the upload routes do
+    // (separate queries per the repo's nested-include convention). Sort project
+    // names so the multi-project segment is stable across re-exports.
+    const uploader = await prismaAdmin.user.findUnique({
+      where: { id: upload.userId },
+      select: { organization: { select: { name: true } } },
+    });
+    const schemaProjects = await prismaAdmin.schemaProject.findMany({
+      where: { schemaId: upload.schemaId },
+      select: { project: { select: { name: true } } },
+    });
+    const projectNames = schemaProjects.map((sp) => sp.project.name).sort();
+
     const buffer = await buildParquetBuffer(uploadId, columns);
 
-    const blobName = buildExportBlobName({
-      rootPath: config.rootPath,
+    const { blobName: relativePath } = buildUploadBlobName({
+      projectNames,
+      orgName: uploader?.organization?.name ?? "",
       schemaName: schema.name,
-      uploadId,
-      createdAt: upload.createdAt,
+      fileName: `${uploadId}.parquet`,
+      datetime: exportDatetime(upload.createdAt),
     });
+    const blobName = config.rootPath ? `${config.rootPath}/${relativePath}` : relativePath;
 
     await uploadParquetToWarehouse(
       { accountUrl: config.accountUrl, tenantId: config.tenantId, clientId: config.clientId },

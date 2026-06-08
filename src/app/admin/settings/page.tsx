@@ -452,6 +452,7 @@ type WarehouseExportConfig = {
   container: string;
   rootPath: string;
   managedIdentityConfigured: boolean;
+  managedIdentityPrincipalId: string | null;
 };
 
 function WarehouseExportSection() {
@@ -527,9 +528,24 @@ function WarehouseExportSection() {
           </div>
           <p className="text-xs text-gray-500">
             Porter federates into the data team&apos;s app using a managed identity provisioned by the
-            deployment (<code>WAREHOUSE_MI_CLIENT_ID</code>). This is the only piece not editable here; it
-            is absent in local dev, so exports are skipped there even when enabled.
+            deployment. This is the only piece not editable here; it is absent in local dev, so exports
+            are skipped there even when enabled.
           </p>
+          {config?.managedIdentityPrincipalId && (
+            <div className="rounded-md bg-gray-50 px-3 py-2">
+              <div className="text-xs font-medium text-gray-700">
+                Principal (object) ID — federated credential <span className="font-semibold">Subject</span>
+              </div>
+              <p className="mt-0.5 font-mono text-xs text-gray-600 break-all select-all">
+                {config.managedIdentityPrincipalId}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                Give this to the data team as the <strong>Subject</strong> of the federated identity
+                credential on their app (with audience <code>api://AzureADTokenExchange</code> and issuer{" "}
+                <code>https://login.microsoftonline.com/&lt;Porter-tenant-id&gt;/v2.0</code>).
+              </p>
+            </div>
+          )}
         </div>
         <Field
           label="Enable export"
