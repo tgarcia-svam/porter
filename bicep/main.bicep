@@ -91,14 +91,12 @@ param uploadWorkerSecret string
 @secure()
 param retentionWorkerSecret string
 
-@description('External data-warehouse storage account URL, e.g. https://<account>.blob.core.windows.net/ (leave empty to disable export)')
-param warehouseStorageAccountUrl string = ''
-
-@description('Entra ID tenant ID of the data team that owns the warehouse account (home tenant of the federated app)')
-param warehouseTenantId string = ''
-
-@description('Client (application) ID of the data-team app registration that Porter federates into. The data team grants this app Storage Blob Data Contributor and adds a federated credential trusting the user-assigned identity output by this deployment.')
-param warehouseClientId string = ''
+// Data-warehouse export destination (account URL, tenant ID, client ID,
+// container, root path) is configured by an admin in the Settings UI and stored
+// in the database — not here. The only infrastructure piece is the user-assigned
+// managed identity created below, whose client ID is injected as
+// WAREHOUSE_MI_CLIENT_ID. The data team adds a federated credential trusting it
+// (see the warehouse* outputs).
 
 // ── Derived names ─────────────────────────────────────────────────────────────
 
@@ -628,13 +626,10 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     RETENTION_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=retention-worker-secret)'
 
     // External data-warehouse export — secret-less cross-tenant access. Porter
-    // uses the user-assigned warehouseIdentity to federate into the data team's
-    // app (WAREHOUSE_CLIENT_ID/TENANT_ID). No secret is stored. Destination
-    // container + root path are set in the admin UI (AppSetting).
-    WAREHOUSE_STORAGE_ACCOUNT_URL: warehouseStorageAccountUrl
-    WAREHOUSE_TENANT_ID:           warehouseTenantId
-    WAREHOUSE_CLIENT_ID:           warehouseClientId
-    WAREHOUSE_MI_CLIENT_ID:        warehouseIdentity.properties.clientId
+    // uses this user-assigned managed identity to federate into the data team's
+    // app. The destination (account URL, tenant, client ID, container, root path)
+    // is configured by an admin in the Settings UI, not here.
+    WAREHOUSE_MI_CLIENT_ID: warehouseIdentity.properties.clientId
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 

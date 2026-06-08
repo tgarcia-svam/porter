@@ -21,7 +21,7 @@ import { ParquetSchema, ParquetWriter } from "@dsnp/parquetjs";
 import type { DataType } from "@prisma/client";
 import { prismaAdmin } from "./prisma-admin";
 import { sanitizePathSegment } from "./upload-service";
-import { isWarehouseConfigured, uploadParquetToWarehouse } from "./warehouse-storage";
+import { isManagedIdentityConfigured, uploadParquetToWarehouse } from "./warehouse-storage";
 import { getWarehouseExportConfig } from "./warehouse-export-service";
 
 // Read rows from the DB in bounded pages to keep memory flat for large uploads.
@@ -158,13 +158,15 @@ export async function exportUploadToWarehouse(
   uploadId: string
 ): Promise<{ status: "exported" | "skipped" | "failed"; reason?: string; path?: string }> {
   try {
-    if (!isWarehouseConfigured()) {
-      return { status: "skipped", reason: "credentials_not_configured" };
-    }
-
     const config = await getWarehouseExportConfig();
     if (!config.enabled) return { status: "skipped", reason: "disabled" };
+    if (!config.accountUrl || !config.tenantId || !config.clientId) {
+      return { status: "skipped", reason: "connection_not_configured" };
+    }
     if (!config.container) return { status: "skipped", reason: "no_container" };
+    if (!isManagedIdentityConfigured()) {
+      return { status: "skipped", reason: "managed_identity_not_configured" };
+    }
 
     const upload = await prismaAdmin.fileUpload.findUnique({
       where: { id: uploadId },
@@ -191,7 +193,12 @@ export async function exportUploadToWarehouse(
       createdAt: upload.createdAt,
     });
 
-    await uploadParquetToWarehouse(config.container, blobName, buffer);
+    await uploadParquetToWarehouse(
+      { accountUrl: config.accountUrl, tenantId: config.tenantId, clientId: config.clientId },
+      config.container,
+      blobName,
+      buffer
+    );
 
     await prismaAdmin.fileUpload.update({
       where: { id: uploadId },

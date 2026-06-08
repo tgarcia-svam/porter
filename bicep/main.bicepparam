@@ -47,11 +47,7 @@ param uploadWorkerSecret   = ''   // overridden in main.secrets.bicepparam
 // ── Retention job (daily cleanup) ─────────────────────────────────────────────
 param retentionWorkerSecret = ''   // overridden in main.secrets.bicepparam
 
-// ── Data-warehouse export (optional — leave URL empty to disable) ─────────────
-// Secret-less cross-tenant access via a user-assigned managed identity (created
-// by this template). Destination container + root path are set in the admin UI.
-// Fill these with the data team's federated app once they've set up the trust;
-// the deployment outputs the identity client/principal IDs to hand them.
-param warehouseStorageAccountUrl = ''
-param warehouseTenantId          = ''
-param warehouseClientId          = ''
+// ── Data-warehouse export ─────────────────────────────────────────────────────
+// No params here: the destination is configured in the admin Settings UI. The
+// deployment only creates a user-assigned managed identity (see main.bicep) and
+// outputs its client/principal IDs for the data team's federated credential.
