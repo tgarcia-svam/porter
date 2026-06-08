@@ -6,7 +6,7 @@ import {
   getWarehouseExportConfig,
   setWarehouseExportConfig,
 } from "@/lib/warehouse-export-service";
-import { isManagedIdentityConfigured } from "@/lib/warehouse-storage";
+import { isManagedIdentityConfigured, getManagedIdentityPrincipalId } from "@/lib/warehouse-storage";
 
 const UpdateBody = z.object({
   enabled: z.boolean().optional(),
@@ -24,7 +24,11 @@ export const GET = withHandler(async (req: NextRequest) => {
   // managedIdentityConfigured tells the UI whether the bicep-provisioned
   // managed identity (WAREHOUSE_MI_CLIENT_ID) is present in this deployment —
   // the one piece of the integration that isn't admin-editable.
-  return NextResponse.json({ ...config, managedIdentityConfigured: isManagedIdentityConfigured() });
+  return NextResponse.json({
+    ...config,
+    managedIdentityConfigured: isManagedIdentityConfigured(),
+    managedIdentityPrincipalId: getManagedIdentityPrincipalId() ?? null,
+  });
 });
 
 export const PUT = withHandler(async (req: NextRequest) => {
@@ -52,5 +56,9 @@ export const PUT = withHandler(async (req: NextRequest) => {
   }
 
   const config = await setWarehouseExportConfig(parsed.data);
-  return NextResponse.json({ ...config, managedIdentityConfigured: isManagedIdentityConfigured() });
+  return NextResponse.json({
+    ...config,
+    managedIdentityConfigured: isManagedIdentityConfigured(),
+    managedIdentityPrincipalId: getManagedIdentityPrincipalId() ?? null,
+  });
 });

@@ -628,8 +628,10 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     // External data-warehouse export — secret-less cross-tenant access. Porter
     // uses this user-assigned managed identity to federate into the data team's
     // app. The destination (account URL, tenant, client ID, container, root path)
-    // is configured by an admin in the Settings UI, not here.
-    WAREHOUSE_MI_CLIENT_ID: warehouseIdentity.properties.clientId
+    // is configured by an admin in the Settings UI, not here. The principal ID is
+    // surfaced read-only in the UI as the federated-credential subject.
+    WAREHOUSE_MI_CLIENT_ID:    warehouseIdentity.properties.clientId
+    WAREHOUSE_MI_PRINCIPAL_ID: warehouseIdentity.properties.principalId
 
     DOCKER_REGISTRY_SERVER_URL: 'https://${acr.properties.loginServer}'
 
