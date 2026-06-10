@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
-import { upsertAllSchemaViews, dropAllSchemaViews } from "@/lib/schema-view";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
 
@@ -57,14 +56,6 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
 
     const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
 
-    // Capture old project list + name before mutating (needed to drop stale views)
-    const oldSchema = await prisma.schema.findUnique({
-      where: { id },
-      select: { name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
-    });
-    const oldProjects = oldSchema?.projects.map((sp) => sp.project) ?? [];
-    const oldName = oldSchema?.name ?? "";
-
     // Replace columns and project assignments atomically
     const schema = await prisma.$transaction(async (tx) => {
       if (columns) {
@@ -99,11 +90,6 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
       });
     });
 
-    // Drop views that may have changed name (schema renamed) or lost a project
-    await dropAllSchemaViews(prisma, oldProjects, oldName);
-    const newProjects = schema.projects.map((sp) => sp.project);
-    await upsertAllSchemaViews(prisma, newProjects, schema.id, schema.name, schema.columns);
-
     return NextResponse.json(schema);
   }
 );
@@ -116,12 +102,10 @@ export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
     const { id } = await params;
     const existing = await prisma.schema.findUnique({
       where: { id },
-      select: { deletedAt: true, name: true, projects: { include: { project: { select: { id: true, name: true } } } } },
+      select: { deletedAt: true },
     });
     if (!existing || existing.deletedAt) return apiNotFound();
 
-    const projects = existing.projects.map((sp) => sp.project);
-    await dropAllSchemaViews(prisma, projects, existing.name);
     await prisma.schema.update({ where: { id }, data: { deletedAt: new Date() } });
     return new NextResponse(null, { status: 204 });
   }

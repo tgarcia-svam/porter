@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Admin tasks (schema changes, RLS, views) require table ownership — use admin
+# Admin tasks (schema changes, RLS) require table ownership — use admin
 # credentials when available, fall back to DATABASE_URL for local dev where
 # both point to the same superuser account.
 ADMIN_URL="${DATABASE_URL_ADMIN:-$DATABASE_URL}"
@@ -27,9 +27,6 @@ fi
 
 echo "Applying RLS policies (idempotent)..."
 DATABASE_URL="$ADMIN_URL" npx tsx prisma/apply-rls.ts
-
-echo "Syncing report views (idempotent)..."
-DATABASE_URL="$ADMIN_URL" npx tsx prisma/sync-views.ts
 
 echo "Seeding default users (upsert — idempotent)..."
 npx tsx prisma/seed.ts

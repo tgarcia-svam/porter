@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
-import { upsertAllSchemaViews } from "@/lib/schema-view";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 
@@ -69,9 +68,6 @@ export const POST = withHandler(async (req: NextRequest) => {
       projects: { include: { project: { select: { id: true, name: true } } } },
     },
   });
-
-  const projects = schema.projects.map((sp) => sp.project);
-  await upsertAllSchemaViews(prisma, projects, schema.id, schema.name, schema.columns);
 
   return NextResponse.json(schema, { status: 201 });
 });

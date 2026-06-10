@@ -17,7 +17,19 @@
       "Bash(cd \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\" && mkdir -p prisma/migrations/20260514120000_load_perf_indexes 2>&1)",
       "Bash(xargs grep -l \"blue-[0-9]\")",
       "Bash(xargs sed -i 's/\\\\bblue-\\\\\\([0-9]\\\\+\\\\\\)\\\\b/brand-\\\\1/g')",
-      "Bash(node -e \"const p=require\\('./node_modules/next-auth/package.json'\\); console.log\\('next-auth', p.version\\)\")"
+      "Bash(node -e \"const p=require\\('./node_modules/next-auth/package.json'\\); console.log\\('next-auth', p.version\\)\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(cd \"c:/Users/ThomasGarcia/Documents/vibe/porter\" && rm src/lib/schema-view.ts src/lib/__tests__/schema-view.test.ts prisma/sync-views.ts && echo \"deleted\")",
+      "Bash(npm test *)",
+      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,2\\)\\)\")",
+      "Bash(ls vitest*.*)",
+      "Bash(ls *.config.*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"
     ]
   }
 }
