@@ -26,7 +26,10 @@
       "Bash(npm test *)",
       "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,2\\)\\)\")",
       "Bash(ls vitest*.*)",
-      "Bash(ls *.config.*)"
+      "Bash(ls *.config.*)",
+      "Bash(git rm *)",
+      "Bash(sed -i '94,287d' src/app/admin/settings/page.tsx)",
+      "Bash(sed -n '88,96p' src/app/admin/settings/page.tsx)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"
