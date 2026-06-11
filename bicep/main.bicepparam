@@ -25,14 +25,16 @@ param dbSkuTier         = 'Burstable'
 param nextauthUrl = 'https://porterdata.com'
 // nextauthSecret  → secret in main.secrets.bicepparam
 
-// ── Google SSO (optional — leave empty to disable) ────────────────────────────
-param googleClientId = ''
-// googleClientSecret → secret in main.secrets.bicepparam
-
-// ── Microsoft Entra ID SSO ────────────────────────────────────────────────────
-param azureAdClientId = '6f2fb008-8f5e-4f18-a8d1-6267514660f6'
+// ── SSO providers ─────────────────────────────────────────────────────────────
+// SSO config is managed in the GitHub Environment, NOT here: client IDs are
+// Environment *variables* (GOOGLE_CLIENT_ID, AZURE_AD_CLIENT_ID, AZURE_AD_TENANT_ID)
+// and secrets are Environment *secrets* (GOOGLE_CLIENT_SECRET, AZURE_AD_CLIENT_SECRET).
+// CI passes them inline (see .github/workflows/deploy.yml), overriding the empty
+// defaults below. A manual `az deployment` must pass them explicitly, or the
+// providers stay disabled. Keeping ID + secret together in GitHub avoids drift.
+param googleClientId  = ''
+param azureAdClientId = ''
 param azureAdTenantId = 'common'
-// azureAdClientSecret → secret in main.secrets.bicepparam
 
 // ── Initial admin ─────────────────────────────────────────────────────────────
 param seedAdminEmail = 'tgarcia@svam.com'

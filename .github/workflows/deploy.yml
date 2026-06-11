@@ -47,6 +47,9 @@ jobs:
               uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
               retentionWorkerSecret=${{ secrets.RETENTION_WORKER_SECRET }} \
               seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
+              googleClientId=${{ vars.GOOGLE_CLIENT_ID }} \
+              azureAdClientId=${{ vars.AZURE_AD_CLIENT_ID }} \
+              azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
               containerTag=${{ github.sha }}
 
       - name: Restart App Service
