@@ -122,32 +122,23 @@ const callbacks: NextAuthConfig["callbacks"] = {
 };
 
 // ── Lazy singleton ────────────────────────────────────────────────────────────
-// The NextAuth instance is built asynchronously on first use, reading SSO
-// credentials from AppSetting (DB) first, falling back to env vars.
-// Call invalidateAuth() after saving SSO settings so the next request
-// rebuilds the instance with the new values — no server restart needed.
+// The NextAuth instance is built once on first use from environment config.
+// SSO credentials change only via deployment (app settings + Key Vault), so a
+// server restart is the natural way to pick up new values.
 
 type AuthInstance = ReturnType<typeof NextAuth>;
 let _promise: Promise<AuthInstance> | null = null;
 
 async function buildInstance(): Promise<AuthInstance> {
-  // Non-secret config (client IDs, tenant) may come from DB or env.
-  // Secrets (client secrets) come exclusively from process.env, which is
-  // populated from Azure Key Vault at startup — never from the DB.
-  const rows = await prisma.appSetting.findMany({
-    where: {
-      key: {
-        in: ["GOOGLE_CLIENT_ID", "AZURE_AD_CLIENT_ID", "AZURE_AD_TENANT_ID"],
-      },
-    },
-  });
-  const db = Object.fromEntries(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
-
-  const googleId     = db.GOOGLE_CLIENT_ID  ?? process.env.GOOGLE_CLIENT_ID;
+  // All SSO config comes from the environment — there is no in-app/DB override.
+  // Non-secret values (client IDs, tenant) are App Service application settings
+  // (committed .env for local dev); secrets are loaded into process.env from
+  // Azure Key Vault at startup (see src/lib/secrets.ts).
+  const googleId     = process.env.GOOGLE_CLIENT_ID;
   const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const msId         = db.AZURE_AD_CLIENT_ID ?? process.env.AZURE_AD_CLIENT_ID;
+  const msId         = process.env.AZURE_AD_CLIENT_ID;
   const msSecret     = process.env.AZURE_AD_CLIENT_SECRET;
-  const msTenant     = db.AZURE_AD_TENANT_ID ?? process.env.AZURE_AD_TENANT_ID ?? "common";
+  const msTenant     = process.env.AZURE_AD_TENANT_ID ?? "common";
 
   const providers: NextAuthConfig["providers"] = [];
 
@@ -213,11 +204,6 @@ async function buildInstance(): Promise<AuthInstance> {
 function getInstance(): Promise<AuthInstance> {
   if (!_promise) _promise = buildInstance();
   return _promise;
-}
-
-/** Invalidate the cached NextAuth instance. Call after saving SSO settings. */
-export function invalidateAuth(): void {
-  _promise = null;
 }
 
 // ── Proxy exports ─────────────────────────────────────────────────────────────
