@@ -69,6 +69,7 @@ export async function resolveValidationColumns(
     select: {
       id: true,
       type: true,
+      description: true,
       values: true,
       caseSensitive: true,
       pattern: true,
@@ -84,6 +85,7 @@ export async function resolveValidationColumns(
       c.id,
       {
         type: c.type,
+        description: c.description,
         values: c.values,
         caseSensitive: c.caseSensitive,
         pattern: c.pattern,

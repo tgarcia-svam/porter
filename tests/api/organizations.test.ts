@@ -39,7 +39,10 @@ test.describe("PUT /api/organizations/:id", () => {
     const listRes = await request.get("/api/organizations");
     const orgs: Array<{ id: string; name: string }> = await listRes.json();
     const target = orgs.find((o) => o.name === ORG_NAME);
-    if (!target) test.skip();
+    if (!target) {
+      test.skip();
+      return;
+    }
 
     const res = await apiPut(request, `/api/organizations/${target.id}`, {
       name: `${ORG_NAME} Updated`,
@@ -57,7 +60,10 @@ test.describe("DELETE /api/organizations/:id", () => {
     const target = orgs.find(
       (o) => o.name === ORG_NAME || o.name === `${ORG_NAME} Updated`,
     );
-    if (!target) test.skip();
+    if (!target) {
+      test.skip();
+      return;
+    }
 
     const res = await apiDelete(request, `/api/organizations/${target.id}`);
     expect([200, 204]).toContain(res.status());

@@ -646,28 +646,16 @@ export default function FileUploader({
 }
 
 /**
- * Uploader-facing "Value Requirements" cell: the admin's optional description
- * plus a type-appropriate summary of the rule. For a value list, the allowed
- * values are listed with a note when matching is case-insensitive.
+ * Uploader-facing "Value Requirements" cell. Shows the admin's optional
+ * description. For value lists, the allowed values are also listed, with a note
+ * when matching is case-insensitive; other rule types rely on the description.
  */
 function ValueRequirements({ c }: { c: Classification }) {
-  const numberRange =
-    c.minNumber != null && c.maxNumber != null
-      ? `Between ${c.minNumber} and ${c.maxNumber}`
-      : c.minNumber != null
-        ? `At least ${c.minNumber}`
-        : c.maxNumber != null
-          ? `At most ${c.maxNumber}`
-          : null;
-
-  const dateRange =
-    c.minDate && c.maxDate
-      ? `Between ${c.minDate} and ${c.maxDate}`
-      : c.minDate
-        ? `On or after ${c.minDate}`
-        : c.maxDate
-          ? `On or before ${c.maxDate}`
-          : null;
+  // Value lists always render their pills; other types rely on the description,
+  // so fall back to a dash when one wasn't provided rather than show a blank cell.
+  if (c.type !== "VALUE_LIST" && !c.description) {
+    return <span aria-hidden="true" className="text-gray-500">—</span>;
+  }
 
   return (
     <div className="space-y-1">
@@ -688,17 +676,6 @@ function ValueRequirements({ c }: { c: Classification }) {
           {!c.caseSensitive && <p className="text-gray-400 italic">Case insensitive</p>}
         </>
       )}
-
-      {c.type === "REGEX" && (
-        <code className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-700">
-          {c.pattern}
-          {c.caseSensitive ? "" : " (case insensitive)"}
-        </code>
-      )}
-
-      {c.type === "NUMBER_RANGE" && numberRange && <p className="text-gray-600">{numberRange}</p>}
-
-      {c.type === "DATE_RANGE" && dateRange && <p className="text-gray-600">{dateRange}</p>}
     </div>
   );
 }

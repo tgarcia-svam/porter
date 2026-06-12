@@ -19,6 +19,7 @@ export type ValidationReport = {
 
 export type ClassificationConstraint = {
   type: "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
+  description?: string | null; // uploader-facing explanation, surfaced in REGEX errors
   values?: string[] | null; // VALUE_LIST
   caseSensitive?: boolean | null; // VALUE_LIST + REGEX
   pattern?: string | null; // REGEX
@@ -205,7 +206,12 @@ function checkClassification(value: string, col: PreparedColumn): string | null 
     case "REGEX": {
       // Compiled once in prepareColumns; null = no/invalid pattern → skip.
       if (!col._regex) return null;
-      return col._regex.test(value) ? null : "Does not match the required format";
+      if (col._regex.test(value)) return null;
+      // Surface the admin's description (when set) so uploaders know what's expected.
+      const hint = c.description?.trim();
+      return hint
+        ? `Does not match the required format. ${hint}`
+        : "Does not match the required format";
     }
 
     case "NUMBER_RANGE": {

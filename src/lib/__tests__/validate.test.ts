@@ -295,6 +295,21 @@ describe("classification: REGEX", () => {
     expect(r.errors[0].error).toBe("Does not match the required format");
   });
 
+  it("appends the rule description to the error when one is set", async () => {
+    const described = col("sku", "TEXT", {
+      classification: {
+        type: "REGEX",
+        pattern: "^[A-Z]{3}-\\d{4}$",
+        caseSensitive: true,
+        description: "Three uppercase letters, a hyphen, then four digits.",
+      },
+    });
+    const r = await validateFile(csv("sku", "nope"), TEXT_CSV, [described]);
+    expect(r.errors[0].error).toBe(
+      "Does not match the required format. Three uppercase letters, a hyphen, then four digits."
+    );
+  });
+
   it("matches case-insensitively when caseSensitive=false", async () => {
     const ci = col("sku", "TEXT", {
       classification: { type: "REGEX", pattern: "^[A-Z]{3}-\\d{4}$", caseSensitive: false },
