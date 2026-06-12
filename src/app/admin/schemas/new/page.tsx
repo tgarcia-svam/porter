@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewSchemaPage() {
   const [allProjects, allClassifications] = await Promise.all([
     prisma.project.findMany({ where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.classification.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.classification.findMany({ select: { id: true, name: true, type: true }, orderBy: { name: "asc" } }),
   ]);
 
   return (

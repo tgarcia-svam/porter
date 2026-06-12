@@ -13,10 +13,28 @@ type ColumnDef = {
   classificationId: string | null;
 };
 
+type ClassificationType = "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
+
 type ProjectRef = { id: string; name: string };
-type ClassificationRef = { id: string; name: string };
+type ClassificationRef = { id: string; name: string; type: ClassificationType };
 
 type Granularity = "DAY" | "MONTH" | "YEAR";
+
+/** Which classification types may be assigned to a column of the given data type. */
+function compatibleClassificationTypes(dataType: DataType): ClassificationType[] {
+  switch (dataType) {
+    case "TEXT":
+    case "EMAIL":
+      return ["VALUE_LIST", "REGEX"];
+    case "NUMBER":
+    case "INTEGER":
+      return ["NUMBER_RANGE"];
+    case "DATE":
+      return ["DATE_RANGE"];
+    default:
+      return []; // BOOLEAN — no classification
+  }
+}
 
 type InitialData = {
   id: string;
@@ -47,6 +65,7 @@ export default function SchemaEditor({
   allClassifications?: ClassificationRef[];
 }) {
   const router = useRouter();
+  const classificationTypeById = new Map(allClassifications.map((c) => [c.id, c.type]));
   const [name, setName] = useState(initialData?.name ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [projectIds, setProjectIds] = useState<string[]>(initialData?.projectIds ?? []);
@@ -224,9 +243,19 @@ export default function SchemaEditor({
               <div className="col-span-3">
                 <select
                   value={col.dataType}
-                  onChange={(e) =>
-                    updateColumn(i, { dataType: e.target.value as DataType })
-                  }
+                  onChange={(e) => {
+                    const dataType = e.target.value as DataType;
+                    // Drop the classification if it's no longer compatible with the new type.
+                    const compat = compatibleClassificationTypes(dataType);
+                    const currentType = col.classificationId
+                      ? classificationTypeById.get(col.classificationId)
+                      : undefined;
+                    const keep = currentType !== undefined && compat.includes(currentType);
+                    updateColumn(i, {
+                      dataType,
+                      classificationId: keep ? col.classificationId : null,
+                    });
+                  }}
                   className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   {DATA_TYPES.map((dt) => (
@@ -237,20 +266,27 @@ export default function SchemaEditor({
                 </select>
               </div>
               <div className="col-span-3">
-                <select
-                  value={col.classificationId ?? ""}
-                  onChange={(e) =>
-                    updateColumn(i, { classificationId: e.target.value || null })
-                  }
-                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  <option value="">— None —</option>
-                  {allClassifications.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {(() => {
+                  const compat = compatibleClassificationTypes(col.dataType);
+                  const options = allClassifications.filter((c) => compat.includes(c.type));
+                  return (
+                    <select
+                      value={col.classificationId ?? ""}
+                      onChange={(e) =>
+                        updateColumn(i, { classificationId: e.target.value || null })
+                      }
+                      disabled={options.length === 0}
+                      className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
+                    >
+                      <option value="">{options.length === 0 ? "— N/A —" : "— None —"}</option>
+                      {options.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
               </div>
               <div className="col-span-1 flex justify-center">
                 <input
@@ -279,7 +315,7 @@ export default function SchemaEditor({
         </div>
 
         <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-500">
-          Non-nullable fields will reject empty or blank values on upload. A classification restricts the column to a predefined list of values.
+          Non-nullable fields will reject empty or blank values on upload. A classification adds an extra rule — a value list, regex, number range, or date range — and only ones matching the column&apos;s data type can be assigned.
         </div>
       </div>
 

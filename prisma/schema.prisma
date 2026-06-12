@@ -103,12 +103,19 @@ model SchemaColumn {
 }
 
 model Classification {
-  id            String        @id @default(cuid())
-  name          String        @unique
-  values        String[]
-  caseSensitive Boolean       @default(true)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id            String             @id @default(cuid())
+  name          String             @unique
+  description   String?                               // uploader-facing explanation of the rule
+  type          ClassificationType @default(VALUE_LIST)
+  values        String[]                              // VALUE_LIST
+  caseSensitive Boolean            @default(true)     // VALUE_LIST + REGEX (regex `i` flag)
+  pattern       String?                               // REGEX
+  minNumber     Float?                                // NUMBER_RANGE
+  maxNumber     Float?                                // NUMBER_RANGE
+  minDate       DateTime?          @db.Date           // DATE_RANGE (date-only, UTC midnight)
+  maxDate       DateTime?          @db.Date           // DATE_RANGE
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   columns   SchemaColumn[]
 }
@@ -205,6 +212,13 @@ enum DataType {
   BOOLEAN
   DATE
   EMAIL
+}
+
+enum ClassificationType {
+  VALUE_LIST
+  REGEX
+  NUMBER_RANGE
+  DATE_RANGE
 }
 
 enum UploadStatus {

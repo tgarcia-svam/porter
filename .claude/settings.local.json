@@ -30,7 +30,15 @@
       "Bash(git rm *)",
       "Bash(sed -i '94,287d' src/app/admin/settings/page.tsx)",
       "Bash(sed -n '88,96p' src/app/admin/settings/page.tsx)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma generate 2>&1 | Select-Object -Last 15)",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma migrate deploy 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma db push 2>&1 | Select-Object -Last 20)",
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "PowerShell(npx vitest run 2>&1)",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma db push 2>&1 | Select-Object -Last 8)",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma generate 2>&1 | Select-Object -Last 6)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='Cmd';e={$_.CommandLine.Substring\\(0,[Math]::Min\\(100,$_.CommandLine.Length\\)\\)}})"
     ],
     "additionalDirectories": [
       "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"
