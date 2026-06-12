@@ -38,7 +38,8 @@
       "PowerShell(npx vitest run 2>&1)",
       "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma db push 2>&1 | Select-Object -Last 8)",
       "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma generate 2>&1 | Select-Object -Last 6)",
-      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='Cmd';e={$_.CommandLine.Substring\\(0,[Math]::Min\\(100,$_.CommandLine.Length\\)\\)}})"
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='Cmd';e={$_.CommandLine.Substring\\(0,[Math]::Min\\(100,$_.CommandLine.Length\\)\\)}})",
+      "PowerShell(npx vitest run src/lib/__tests__/validate.test.ts 2>&1)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"

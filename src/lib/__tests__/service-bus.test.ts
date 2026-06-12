@@ -29,7 +29,7 @@ beforeEach(() => {
   MockServiceBusClient.mockImplementation(() => ({
     createSender: mockCreateSender,
     close: mockClientClose,
-  }));
+  }) as unknown as ServiceBusClient);
 });
 
 afterEach(() => {
