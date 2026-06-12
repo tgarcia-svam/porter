@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
+import { checkColumnClassifications } from "@/lib/classification-compat";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -49,6 +50,9 @@ export const POST = withHandler(async (req: NextRequest) => {
   if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
   const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
+
+  const compatError = await checkColumnClassifications(columns);
+  if (compatError) return apiBadRequest(compatError);
 
   const schema = await prisma.schema.create({
     data: {

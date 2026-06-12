@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateFile } from "../validate";
+import { validateFile, type ClassificationConstraint } from "../validate";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -10,12 +10,21 @@ function csv(header: string, ...rows: string[]): Buffer {
 
 type ColOpts = {
   required?: boolean;
-  allowedValues?: string[];
-  caseSensitive?: boolean;
+  classification?: ClassificationConstraint;
 };
 
 function col(name: string, dataType: string, opts: ColOpts = {}) {
-  return { name, dataType, required: opts.required ?? true, ...opts };
+  return {
+    name,
+    dataType,
+    required: opts.required ?? true,
+    classification: opts.classification ?? null,
+  };
+}
+
+/** Convenience builder for a VALUE_LIST constraint. */
+function valueList(values: string[], caseSensitive = true): ClassificationConstraint {
+  return { type: "VALUE_LIST", values, caseSensitive };
 }
 
 const TEXT_CSV = "text/csv";
@@ -235,9 +244,9 @@ describe("required field enforcement", () => {
 
 // ── Allowed values ────────────────────────────────────────────────────────────
 
-describe("allowed values", () => {
+describe("classification: VALUE_LIST", () => {
   const statusCol = col("status", "TEXT", {
-    allowedValues: ["Active", "Inactive", "Pending"],
+    classification: valueList(["Active", "Inactive", "Pending"]),
   });
 
   it("accepts a matching value (case-sensitive)", async () => {
@@ -253,8 +262,7 @@ describe("allowed values", () => {
 
   it("accepts a value with wrong case when caseSensitive=false", async () => {
     const insensitive = col("status", "TEXT", {
-      allowedValues: ["Active", "Inactive"],
-      caseSensitive: false,
+      classification: valueList(["Active", "Inactive"], false),
     });
     const r = await validateFile(csv("status", "active"), TEXT_CSV, [insensitive]);
     expect(r.errors).toHaveLength(0);
@@ -262,11 +270,108 @@ describe("allowed values", () => {
 
   it("shows up to 5 sample values in the error message", async () => {
     const manyValues = col("v", "TEXT", {
-      allowedValues: ["A", "B", "C", "D", "E", "F", "G"],
+      classification: valueList(["A", "B", "C", "D", "E", "F", "G"]),
     });
     const r = await validateFile(csv("v", "X"), TEXT_CSV, [manyValues]);
     expect(r.errors[0].error).toContain("A, B, C, D, E");
     expect(r.errors[0].error).toContain("+2 more");
+  });
+});
+
+// ── Classification: REGEX ───────────────────────────────────────────────────────
+
+describe("classification: REGEX", () => {
+  const skuCol = col("sku", "TEXT", {
+    classification: { type: "REGEX", pattern: "^[A-Z]{3}-\\d{4}$", caseSensitive: true },
+  });
+
+  it("accepts a value matching the pattern", async () => {
+    const r = await validateFile(csv("sku", "ABC-1234"), TEXT_CSV, [skuCol]);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("rejects a value not matching the pattern", async () => {
+    const r = await validateFile(csv("sku", "abc-1234"), TEXT_CSV, [skuCol]);
+    expect(r.errors[0].error).toBe("Does not match the required format");
+  });
+
+  it("matches case-insensitively when caseSensitive=false", async () => {
+    const ci = col("sku", "TEXT", {
+      classification: { type: "REGEX", pattern: "^[A-Z]{3}-\\d{4}$", caseSensitive: false },
+    });
+    const r = await validateFile(csv("sku", "abc-1234"), TEXT_CSV, [ci]);
+    expect(r.errors).toHaveLength(0);
+  });
+});
+
+// ── Classification: NUMBER_RANGE ────────────────────────────────────────────────
+
+describe("classification: NUMBER_RANGE", () => {
+  const ranged = (min: number | null, max: number | null) =>
+    col("v", "NUMBER", { classification: { type: "NUMBER_RANGE", minNumber: min, maxNumber: max } });
+
+  it("accepts a value inside [1, 100]", async () => {
+    const r = await validateFile(csv("v", "50"), TEXT_CSV, [ranged(1, 100)]);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("accepts the inclusive bounds", async () => {
+    const r1 = await validateFile(csv("v", "1"), TEXT_CSV, [ranged(1, 100)]);
+    const r100 = await validateFile(csv("v", "100"), TEXT_CSV, [ranged(1, 100)]);
+    expect(r1.errors).toHaveLength(0);
+    expect(r100.errors).toHaveLength(0);
+  });
+
+  it("rejects a value below the minimum", async () => {
+    const r = await validateFile(csv("v", "0"), TEXT_CSV, [ranged(1, 100)]);
+    expect(r.errors[0].error).toBe("Must be between 1 and 100");
+  });
+
+  it("rejects a value above the maximum", async () => {
+    const r = await validateFile(csv("v", "101"), TEXT_CSV, [ranged(1, 100)]);
+    expect(r.errors[0].error).toBe("Must be between 1 and 100");
+  });
+
+  it("supports a min-only (open-ended) range", async () => {
+    const r = await validateFile(csv("v", "-1"), TEXT_CSV, [ranged(0, null)]);
+    expect(r.errors[0].error).toBe("Must be at least 0");
+  });
+
+  it("supports a max-only (open-ended) range", async () => {
+    const r = await validateFile(csv("v", "11"), TEXT_CSV, [ranged(null, 10)]);
+    expect(r.errors[0].error).toBe("Must be at most 10");
+  });
+});
+
+// ── Classification: DATE_RANGE ──────────────────────────────────────────────────
+
+describe("classification: DATE_RANGE", () => {
+  const ranged = (min: string | null, max: string | null) =>
+    col("d", "DATE", { classification: { type: "DATE_RANGE", minDate: min, maxDate: max } });
+
+  it("accepts a date inside the range", async () => {
+    const r = await validateFile(csv("d", "2026-06-15"), TEXT_CSV, [ranged("2026-01-01", "2026-12-31")]);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("rejects a date before the range", async () => {
+    const r = await validateFile(csv("d", "2025-12-31"), TEXT_CSV, [ranged("2026-01-01", "2026-12-31")]);
+    expect(r.errors[0].error).toBe("Must be between 2026-01-01 and 2026-12-31");
+  });
+
+  it("rejects a date after the range", async () => {
+    const r = await validateFile(csv("d", "2027-01-01"), TEXT_CSV, [ranged("2026-01-01", "2026-12-31")]);
+    expect(r.errors[0].error).toBe("Must be between 2026-01-01 and 2026-12-31");
+  });
+
+  it("supports a min-only (on or after) bound", async () => {
+    const r = await validateFile(csv("d", "2025-06-01"), TEXT_CSV, [ranged("2026-01-01", null)]);
+    expect(r.errors[0].error).toBe("Must be on or after 2026-01-01");
+  });
+
+  it("supports a max-only (on or before) bound", async () => {
+    const r = await validateFile(csv("d", "2027-01-01"), TEXT_CSV, [ranged(null, "2026-12-31")]);
+    expect(r.errors[0].error).toBe("Must be on or before 2026-12-31");
   });
 });
 

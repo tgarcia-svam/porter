@@ -29,7 +29,21 @@ export default async function UploadPage() {
                 include: {
                   columns: {
                     orderBy: { order: "asc" },
-                    include: { classification: { select: { values: true, caseSensitive: true } } },
+                    include: {
+                      classification: {
+                        select: {
+                          type: true,
+                          description: true,
+                          values: true,
+                          caseSensitive: true,
+                          pattern: true,
+                          minNumber: true,
+                          maxNumber: true,
+                          minDate: true,
+                          maxDate: true,
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -41,11 +55,40 @@ export default async function UploadPage() {
       })
     : [];
 
+  // Normalize each column's classification into a serializable shape — date-only
+  // bounds become ISO "YYYY-MM-DD" strings so the data is plain JSON for the
+  // client component.
   const projects = rawProjects
     .map((p) => ({
       id: p.id,
       name: p.name,
-      schemas: p.schemas.map((sp) => sp.schema),
+      schemas: p.schemas.map((sp) => ({
+        ...sp.schema,
+        columns: sp.schema.columns.map((col) => ({
+          id: col.id,
+          name: col.name,
+          dataType: col.dataType,
+          required: col.required,
+          order: col.order,
+          classification: col.classification
+            ? {
+                type: col.classification.type,
+                description: col.classification.description,
+                values: col.classification.values,
+                caseSensitive: col.classification.caseSensitive,
+                pattern: col.classification.pattern,
+                minNumber: col.classification.minNumber,
+                maxNumber: col.classification.maxNumber,
+                minDate: col.classification.minDate
+                  ? col.classification.minDate.toISOString().slice(0, 10)
+                  : null,
+                maxDate: col.classification.maxDate
+                  ? col.classification.maxDate.toISOString().slice(0, 10)
+                  : null,
+              }
+            : null,
+        })),
+      })),
     }))
     .filter((p) => p.schemas.length > 0);
 

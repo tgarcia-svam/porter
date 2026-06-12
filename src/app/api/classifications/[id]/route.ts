@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiNotFound, apiConflict, withHandler } from "@/lib/api-error";
+import { ClassificationBody, toClassificationData } from "@/lib/classification-input";
 import { Prisma } from "@prisma/client";
-
-const UpdateBody = z.object({
-  name: z.string().min(1).optional(),
-  values: z.array(z.string().min(1)).min(1).optional(),
-  caseSensitive: z.boolean().optional(),
-});
 
 export const GET = withHandler<{ params: Promise<{ id: string }> }>(
   async (req, { params }) => {
@@ -34,13 +28,13 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
 
     const { id } = await params;
     const body = await req.json();
-    const parsed = UpdateBody.safeParse(body);
+    const parsed = ClassificationBody.safeParse(body);
     if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
     try {
       const classification = await prisma.classification.update({
         where: { id },
-        data: parsed.data,
+        data: toClassificationData(parsed.data),
         include: { _count: { select: { columns: true } } },
       });
       return NextResponse.json(classification);

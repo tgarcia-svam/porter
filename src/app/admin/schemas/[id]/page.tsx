@@ -23,7 +23,7 @@ export default async function EditSchemaPage({
       orderBy: { name: "asc" },
     }),
     prisma.classification.findMany({
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true },
       orderBy: { name: "asc" },
     }),
   ]);

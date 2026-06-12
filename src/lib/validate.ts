@@ -17,13 +17,65 @@ export type ValidationReport = {
   rows: Record<string, string>[];
 };
 
+export type ClassificationConstraint = {
+  type: "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
+  values?: string[] | null; // VALUE_LIST
+  caseSensitive?: boolean | null; // VALUE_LIST + REGEX
+  pattern?: string | null; // REGEX
+  minNumber?: number | null; // NUMBER_RANGE
+  maxNumber?: number | null; // NUMBER_RANGE
+  minDate?: string | null; // DATE_RANGE — ISO "YYYY-MM-DD"
+  maxDate?: string | null; // DATE_RANGE
+};
+
 type ColumnDef = {
   name: string;
   dataType: string;
   required: boolean;
-  allowedValues?: string[] | null;
-  caseSensitive?: boolean | null;
+  classification?: ClassificationConstraint | null;
 };
+
+/**
+ * A ColumnDef with per-column constraint state computed once (compiled regex,
+ * parsed date bounds) so the hot per-row path never recompiles. Produced by
+ * prepareColumns() before any row is validated.
+ */
+type PreparedColumn = ColumnDef & {
+  _regex?: RegExp | null;
+  _minDate?: Date | null;
+  _maxDate?: Date | null;
+};
+
+/**
+ * Pre-compute per-column constraint state once, before the row loop. Invalid
+ * stored regex is guarded at write time, but we still swallow compile errors
+ * here (→ null = skip the check) rather than throwing mid-validation.
+ */
+function prepareColumns(columns: ColumnDef[]): PreparedColumn[] {
+  return columns.map((col) => {
+    const c = col.classification;
+    if (!c) return col;
+    if (c.type === "REGEX") {
+      let rx: RegExp | null = null;
+      if (c.pattern) {
+        try {
+          rx = new RegExp(c.pattern, c.caseSensitive === false ? "i" : "");
+        } catch {
+          rx = null;
+        }
+      }
+      return { ...col, _regex: rx };
+    }
+    if (c.type === "DATE_RANGE") {
+      return {
+        ...col,
+        _minDate: c.minDate ? parseDateStrict(c.minDate) : null,
+        _maxDate: c.maxDate ? parseDateStrict(c.maxDate) : null,
+      };
+    }
+    return col;
+  });
+}
 
 /** Maximum validation errors returned. Collection stops after this to prevent OOM. */
 const MAX_ERRORS = 100;
@@ -128,10 +180,68 @@ function checkValue(value: string, dataType: string): string | null {
 // Row validation (shared between streaming and batch paths)
 // ---------------------------------------------------------------------------
 
+/**
+ * Apply a column's classification constraint to a cell value that has already
+ * passed the base data-type check. Returns an error message, or null if valid
+ * (or if the constraint is absent / inapplicable).
+ */
+function checkClassification(value: string, col: PreparedColumn): string | null {
+  const c = col.classification;
+  if (!c) return null;
+
+  switch (c.type) {
+    case "VALUE_LIST": {
+      if (!c.values?.length) return null;
+      const sensitive = c.caseSensitive !== false;
+      const match = sensitive
+        ? c.values.includes(value)
+        : c.values.some((v) => v.toLowerCase() === value.toLowerCase());
+      if (match) return null;
+      const sample = c.values.slice(0, 5).join(", ");
+      const extra = c.values.length > 5 ? ` (+${c.values.length - 5} more)` : "";
+      return `Not a recognised value. Expected one of: ${sample}${extra}`;
+    }
+
+    case "REGEX": {
+      // Compiled once in prepareColumns; null = no/invalid pattern → skip.
+      if (!col._regex) return null;
+      return col._regex.test(value) ? null : "Does not match the required format";
+    }
+
+    case "NUMBER_RANGE": {
+      const n = Number(value); // value already passed NUMBER/INTEGER check
+      const hasMin = c.minNumber !== null && c.minNumber !== undefined;
+      const hasMax = c.maxNumber !== null && c.maxNumber !== undefined;
+      if (hasMin && hasMax && (n < c.minNumber! || n > c.maxNumber!))
+        return `Must be between ${c.minNumber} and ${c.maxNumber}`;
+      if (hasMin && !hasMax && n < c.minNumber!) return `Must be at least ${c.minNumber}`;
+      if (hasMax && !hasMin && n > c.maxNumber!) return `Must be at most ${c.maxNumber}`;
+      return null;
+    }
+
+    case "DATE_RANGE": {
+      const d = parseDateStrict(value); // value already passed DATE check
+      if (!d) return null;
+      const min = col._minDate ?? null;
+      const max = col._maxDate ?? null;
+      const t = d.getTime();
+      const fmt = (x: Date) => x.toISOString().slice(0, 10);
+      if (min && max && (t < min.getTime() || t > max.getTime()))
+        return `Must be between ${fmt(min)} and ${fmt(max)}`;
+      if (min && !max && t < min.getTime()) return `Must be on or after ${fmt(min)}`;
+      if (max && !min && t > max.getTime()) return `Must be on or before ${fmt(max)}`;
+      return null;
+    }
+
+    default:
+      return null;
+  }
+}
+
 function validateRow(
   row: Record<string, string>,
   rowNumber: number,
-  columns: ColumnDef[],
+  columns: PreparedColumn[],
   headerMap: Map<string, string>,
   errors: ValidationError[]
 ): boolean {
@@ -158,21 +268,9 @@ function validateRow(
       continue;
     }
 
-    if (col.allowedValues?.length) {
-      const sensitive = col.caseSensitive !== false;
-      const match = sensitive
-        ? col.allowedValues.includes(value)
-        : col.allowedValues.some((v) => v.toLowerCase() === value.toLowerCase());
-      if (!match) {
-        const sample = col.allowedValues.slice(0, 5).join(", ");
-        const extra = col.allowedValues.length > 5 ? ` (+${col.allowedValues.length - 5} more)` : "";
-        errors.push({
-          row: rowNumber,
-          column: col.name,
-          value,
-          error: `Not a recognised value. Expected one of: ${sample}${extra}`,
-        });
-      }
+    const clsError = checkClassification(value, col);
+    if (clsError) {
+      errors.push({ row: rowNumber, column: col.name, value, error: clsError });
     }
   }
 
@@ -182,7 +280,7 @@ function validateRow(
 /** Normalize DATE columns to ISO 8601 in a parsed row. */
 function normalizeDates(
   row: Record<string, string>,
-  columns: ColumnDef[],
+  columns: PreparedColumn[],
   headerMap: Map<string, string>
 ): Record<string, string> {
   const out = { ...row };
@@ -204,7 +302,7 @@ function normalizeDates(
 
 async function parseCsvStreaming(
   buffer: Buffer,
-  columns: ColumnDef[],
+  columns: PreparedColumn[],
   headerMap: Map<string, string>,
   missingColumns: string[]
 ): Promise<Omit<ValidationReport, "missingColumns">> {
@@ -320,7 +418,7 @@ async function parseExcel(buffer: Buffer, sheetName?: string): Promise<Record<st
 
 async function validateExcel(
   buffer: Buffer,
-  columns: ColumnDef[],
+  columns: PreparedColumn[],
   sheetName?: string
 ): Promise<Omit<ValidationReport, "missingColumns"> & { headerMap: Map<string, string>; missingColumns: string[] }> {
   let rawRows: Record<string, string>[];
@@ -394,8 +492,11 @@ export async function validateFile(
     mimeType.includes("ms-excel") ||
     mimeType === "application/octet-stream";
 
+  // Compile regex / parse date bounds once, up front.
+  const prepared = prepareColumns(columns);
+
   if (isExcel) {
-    const { headerMap: _hm, ...result } = await validateExcel(buffer, columns, sheetName);
+    const { headerMap: _hm, ...result } = await validateExcel(buffer, prepared, sheetName);
     return result;
   }
 
@@ -403,7 +504,7 @@ export async function validateFile(
   const headerMap = new Map<string, string>();
   const missingColumns: string[] = [];
   try {
-    const result = await parseCsvStreaming(buffer, columns, headerMap, missingColumns);
+    const result = await parseCsvStreaming(buffer, prepared, headerMap, missingColumns);
     return { ...result, missingColumns };
   } catch {
     return {

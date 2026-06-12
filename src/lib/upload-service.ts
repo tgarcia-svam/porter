@@ -18,7 +18,7 @@
  */
 
 import { prismaAdmin } from "./prisma-admin";
-import type { ValidationError } from "./validate";
+import type { ValidationError, ClassificationConstraint } from "./validate";
 
 const ROW_CHUNK_SIZE = 2_000;
 const ROW_CHUNK_CONCURRENCY = 4;
@@ -29,8 +29,7 @@ export type ValidationColumn = {
   name: string;
   dataType: string;
   required: boolean;
-  allowedValues: string[] | null;
-  caseSensitive: boolean | null;
+  classification: ClassificationConstraint | null;
 };
 
 type ColumnWithClassification = {
@@ -40,9 +39,15 @@ type ColumnWithClassification = {
   classificationId: string | null;
 };
 
+/** Format a date-only DB value as ISO "YYYY-MM-DD" (the validator's date format). */
+function toIsoDate(d: Date | null): string | null {
+  return d ? d.toISOString().slice(0, 10) : null;
+}
+
 /**
- * Inlines each column's allowed values + case-sensitivity from its referenced
- * Classification, producing the shape required by validateFile().
+ * Inlines each column's classification constraint (value list, regex, number
+ * range, or date range) from its referenced Classification, producing the shape
+ * required by validateFile().
  *
  * Per repo convention, classifications are fetched in a separate query (not a
  * Prisma nested include) to avoid the type-inference loss that nested includes
@@ -56,26 +61,44 @@ export async function resolveValidationColumns(
     .filter((id): id is string => id !== null && id !== undefined);
 
   if (classificationIds.length === 0) {
-    return columns.map((c) => ({ ...c, allowedValues: null, caseSensitive: null }));
+    return columns.map((c) => ({ ...c, classification: null }));
   }
 
   const clsfs = await prismaAdmin.classification.findMany({
     where: { id: { in: classificationIds } },
-    select: { id: true, values: true, caseSensitive: true },
+    select: {
+      id: true,
+      type: true,
+      values: true,
+      caseSensitive: true,
+      pattern: true,
+      minNumber: true,
+      maxNumber: true,
+      minDate: true,
+      maxDate: true,
+    },
   });
 
   const classMap = new Map(
-    clsfs.map((c) => [c.id, { values: c.values, caseSensitive: c.caseSensitive }])
+    clsfs.map((c): [string, ClassificationConstraint] => [
+      c.id,
+      {
+        type: c.type,
+        values: c.values,
+        caseSensitive: c.caseSensitive,
+        pattern: c.pattern,
+        minNumber: c.minNumber,
+        maxNumber: c.maxNumber,
+        minDate: toIsoDate(c.minDate),
+        maxDate: toIsoDate(c.maxDate),
+      },
+    ])
   );
 
-  return columns.map((c) => {
-    const clf = c.classificationId ? classMap.get(c.classificationId) : null;
-    return {
-      ...c,
-      allowedValues: clf?.values ?? null,
-      caseSensitive: clf?.caseSensitive ?? null,
-    };
-  });
+  return columns.map((c) => ({
+    ...c,
+    classification: c.classificationId ? classMap.get(c.classificationId) ?? null : null,
+  }));
 }
 
 // ── Blob-path construction ───────────────────────────────────────────────────

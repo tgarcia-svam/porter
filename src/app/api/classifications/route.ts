@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiConflict, withHandler } from "@/lib/api-error";
+import { ClassificationBody, toClassificationData } from "@/lib/classification-input";
 import { Prisma } from "@prisma/client";
-
-const CreateBody = z.object({
-  name: z.string().min(1),
-  values: z.array(z.string().min(1)).min(1),
-  caseSensitive: z.boolean().default(true),
-});
 
 export const GET = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
@@ -28,14 +22,12 @@ export const POST = withHandler(async (req: NextRequest) => {
   if (!session) return apiForbidden();
 
   const body = await req.json();
-  const parsed = CreateBody.safeParse(body);
+  const parsed = ClassificationBody.safeParse(body);
   if (!parsed.success) return apiBadRequest(parsed.error.flatten());
-
-  const { name, values, caseSensitive } = parsed.data;
 
   try {
     const classification = await prisma.classification.create({
-      data: { name, values, caseSensitive },
+      data: toClassificationData(parsed.data),
       include: { _count: { select: { columns: true } } },
     });
     return NextResponse.json(classification, { status: 201 });

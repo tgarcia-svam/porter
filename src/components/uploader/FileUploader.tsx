@@ -7,13 +7,27 @@ import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
 import StatsPanel from "./StatsPanel";
 
+type ClassificationType = "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
+
+type Classification = {
+  type: ClassificationType;
+  description: string | null;
+  values: string[];
+  caseSensitive: boolean;
+  pattern: string | null;
+  minNumber: number | null;
+  maxNumber: number | null;
+  minDate: string | null;
+  maxDate: string | null;
+};
+
 type Column = {
   id: string;
   name: string;
   dataType: string;
   required: boolean;
   order: number;
-  classification: { values: string[]; caseSensitive: boolean } | null;
+  classification: Classification | null;
 };
 
 type Schema = {
@@ -469,15 +483,9 @@ export default function FileUploader({
                             Value Requirements
                           </td>
                           {selectedSchema.columns.map((col) => (
-                            <td key={col.id} className="px-2 py-1.5">
+                            <td key={col.id} className="px-2 py-1.5 align-top">
                               {col.classification ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {col.classification.values.map((v) => (
-                                    <span key={v} className="inline-flex items-center rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-green-700 font-medium whitespace-nowrap">
-                                      {v}
-                                    </span>
-                                  ))}
-                                </div>
+                                <ValueRequirements c={col.classification} />
                               ) : (
                                 <span aria-hidden="true" className="text-gray-500">—</span>
                               )}
@@ -633,6 +641,64 @@ export default function FileUploader({
         )}
 
       </div>
+    </div>
+  );
+}
+
+/**
+ * Uploader-facing "Value Requirements" cell: the admin's optional description
+ * plus a type-appropriate summary of the rule. For a value list, the allowed
+ * values are listed with a note when matching is case-insensitive.
+ */
+function ValueRequirements({ c }: { c: Classification }) {
+  const numberRange =
+    c.minNumber != null && c.maxNumber != null
+      ? `Between ${c.minNumber} and ${c.maxNumber}`
+      : c.minNumber != null
+        ? `At least ${c.minNumber}`
+        : c.maxNumber != null
+          ? `At most ${c.maxNumber}`
+          : null;
+
+  const dateRange =
+    c.minDate && c.maxDate
+      ? `Between ${c.minDate} and ${c.maxDate}`
+      : c.minDate
+        ? `On or after ${c.minDate}`
+        : c.maxDate
+          ? `On or before ${c.maxDate}`
+          : null;
+
+  return (
+    <div className="space-y-1">
+      {c.description && <p className="text-gray-600 max-w-xs whitespace-normal">{c.description}</p>}
+
+      {c.type === "VALUE_LIST" && (
+        <>
+          <div className="flex flex-wrap gap-1">
+            {c.values.map((v) => (
+              <span
+                key={v}
+                className="inline-flex items-center rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-green-700 font-medium whitespace-nowrap"
+              >
+                {v}
+              </span>
+            ))}
+          </div>
+          {!c.caseSensitive && <p className="text-gray-400 italic">Case insensitive</p>}
+        </>
+      )}
+
+      {c.type === "REGEX" && (
+        <code className="inline-block rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-700">
+          {c.pattern}
+          {c.caseSensitive ? "" : " (case insensitive)"}
+        </code>
+      )}
+
+      {c.type === "NUMBER_RANGE" && numberRange && <p className="text-gray-600">{numberRange}</p>}
+
+      {c.type === "DATE_RANGE" && dateRange && <p className="text-gray-600">{dateRange}</p>}
     </div>
   );
 }
