@@ -18,7 +18,44 @@ type ClassificationType = "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE"
 type ProjectRef = { id: string; name: string };
 type ClassificationRef = { id: string; name: string; type: ClassificationType };
 
+type VizType = "INDICATOR" | "BAR" | "LINE";
+type AggregateFn = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "MEDIAN";
 type Granularity = "DAY" | "MONTH" | "YEAR";
+
+type VizDef = {
+  title: string;
+  type: VizType;
+  aggregate: AggregateFn;
+  valueColumn: string;
+  xColumn: string | null;
+  granularity: Granularity | null;
+};
+
+const GRANULARITIES: { value: Granularity; label: string }[] = [
+  { value: "DAY", label: "Day" },
+  { value: "MONTH", label: "Month" },
+  { value: "YEAR", label: "Year" },
+];
+
+const VIZ_TYPES: { value: VizType; label: string }[] = [
+  { value: "INDICATOR", label: "Indicator" },
+  { value: "BAR", label: "Bar" },
+  { value: "LINE", label: "Line" },
+];
+
+const AGGREGATES: { value: AggregateFn; label: string }[] = [
+  { value: "COUNT", label: "Count" },
+  { value: "SUM", label: "Sum" },
+  { value: "AVG", label: "Average" },
+  { value: "MIN", label: "Min" },
+  { value: "MAX", label: "Max" },
+  { value: "MEDIAN", label: "Median" },
+];
+
+/** Aggregates that require a numeric (NUMBER/INTEGER) value column. */
+const NUMERIC_AGGREGATES = new Set<AggregateFn>(["SUM", "AVG", "MIN", "MAX", "MEDIAN"]);
+
+const isNumericType = (dt: DataType) => dt === "NUMBER" || dt === "INTEGER";
 
 /** Which classification types may be assigned to a column of the given data type. */
 function compatibleClassificationTypes(dataType: DataType): ClassificationType[] {
@@ -42,8 +79,7 @@ type InitialData = {
   description: string;
   projectIds: string[];
   columns: ColumnDef[];
-  timeSeriesColumn: string | null;
-  timeSeriesGranularity: Granularity | null;
+  visualizations: VizDef[];
 };
 
 const DATA_TYPES: { value: DataType; label: string; description: string }[] = [
@@ -78,11 +114,8 @@ export default function SchemaEditor({
   const [columns, setColumns] = useState<ColumnDef[]>(
     initialData?.columns ?? [{ name: "", dataType: "TEXT", required: true, classificationId: null }]
   );
-  const [timeSeriesColumn, setTimeSeriesColumn] = useState<string>(
-    initialData?.timeSeriesColumn ?? ""
-  );
-  const [timeSeriesGranularity, setTimeSeriesGranularity] = useState<Granularity>(
-    initialData?.timeSeriesGranularity ?? "MONTH"
+  const [visualizations, setVisualizations] = useState<VizDef[]>(
+    initialData?.visualizations ?? []
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +134,65 @@ export default function SchemaEditor({
     );
   }
 
+  // ── Visualizations ──────────────────────────────────────────────────────────
+  function addVisualization() {
+    setVisualizations((prev) => [
+      ...prev,
+      // COUNT counts all records, so valueColumn is the "*" sentinel by default.
+      { title: "", type: "INDICATOR", aggregate: "COUNT", valueColumn: "*", xColumn: null, granularity: null },
+    ]);
+  }
+
+  function removeVisualization(i: number) {
+    setVisualizations((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function updateVisualization(i: number, updates: Partial<VizDef>) {
+    setVisualizations((prev) =>
+      prev.map((v, idx) => {
+        if (idx !== i) return v;
+        const next = { ...v, ...updates };
+        // COUNT counts all records (shown as "*"); other aggregates need a real
+        // column, and numeric ones need a numeric column.
+        if (next.aggregate === "COUNT") {
+          next.valueColumn = "*";
+        } else {
+          if (next.valueColumn === "*") next.valueColumn = "";
+          if (NUMERIC_AGGREGATES.has(next.aggregate)) {
+            const col = columns.find((c) => c.name === next.valueColumn);
+            if (!col || !isNumericType(col.dataType)) next.valueColumn = "";
+          }
+        }
+        // Indicators have no x-axis or date bucketing.
+        if (next.type === "INDICATOR") {
+          next.xColumn = null;
+          next.granularity = null;
+        } else {
+          // Date bucketing applies only to a DATE x-axis column.
+          const xType = next.xColumn
+            ? columns.find((c) => c.name === next.xColumn)?.dataType
+            : undefined;
+          if (xType === "DATE") {
+            if (!next.granularity) next.granularity = "MONTH";
+          } else {
+            next.granularity = null;
+          }
+        }
+        return next;
+      })
+    );
+  }
+
+  function moveVisualization(i: number, dir: -1 | 1) {
+    setVisualizations((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -117,6 +209,21 @@ export default function SchemaEditor({
       return;
     }
 
+    for (const v of visualizations) {
+      if (!v.title.trim()) {
+        setError("Every visualization needs a title.");
+        return;
+      }
+      if (v.aggregate !== "COUNT" && !v.valueColumn) {
+        setError(`Visualization "${v.title.trim()}" needs a column.`);
+        return;
+      }
+      if ((v.type === "BAR" || v.type === "LINE") && !v.xColumn) {
+        setError(`Visualization "${v.title.trim()}" needs an x-axis column.`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const body = {
@@ -124,8 +231,13 @@ export default function SchemaEditor({
         description: description.trim(),
         projectIds,
         columns,
-        timeSeriesColumn: timeSeriesColumn || null,
-        timeSeriesGranularity: timeSeriesColumn ? timeSeriesGranularity : null,
+        visualizations: visualizations.map((v) => ({
+          ...v,
+          title: v.title.trim(),
+          // COUNT counts all records — persist the "*" sentinel regardless of any
+          // stale column left in state from a previously-selected aggregate.
+          valueColumn: v.aggregate === "COUNT" ? "*" : v.valueColumn,
+        })),
       };
       const url = initialData
         ? `/api/schemas/${initialData.id}`
@@ -319,55 +431,177 @@ export default function SchemaEditor({
         </div>
       </div>
 
-      {/* Time series configuration */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-gray-900">Statistics</h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            Optional. Configure a date column to show a time series chart to uploaders.
-          </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Date column for time series
-          </label>
-          <select
-            value={timeSeriesColumn}
-            onChange={(e) => setTimeSeriesColumn(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="">— None —</option>
-            {columns
-              .filter((c) => c.dataType === "DATE" && c.name.trim())
-              .map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </div>
-        {timeSeriesColumn && (
+      {/* Data visualizations */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Group by
-            </label>
-            <div className="flex gap-3">
-              {(["DAY", "MONTH", "YEAR"] as Granularity[]).map((g) => (
-                <label key={g} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="granularity"
-                    value={g}
-                    checked={timeSeriesGranularity === g}
-                    onChange={() => setTimeSeriesGranularity(g)}
-                    className="text-brand-600 focus:ring-brand-500"
-                  />
-                  <span className="text-sm text-gray-700 capitalize">{g.toLowerCase()}</span>
-                </label>
-              ))}
-            </div>
+            <h2 className="font-semibold text-gray-900">Data Visualizations</h2>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Optional. Configure indicators and charts uploaders see on their dashboard.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addVisualization}
+            className="text-sm text-brand-600 hover:underline font-medium shrink-0"
+          >
+            + Add visualization
+          </button>
+        </div>
+
+        {visualizations.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-gray-500">
+            No visualizations yet. Uploaders will see an empty dashboard.
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {visualizations.map((v, i) => {
+              const namedColumns = columns.filter((c) => c.name.trim());
+              const valueOptions = NUMERIC_AGGREGATES.has(v.aggregate)
+                ? namedColumns.filter((c) => isNumericType(c.dataType))
+                : namedColumns;
+              const isChart = v.type === "BAR" || v.type === "LINE";
+              const xIsDate =
+                isChart && v.xColumn
+                  ? columns.find((c) => c.name === v.xColumn)?.dataType === "DATE"
+                  : false;
+              return (
+                <div key={i} className="px-6 py-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={v.title}
+                      onChange={(e) => updateVisualization(i, { title: e.target.value })}
+                      placeholder="Visualization title"
+                      className="flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => moveVisualization(i, -1)}
+                        disabled={i === 0}
+                        className="px-1.5 py-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                        aria-label="Move up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveVisualization(i, 1)}
+                        disabled={i === visualizations.length - 1}
+                        className="px-1.5 py-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                        aria-label="Move down"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeVisualization(i)}
+                        className="px-1.5 py-1 text-gray-400 hover:text-red-500"
+                        aria-label="Remove visualization"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className={isChart ? "col-span-3" : "col-span-4"}>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
+                      <select
+                        value={v.type}
+                        onChange={(e) => updateVisualization(i, { type: e.target.value as VizType })}
+                        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {VIZ_TYPES.map((t) => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {isChart && (
+                      <div className="col-span-3">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">X-axis column</label>
+                        <select
+                          value={v.xColumn ?? ""}
+                          onChange={(e) => updateVisualization(i, { xColumn: e.target.value || null })}
+                          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        >
+                          <option value="">— Select —</option>
+                          {namedColumns.map((c) => (
+                            <option key={c.name} value={c.name}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className={isChart ? "col-span-3" : "col-span-4"}>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Function</label>
+                      <select
+                        value={v.aggregate}
+                        onChange={(e) => updateVisualization(i, { aggregate: e.target.value as AggregateFn })}
+                        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {AGGREGATES.map((a) => (
+                          <option key={a.value} value={a.value}>{a.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className={isChart ? "col-span-3" : "col-span-4"}>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        {isChart ? "Y-axis column" : "Column"}
+                      </label>
+                      {v.aggregate === "COUNT" ? (
+                        // Count is over all records — no column to pick.
+                        <select
+                          value="*"
+                          disabled
+                          title="Counts all records"
+                          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm bg-gray-50 text-gray-500"
+                        >
+                          <option value="*">* (all records)</option>
+                        </select>
+                      ) : (
+                        <select
+                          value={v.valueColumn}
+                          onChange={(e) => updateVisualization(i, { valueColumn: e.target.value })}
+                          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        >
+                          <option value="">— Select —</option>
+                          {valueOptions.map((c) => (
+                            <option key={c.name} value={c.name}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+
+                  {xIsDate && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-500">Group dates by</span>
+                      <select
+                        value={v.granularity ?? "MONTH"}
+                        onChange={(e) => updateVisualization(i, { granularity: e.target.value as Granularity })}
+                        className="rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {GRANULARITIES.map((g) => (
+                          <option key={g.value} value={g.value}>{g.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
+
+        <div className="px-6 py-3 bg-gray-50 rounded-b-xl text-xs text-gray-500">
+          Sum, Average, Min, Max, and Median require a numeric column. Charts aggregate the latest valid upload, grouped by the x-axis column.
+        </div>
       </div>
 
       {error && (

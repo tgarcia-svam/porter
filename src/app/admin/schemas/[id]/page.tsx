@@ -14,6 +14,7 @@ export default async function EditSchemaPage({
       where: { id },
       include: {
         columns: { orderBy: { order: "asc" } },
+        visualizations: { orderBy: { order: "asc" } },
         projects: { select: { projectId: true } },
       },
     }),
@@ -50,8 +51,14 @@ export default async function EditSchemaPage({
             required: c.required,
             classificationId: c.classificationId ?? null,
           })),
-          timeSeriesColumn: schema.timeSeriesColumn ?? null,
-          timeSeriesGranularity: schema.timeSeriesGranularity as "DAY" | "MONTH" | "YEAR" | null ?? null,
+          visualizations: schema.visualizations.map((v) => ({
+            title: v.title,
+            type: v.type as "INDICATOR" | "BAR" | "LINE",
+            aggregate: v.aggregate as "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "MEDIAN",
+            valueColumn: v.aggregate === "COUNT" ? "*" : v.valueColumn,
+            xColumn: v.xColumn ?? null,
+            granularity: (v.granularity as "DAY" | "MONTH" | "YEAR" | null) ?? null,
+          })),
         }}
         allProjects={allProjects}
         allClassifications={allClassifications}

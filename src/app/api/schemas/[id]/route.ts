@@ -4,6 +4,7 @@ import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
 import { checkColumnClassifications } from "@/lib/classification-compat";
+import { VisualizationSchema, validateVisualizations } from "@/lib/visualization-input";
 
 const ColumnSchema = z.object({
   name: z.string().min(1),
@@ -18,8 +19,7 @@ const UpdateSchemaBody = z.object({
   description: z.string().optional(),
   projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1).optional(),
-  timeSeriesColumn: z.string().nullable().optional(),
-  timeSeriesGranularity: z.enum(["DAY", "MONTH", "YEAR"]).nullable().optional(),
+  visualizations: z.array(VisualizationSchema).optional(),
 });
 
 export const GET = withHandler<{ params: Promise<{ id: string }> }>(
@@ -32,6 +32,7 @@ export const GET = withHandler<{ params: Promise<{ id: string }> }>(
       where: { id },
       include: {
         columns: { orderBy: { order: "asc" } },
+        visualizations: { orderBy: { order: "asc" } },
         projects: { include: { project: { select: { id: true, name: true } } } },
       },
     });
@@ -55,20 +56,53 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
     const parsed = UpdateSchemaBody.safeParse(body);
     if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
-    const { name, description, projectIds, columns, timeSeriesColumn, timeSeriesGranularity } = parsed.data;
+    const { name, description, projectIds, columns, visualizations } = parsed.data;
 
     if (columns) {
       const compatError = await checkColumnClassifications(columns);
       if (compatError) return apiBadRequest(compatError);
     }
 
-    // Replace columns and project assignments atomically
+    // Validate visualizations against the columns that will be in effect: the
+    // incoming columns when provided, otherwise the schema's existing columns.
+    if (visualizations?.length) {
+      let effectiveColumns: { name: string; dataType: string }[];
+      if (columns) {
+        effectiveColumns = columns;
+      } else {
+        effectiveColumns = await prisma.schemaColumn.findMany({
+          where: { schemaId: id },
+          select: { name: true, dataType: true },
+        });
+      }
+      const vizError = validateVisualizations(effectiveColumns, visualizations);
+      if (vizError) return apiBadRequest(vizError);
+    }
+
+    // Replace columns, visualizations, and project assignments atomically
     const schema = await prisma.$transaction(async (tx) => {
       if (columns) {
         await tx.schemaColumn.deleteMany({ where: { schemaId: id } });
         await tx.schemaColumn.createMany({
           data: columns.map((col, i) => ({ ...col, schemaId: id, order: i })),
         });
+      }
+      if (visualizations !== undefined) {
+        await tx.visualization.deleteMany({ where: { schemaId: id } });
+        if (visualizations.length > 0) {
+          await tx.visualization.createMany({
+            data: visualizations.map((v, i) => ({
+              schemaId: id,
+              type: v.type,
+              title: v.title,
+              aggregate: v.aggregate,
+              valueColumn: v.valueColumn,
+              xColumn: v.type === "INDICATOR" ? null : v.xColumn ?? null,
+              granularity: v.type === "INDICATOR" ? null : v.granularity ?? null,
+              order: i,
+            })),
+          });
+        }
       }
       if (projectIds !== undefined) {
         await tx.schemaProject.deleteMany({ where: { schemaId: id } });
@@ -83,14 +117,13 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
         data: {
           ...(name && { name }),
           ...(description !== undefined && { description }),
-          ...(timeSeriesColumn !== undefined && { timeSeriesColumn }),
-          ...(timeSeriesGranularity !== undefined && { timeSeriesGranularity }),
           // Bump version whenever columns change so FileUpload records can be
           // interpreted against the exact schema definition that was in effect.
           ...(columns && { version: { increment: 1 } }),
         },
         include: {
           columns: { orderBy: { order: "asc" } },
+          visualizations: { orderBy: { order: "asc" } },
           projects: { include: { project: { select: { id: true, name: true } } } },
         },
       });
