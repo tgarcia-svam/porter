@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
 import DataEntryTable from "./DataEntryTable";
-import StatsPanel from "./StatsPanel";
+import DashboardPanel from "./DashboardPanel";
 
 type ClassificationType = "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
 
@@ -35,8 +35,6 @@ type Schema = {
   name: string;
   description: string | null;
   columns: Column[];
-  timeSeriesColumn: string | null;
-  timeSeriesGranularity: string | null;
 };
 
 type Project = {
@@ -105,7 +103,7 @@ export default function FileUploader({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "stats">("upload");
+  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "dashboard">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -128,9 +126,9 @@ export default function FileUploader({
     setUploadError(null);
   }
 
-  function handleTabChange(tab: "upload" | "entry" | "stats") {
+  function handleTabChange(tab: "upload" | "entry" | "dashboard") {
     setActiveTab(tab);
-    if (tab !== "stats") clearFileState();
+    if (tab !== "dashboard") clearFileState();
   }
 
   function handleProjectChange(projectId: string) {
@@ -365,10 +363,10 @@ export default function FileUploader({
     );
   }
 
-  const tabs: { key: "upload" | "entry" | "stats"; label: string }[] = [
+  const tabs: { key: "upload" | "entry" | "dashboard"; label: string }[] = [
     { key: "upload", label: "File Upload" },
     { key: "entry",  label: "Manual Entry" },
-    { key: "stats",  label: "Statistics" },
+    { key: "dashboard", label: "Dashboard" },
   ];
 
   return (
@@ -629,13 +627,13 @@ export default function FileUploader({
           />
         )}
 
-        {/* Statistics tab */}
-        {activeTab === "stats" && (
+        {/* Dashboard tab */}
+        {activeTab === "dashboard" && (
           selectedSchemaId && selectedProjectId
-            ? <StatsPanel schemaId={selectedSchemaId} projectId={selectedProjectId} />
+            ? <DashboardPanel schemaId={selectedSchemaId} projectId={selectedProjectId} />
             : (
               <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
-                Select a project and file format to view statistics.
+                Select a project and file format to view the dashboard.
               </div>
             )
         )}

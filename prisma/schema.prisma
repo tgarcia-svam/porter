@@ -64,18 +64,35 @@ model Schema {
   id                    String       @id @default(cuid())
   name                  String
   description           String?
-  timeSeriesColumn      String?
-  timeSeriesGranularity Granularity?
   version               Int          @default(1)
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
   deletedAt             DateTime?
 
-  projects SchemaProject[]
-  columns  SchemaColumn[]
-  uploads  FileUpload[]
+  projects       SchemaProject[]
+  columns        SchemaColumn[]
+  uploads        FileUpload[]
+  visualizations Visualization[]
 
   @@index([deletedAt])
+}
+
+model Visualization {
+  id          String            @id @default(cuid())
+  schemaId    String
+  type        VisualizationType
+  title       String
+  order       Int               @default(0)
+  aggregate   AggregateFn
+  valueColumn String                                  // column the aggregate runs on (y / indicator)
+  xColumn     String?                                 // category/x-axis column (BAR/LINE only)
+  granularity Granularity?                            // date bucketing when xColumn is a DATE column
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  schema Schema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@index([schemaId, order])
 }
 
 model SchemaProject {
@@ -231,6 +248,21 @@ enum ExportStatus {
   NOT_EXPORTED
   EXPORTED
   FAILED
+}
+
+enum VisualizationType {
+  INDICATOR
+  BAR
+  LINE
+}
+
+enum AggregateFn {
+  COUNT
+  SUM
+  AVG
+  MIN
+  MAX
+  MEDIAN
 }
 
 enum Granularity {
