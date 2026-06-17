@@ -7,13 +7,27 @@ import Spinner from "@/components/Spinner";
 
 const PAGE_SIZE = 50;
 
+type ClassificationType = "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
+
+type Classification = {
+  type: ClassificationType;
+  description: string | null;
+  values: string[];
+  caseSensitive: boolean;
+  pattern: string | null;
+  minNumber: number | null;
+  maxNumber: number | null;
+  minDate: string | null; // ISO "YYYY-MM-DD"
+  maxDate: string | null; // ISO "YYYY-MM-DD"
+};
+
 type Column = {
   id: string;
   name: string;
   dataType: string;
   required: boolean;
   order: number;
-  classification: { values: string[]; caseSensitive: boolean } | null;
+  classification: Classification | null;
 };
 
 type Schema = {
@@ -49,6 +63,62 @@ function inputType(dataType: string): string {
       return "email";
     default:
       return "text";
+  }
+}
+
+/**
+ * Inline value check for non-value-list classifications (REGEX / NUMBER_RANGE /
+ * DATE_RANGE). Value lists are enforced by their dropdown, so they never reach
+ * here. This mirrors checkClassification in src/lib/validate.ts to give the user
+ * immediate feedback as they type; the server stays the source of truth on submit.
+ * Returns an error message or null when the value is acceptable (empty is OK —
+ * required/empty is handled by the server on submit).
+ */
+function classificationError(value: string, col: Column): string | null {
+  const c = col.classification;
+  if (!c || c.type === "VALUE_LIST") return null;
+  const v = value.trim();
+  if (v === "") return null;
+
+  switch (c.type) {
+    case "REGEX": {
+      if (!c.pattern) return null;
+      let rx: RegExp;
+      try {
+        rx = new RegExp(c.pattern, c.caseSensitive === false ? "i" : "");
+      } catch {
+        return null; // invalid pattern — let the server decide
+      }
+      if (rx.test(v)) return null;
+      const hint = c.description?.trim();
+      return hint ? `Does not match the required format. ${hint}` : "Does not match the required format";
+    }
+
+    case "NUMBER_RANGE": {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "Must be a number";
+      const hasMin = c.minNumber !== null && c.minNumber !== undefined;
+      const hasMax = c.maxNumber !== null && c.maxNumber !== undefined;
+      if (hasMin && hasMax && (n < c.minNumber! || n > c.maxNumber!))
+        return `Must be between ${c.minNumber} and ${c.maxNumber}`;
+      if (hasMin && !hasMax && n < c.minNumber!) return `Must be at least ${c.minNumber}`;
+      if (hasMax && !hasMin && n > c.maxNumber!) return `Must be at most ${c.maxNumber}`;
+      return null;
+    }
+
+    case "DATE_RANGE": {
+      // The date input emits "YYYY-MM-DD", which sorts lexicographically.
+      const day = v.slice(0, 10);
+      const min = c.minDate ? c.minDate.slice(0, 10) : null;
+      const max = c.maxDate ? c.maxDate.slice(0, 10) : null;
+      if (min && max && (day < min || day > max)) return `Must be between ${min} and ${max}`;
+      if (min && !max && day < min) return `Must be on or after ${min}`;
+      if (max && !min && day > max) return `Must be on or before ${max}`;
+      return null;
+    }
+
+    default:
+      return null;
   }
 }
 
@@ -456,32 +526,50 @@ function Row({
       <td className="px-3 py-1.5 text-xs text-gray-600 select-none">
         {label === "new" ? "+" : rowKey}
       </td>
-      {columns.map((col) => (
-        <td key={col.id} className="px-2 py-1">
-          {col.classification ? (
-            <select
-              value={data[col.name] ?? ""}
-              onChange={(e) => onChange(col.name, e.target.value)}
-              aria-label={`${col.name}, row ${rowKey}`}
-              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
-            >
-              <option value="">—</option>
-              {col.classification.values.map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type={inputType(col.dataType)}
-              value={data[col.name] ?? ""}
-              onChange={(e) => onChange(col.name, e.target.value)}
-              aria-label={`${col.name}, row ${rowKey}`}
-              className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
-              placeholder="—"
-            />
-          )}
-        </td>
-      ))}
+      {columns.map((col) => {
+        const value = data[col.name] ?? "";
+        // Only value-list classifications constrain entry to a dropdown; other
+        // classification types use a normal input and are checked on the fly.
+        const isValueList = col.classification?.type === "VALUE_LIST";
+        const error = classificationError(value, col);
+        return (
+          <td key={col.id} className="px-2 py-1 align-top">
+            {isValueList ? (
+              <select
+                value={value}
+                onChange={(e) => onChange(col.name, e.target.value)}
+                aria-label={`${col.name}, row ${rowKey}`}
+                className="w-full min-w-[120px] rounded border border-transparent px-2 py-1 text-sm text-gray-900 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white transition-colors"
+              >
+                <option value="">—</option>
+                {col.classification!.values.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input
+                  type={inputType(col.dataType)}
+                  value={value}
+                  onChange={(e) => onChange(col.name, e.target.value)}
+                  aria-label={`${col.name}, row ${rowKey}`}
+                  aria-invalid={error ? true : undefined}
+                  title={error ?? undefined}
+                  className={`w-full min-w-[120px] rounded border px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-1 transition-colors ${
+                    error
+                      ? "border-red-300 focus:border-red-400 focus:ring-red-400 bg-red-50/40"
+                      : "border-transparent focus:border-brand-400 focus:ring-brand-400 bg-transparent hover:bg-white focus:bg-white"
+                  }`}
+                  placeholder="—"
+                />
+                {error && (
+                  <p className="mt-0.5 text-xs text-red-600 max-w-[220px] whitespace-normal">{error}</p>
+                )}
+              </>
+            )}
+          </td>
+        );
+      })}
       <td className="px-2 py-1.5">
         <button
           type="button"
