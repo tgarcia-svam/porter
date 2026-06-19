@@ -44,7 +44,8 @@
       "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma db push 2>&1 | Select-String -Pattern \"sync|generate|Error|EPERM\" | Select-Object -Last 6)",
       "PowerShell(npx vitest run src/lib/__tests__/visualization-input.test.ts 2>&1)",
       "PowerShell(Get-Process node -ErrorAction SilentlyContinue | ForEach-Object { Write-Output \"Stopping node PID $\\($_.Id\\)\"; Stop-Process -Id $_.Id -Force }; Start-Sleep -Milliseconds 500; Write-Output \"done\")",
-      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma generate 2>&1 | Select-String -Pattern \"Generated|Error|EPERM\" | Select-Object -Last 5)"
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED=\"0\"; npx prisma generate 2>&1 | Select-String -Pattern \"Generated|Error|EPERM\" | Select-Object -Last 5)",
+      "Bash(curl -fsSL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"
