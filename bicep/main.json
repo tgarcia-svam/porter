@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "7844913133446482014"
+      "templateHash": "4371217060301713850"
     }
   },
   "parameters": {
@@ -24,7 +24,7 @@
     },
     "appServiceSkuName": {
       "type": "string",
-      "defaultValue": "B2",
+      "defaultValue": "B1",
       "metadata": {
         "description": "App Service Plan SKU"
       }
@@ -174,11 +174,39 @@
         "description": "Shared secret the scheduled retention job sends as x-worker-secret when calling /api/admin/retention/run. Generate with: openssl rand -hex 32"
       }
     },
+    "blobTierToCoolAfterDays": {
+      "type": "int",
+      "defaultValue": 30,
+      "metadata": {
+        "description": "Days after last modification before an upload blob moves to Cool tier; -1 to disable"
+      }
+    },
+    "blobTierToArchiveAfterDays": {
+      "type": "int",
+      "defaultValue": 180,
+      "metadata": {
+        "description": "Days after last modification before an upload blob moves to Archive tier; -1 to disable"
+      }
+    },
     "malwareScanCapGBPerMonth": {
       "type": "int",
-      "defaultValue": 5000,
+      "defaultValue": 250,
       "metadata": {
         "description": "Monthly cap (GB) on malware scanning to bound cost; -1 for unlimited"
+      }
+    },
+    "logRetentionInDays": {
+      "type": "int",
+      "defaultValue": 90,
+      "metadata": {
+        "description": "Log Analytics / App Insights retention in days (first 90 are free)"
+      }
+    },
+    "logDailyQuotaGB": {
+      "type": "int",
+      "defaultValue": 2,
+      "metadata": {
+        "description": "Daily ingestion cap (GB) on the Log Analytics workspace; -1 for no cap"
       }
     }
   },
@@ -190,6 +218,7 @@
     "appInsightsName": "[format('{0}-insights', parameters('appServiceName'))]",
     "serviceBusNamespaceName": "[format('{0}-bus', parameters('appServiceName'))]",
     "workerFunctionName": "[format('{0}-worker', parameters('appServiceName'))]",
+    "warehouseIdentityName": "[format('{0}-warehouse-id', parameters('appServiceName'))]",
     "workerStorageName": "[take(format('fnwrk{0}', uniqueString(resourceGroup().id, parameters('appServiceName'))), 24)]",
     "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
     "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
@@ -229,20 +258,6 @@
             }
           },
           {
-            "name": "postgres-subnet",
-            "properties": {
-              "addressPrefix": "10.0.2.0/24",
-              "delegations": [
-                {
-                  "name": "postgres-delegation",
-                  "properties": {
-                    "serviceName": "Microsoft.DBforPostgreSQL/flexibleServers"
-                  }
-                }
-              ]
-            }
-          },
-          {
             "name": "endpoints-subnet",
             "properties": {
               "addressPrefix": "10.0.3.0/24",
@@ -259,12 +274,6 @@
       "location": "global"
     },
     {
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2020-06-01",
-      "name": "privatelink.postgres.database.azure.com",
-      "location": "global"
-    },
-    {
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), format('{0}-blob-link', variables('vnetName')))]",
@@ -277,22 +286,6 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2020-06-01",
-      "name": "[format('{0}/{1}', 'privatelink.postgres.database.azure.com', format('{0}-postgres-link', variables('vnetName')))]",
-      "location": "global",
-      "properties": {
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-        },
-        "registrationEnabled": false
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.postgres.database.azure.com')]",
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
       ]
     },
@@ -415,6 +408,41 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', parameters('storageAccountName'), 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "name": "tier-down-aged-uploads",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "[format('{0}/', parameters('storageContainerName'))]"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "tierToCool": "[if(greaterOrEquals(parameters('blobTierToCoolAfterDays'), 0), createObject('daysAfterModificationGreaterThan', parameters('blobTierToCoolAfterDays')), null())]",
+                    "tierToArchive": "[if(greaterOrEquals(parameters('blobTierToArchiveAfterDays'), 0), createObject('daysAfterModificationGreaterThan', parameters('blobTierToArchiveAfterDays')), null())]"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
       ]
     },
     {
@@ -544,7 +572,10 @@
         "sku": {
           "name": "PerGB2018"
         },
-        "retentionInDays": 365
+        "retentionInDays": "[parameters('logRetentionInDays')]",
+        "workspaceCapping": {
+          "dailyQuotaGb": "[parameters('logDailyQuotaGB')]"
+        }
       }
     },
     {
@@ -556,7 +587,7 @@
       "properties": {
         "Application_Type": "web",
         "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]",
-        "RetentionInDays": 365
+        "RetentionInDays": "[parameters('logRetentionInDays')]"
       },
       "dependsOn": [
         "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
@@ -696,6 +727,12 @@
       ]
     },
     {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('warehouseIdentityName')]",
+      "location": "[parameters('location')]"
+    },
+    {
       "type": "Microsoft.Web/serverfarms",
       "apiVersion": "2023-12-01",
       "name": "[variables('appServicePlanName')]",
@@ -715,7 +752,10 @@
       "name": "[parameters('appServiceName')]",
       "location": "[parameters('location')]",
       "identity": {
-        "type": "SystemAssigned"
+        "type": "SystemAssigned, UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName')))]": {}
+        }
       },
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
@@ -729,7 +769,8 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
-        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]"
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName'))]"
       ]
     },
     {
@@ -758,6 +799,8 @@
         "AZURE_SERVICE_BUS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=service-bus-connection-string)', variables('keyVaultName'))]",
         "UPLOAD_WORKER_SECRET": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=upload-worker-secret)', variables('keyVaultName'))]",
         "RETENTION_WORKER_SECRET": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=retention-worker-secret)', variables('keyVaultName'))]",
+        "WAREHOUSE_MI_CLIENT_ID": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName')), '2023-01-31').clientId]",
+        "WAREHOUSE_MI_PRINCIPAL_ID": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName')), '2023-01-31').principalId]",
         "DOCKER_REGISTRY_SERVER_URL": "[format('https://{0}', reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').loginServer)]",
         "SEED_ADMIN_EMAIL": "[parameters('seedAdminEmail')]",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=appinsights-connection-string)', variables('keyVaultName'))]",
@@ -770,7 +813,8 @@
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url-app')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'service-bus-connection-string')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'upload-worker-secret')]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName'))]"
       ]
     },
     {
@@ -1005,6 +1049,22 @@
     "workerFunctionName": {
       "type": "string",
       "value": "[variables('workerFunctionName')]"
+    },
+    "warehouseIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName')), '2023-01-31').clientId]"
+    },
+    "warehouseIdentityPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName')), '2023-01-31').principalId]"
+    },
+    "warehouseFederationIssuer": {
+      "type": "string",
+      "value": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, subscription().tenantId)]"
+    },
+    "warehouseFederationAudience": {
+      "type": "string",
+      "value": "api://AzureADTokenExchange"
     }
   }
 }
