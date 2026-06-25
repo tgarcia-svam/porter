@@ -16,7 +16,7 @@ param location string = resourceGroup().location
 param appServiceName string
 
 @description('App Service Plan SKU')
-param appServiceSkuName string = 'B2'
+param appServiceSkuName string = 'B1'
 
 @description('Name of the Azure Container Registry to create')
 param acrName string
@@ -131,17 +131,6 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         }
       }
       {
-        // PostgreSQL Flexible Server VNet injection
-        name: 'postgres-subnet'
-        properties: {
-          addressPrefix: '10.0.2.0/24'
-          delegations: [{
-            name: 'postgres-delegation'
-            properties: { serviceName: 'Microsoft.DBforPostgreSQL/flexibleServers' }
-          }]
-        }
-      }
-      {
         // Private endpoints (Blob Storage, Key Vault)
         name: 'endpoints-subnet'
         properties: {
@@ -160,24 +149,9 @@ resource blobPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   location: 'global'
 }
 
-resource postgresPrivateDns 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: 'privatelink.postgres.database.azure.com'
-  location: 'global'
-}
-
 resource blobDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
   parent: blobPrivateDns
   name: '${vnetName}-blob-link'
-  location: 'global'
-  properties: {
-    virtualNetwork: { id: vnet.id }
-    registrationEnabled: false
-  }
-}
-
-resource postgresDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
-  parent: postgresPrivateDns
-  name: '${vnetName}-postgres-link'
   location: 'global'
   properties: {
     virtualNetwork: { id: vnet.id }
@@ -280,6 +254,51 @@ resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
   properties: { publicAccess: 'None' }
 }
 
+// ── Blob Lifecycle Management ────────────────────────────────────────────────
+// Upload blobs are validated once at ingest and rarely read afterwards (the
+// dashboard and warehouse export both read from PostgreSQL, not the blob), so
+// they're tiered down as they age to cut storage cost. Scoped to the uploads
+// container only. Archive blobs require rehydration before download, so the
+// archive step defaults to a long horizon; set blobTierToArchiveAfterDays to -1
+// to disable archiving and keep cooled blobs instantly readable.
+@description('Days after last modification before an upload blob moves to Cool tier; -1 to disable')
+param blobTierToCoolAfterDays int = 30
+
+@description('Days after last modification before an upload blob moves to Archive tier; -1 to disable')
+param blobTierToArchiveAfterDays int = 180
+
+resource storageLifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          name: 'tier-down-aged-uploads'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: {
+              blobTypes: ['blockBlob']
+              prefixMatch: ['${storageContainerName}/']
+            }
+            actions: {
+              baseBlob: {
+                tierToCool: blobTierToCoolAfterDays >= 0 ? {
+                  daysAfterModificationGreaterThan: blobTierToCoolAfterDays
+                } : null
+                tierToArchive: blobTierToArchiveAfterDays >= 0 ? {
+                  daysAfterModificationGreaterThan: blobTierToArchiveAfterDays
+                } : null
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
 // ── Defender for Storage (malware scanning) ──────────────────────────────────
 // Enables on-upload malware scanning for this account. Defender writes the scan
 // verdict to each blob's index tags ("Malware Scanning.scan results"), which the
@@ -289,7 +308,7 @@ resource storageContainer 'Microsoft.Storage/storageAccounts/blobServices/contai
 // on, so uploads resolve to clean/malicious rather than stalling at "pending".
 // Cost scales per GB scanned; capGBPerMonth bounds it (-1 = unlimited).
 @description('Monthly cap (GB) on malware scanning to bound cost; -1 for unlimited')
-param malwareScanCapGBPerMonth int = 5000
+param malwareScanCapGBPerMonth int = 250
 
 resource defenderForStorage 'Microsoft.Security/defenderForStorageSettings@2022-12-01-preview' = {
   name: 'current'
@@ -423,13 +442,25 @@ resource workerFunctionSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 }
 
 // ── Log Analytics + Application Insights ─────────────────────────────────────
+// Retention is kept at the 90-day mark Azure includes for free — days 91+ are
+// billed per GB-month and aren't useful for an upload tool's day-to-day
+// debugging. dailyQuotaGb is a guardrail so a logging bug or traffic spike can't
+// produce a surprise ingestion bill; -1 disables the cap.
+@description('Log Analytics / App Insights retention in days (first 90 are free)')
+param logRetentionInDays int = 90
+
+@description('Daily ingestion cap (GB) on the Log Analytics workspace; -1 for no cap')
+param logDailyQuotaGB int = 2
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logAnalyticsName
   location: location
   properties: {
     sku: { name: 'PerGB2018' }
-    retentionInDays: 365
+    retentionInDays: logRetentionInDays
+    workspaceCapping: {
+      dailyQuotaGb: logDailyQuotaGB
+    }
   }
 }
 
@@ -440,7 +471,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logAnalytics.id
-    RetentionInDays: 365
+    RetentionInDays: logRetentionInDays
   }
 }
 

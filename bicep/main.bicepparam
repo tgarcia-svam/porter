@@ -17,7 +17,7 @@ param dbAdminPassword    = ''   // overridden in main.secrets.bicepparam
 param dbAppUserPassword  = ''   // overridden in main.secrets.bicepparam
 
 // ── App Service ───────────────────────────────────────────────────────────────
-param appServiceSkuName = 'B2'
+param appServiceSkuName = 'B1'
 param dbSkuName         = 'Standard_B1ms'
 param dbSkuTier         = 'Burstable'
 
