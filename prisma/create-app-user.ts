@@ -83,7 +83,7 @@ async function main() {
     console.log("\nDone. App user DATABASE_URL:");
     console.log(appDbUrl);
     console.log(
-      "\nAdd this as DATABASE_URL in .env.local (or Key Vault) for application runtime."
+      "\nAdd this as DATABASE_URL in .env (or Key Vault) for application runtime."
     );
   } finally {
     await prisma.$disconnect();

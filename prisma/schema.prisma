@@ -51,13 +51,52 @@ model User {
   name                String?
   role                Role          @default(UPLOADER)
   organizationId      String?
+
+  // ── Authentication ──────────────────────────────────────────────────────────
+  // authMethod is the admin's choice of how this user signs in. New users default
+  // to PASSWORD; existing (pre-migration) users are backfilled to SSO so they keep
+  // working. passwordHash/mfaSecretEnc are null for SSO users.
+  authMethod          AuthMethod    @default(PASSWORD)
+  passwordHash        String?       // bcrypt hash — never the plaintext password
+  mfaEnabled          Boolean       @default(false)
+  mfaSecretEnc        String?       // AES-256-GCM encrypted TOTP secret (base64)
+
+  // ── Lockout ──────────────────────────────────────────────────────────────────
+  // Two-tier: failedLoginAttempts within a 15-min window (tracked by
+  // lastFailedLoginAt) drives a temporary cooldown (lockedUntil); enough failures
+  // trip lockedForReset, a hard lock cleared only by a successful password reset.
   failedLoginAttempts Int           @default(0)
+  lastFailedLoginAt   DateTime?
   lockedUntil         DateTime?
+  lockedForReset      Boolean       @default(false)
+
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   uploads      FileUpload[]
+  authTokens   AuthToken[]
+}
+
+// Single-use, hashed tokens backing the invite / password-reset / MFA-enrollment
+// flows. The raw token is emailed to the user (or handed to the client) once and
+// never persisted — only its SHA-256 hash is stored, so a DB leak yields no usable
+// tokens. secretEnc holds the candidate (encrypted) TOTP secret during enrollment,
+// promoted onto User.mfaSecretEnc only after the user confirms a valid code.
+model AuthToken {
+  id         String           @id @default(cuid())
+  userId     String
+  tokenHash  String           @unique
+  purpose    AuthTokenPurpose
+  secretEnc  String?
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Schema {
@@ -220,6 +259,17 @@ model AuditLog {
 enum Role {
   ADMIN
   UPLOADER
+}
+
+enum AuthMethod {
+  PASSWORD
+  SSO
+}
+
+enum AuthTokenPurpose {
+  INVITE
+  RESET
+  MFA_ENROLL
 }
 
 enum DataType {

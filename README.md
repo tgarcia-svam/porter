@@ -79,13 +79,11 @@ rows by hand) that are validated against those formats, stored, and surfaced as 
 
 ```bash
 npm install
-cp .env.example .env          # Prisma CLI reads .env
-cp .env.example .env.local    # Next.js runtime reads .env.local
+cp .env.example .env          # single gitignored file, read by Prisma CLI *and* Next.js
 ```
 
 Fill in the values (see [Environment variables](#environment-variables)). At minimum you
-need `DATABASE_URL` and `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`). Keep
-`DATABASE_URL` in sync between `.env` and `.env.local`.
+need `DATABASE_URL` and `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`).
 
 > On a corporate network where TLS interception breaks Prisma's engine downloads, prefix
 > Prisma commands with `NODE_TLS_REJECT_UNAUTHORIZED=0`.
@@ -140,9 +138,9 @@ the schema, applies RLS, and seeds the admin user on startup. In `NODE_ENV=produ
 
 ## Environment variables
 
-Set in `.env` (Prisma CLI) and `.env.local` (Next.js runtime) for local dev; in production
-these come from App Service application settings, with secrets resolved from Key Vault at
-startup (see [`src/lib/secrets.ts`](src/lib/secrets.ts)).
+Set in a single gitignored `.env` for local dev — it's read by both the Prisma CLI and the
+Next.js runtime. In production these come from App Service application settings, with secrets
+resolved from Key Vault at startup (see [`src/lib/secrets.ts`](src/lib/secrets.ts)).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -162,10 +160,13 @@ startup (see [`src/lib/secrets.ts`](src/lib/secrets.ts)).
 | `UPLOAD_WORKER_SECRET` | — | Shared secret the worker sends to `/api/upload/process`. |
 | `RETENTION_WORKER_SECRET` | — | Shared secret the retention job sends to `/api/admin/retention/run`. |
 | `WAREHOUSE_MI_CLIENT_ID` / `WAREHOUSE_MI_PRINCIPAL_ID` | — | Managed-identity IDs for cross-tenant Parquet export (injected on Azure). |
+| `MFA_ENCRYPTION_KEY` | ✅ (local auth) | AES-256 key (base64, 32 bytes) encrypting MFA TOTP secrets at rest. Required for username/password + MFA. |
+| `ACS_CONNECTION_STRING` / `EMAIL_SENDER_ADDRESS` | prod | Azure Communication Services email for invite/reset links. Unset locally → links log to the console. |
 | `SEED_ADMIN_EMAIL` | ✅ (first run) | Email of the admin seeded on startup. |
 
-> **Secrets** belong in `.env.local` / Key Vault, never in `.env` (which is for the Prisma
-> CLI). A provider is only enabled when *both* its client ID and secret are present.
+> In local dev the single `.env` is gitignored, so secrets are safe there. In production
+> secrets live only in Key Vault. A provider is only enabled when *both* its client ID and
+> secret are present.
 
 ---
 

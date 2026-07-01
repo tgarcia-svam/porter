@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "4371217060301713850"
+      "templateHash": "9236415633799509859"
     }
   },
   "parameters": {
@@ -174,6 +174,20 @@
         "description": "Shared secret the scheduled retention job sends as x-worker-secret when calling /api/admin/retention/run. Generate with: openssl rand -hex 32"
       }
     },
+    "mfaEncryptionKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "AES-256 key (base64, 32 bytes) used to encrypt MFA TOTP secrets at rest. Generate with: openssl rand -base64 32. Leave empty to disable local-account MFA."
+      }
+    },
+    "acsDataLocation": {
+      "type": "string",
+      "defaultValue": "Canada",
+      "metadata": {
+        "description": "Data residency for Azure Communication Services (email). e.g. United States, Europe, Canada."
+      }
+    },
     "blobTierToCoolAfterDays": {
       "type": "int",
       "defaultValue": 30,
@@ -219,6 +233,8 @@
     "serviceBusNamespaceName": "[format('{0}-bus', parameters('appServiceName'))]",
     "workerFunctionName": "[format('{0}-worker', parameters('appServiceName'))]",
     "warehouseIdentityName": "[format('{0}-warehouse-id', parameters('appServiceName'))]",
+    "acsName": "[format('{0}-comms', parameters('appServiceName'))]",
+    "emailServiceName": "[format('{0}-email', parameters('appServiceName'))]",
     "workerStorageName": "[take(format('fnwrk{0}', uniqueString(resourceGroup().id, parameters('appServiceName'))), 24)]",
     "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
     "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
@@ -727,10 +743,83 @@
       ]
     },
     {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'acs-connection-string')]",
+      "properties": {
+        "value": "[listKeys(resourceId('Microsoft.Communication/communicationServices', variables('acsName')), '2023-04-01').primaryConnectionString]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/communicationServices', variables('acsName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('mfaEncryptionKey')))]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'mfa-encryption-key')]",
+      "properties": {
+        "value": "[parameters('mfaEncryptionKey')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
       "apiVersion": "2023-01-31",
       "name": "[variables('warehouseIdentityName')]",
       "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.Communication/emailServices",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('emailServiceName')]",
+      "location": "global",
+      "properties": {
+        "dataLocation": "[parameters('acsDataLocation')]"
+      }
+    },
+    {
+      "type": "Microsoft.Communication/emailServices/domains",
+      "apiVersion": "2023-04-01",
+      "name": "[format('{0}/{1}', variables('emailServiceName'), 'AzureManagedDomain')]",
+      "location": "global",
+      "properties": {
+        "domainManagement": "AzureManaged",
+        "userEngagementTracking": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices', variables('emailServiceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Communication/emailServices/domains/senderUsernames",
+      "apiVersion": "2023-04-01",
+      "name": "[format('{0}/{1}/{2}', variables('emailServiceName'), 'AzureManagedDomain', 'DoNotReply')]",
+      "properties": {
+        "username": "DoNotReply",
+        "displayName": "Porter"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Communication/communicationServices",
+      "apiVersion": "2023-04-01",
+      "name": "[variables('acsName')]",
+      "location": "global",
+      "properties": {
+        "dataLocation": "[parameters('acsDataLocation')]",
+        "linkedDomains": [
+          "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
+      ]
     },
     {
       "type": "Microsoft.Web/serverfarms",
@@ -804,11 +893,16 @@
         "DOCKER_REGISTRY_SERVER_URL": "[format('https://{0}', reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').loginServer)]",
         "SEED_ADMIN_EMAIL": "[parameters('seedAdminEmail')]",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=appinsights-connection-string)', variables('keyVaultName'))]",
+        "ACS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=acs-connection-string)', variables('keyVaultName'))]",
+        "EMAIL_SENDER_ADDRESS": "[format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain'), '2023-04-01').fromSenderDomain)]",
+        "MFA_ENCRYPTION_KEY": "[if(not(empty(parameters('mfaEncryptionKey'))), format('@Microsoft.KeyVault(VaultName={0};SecretName=mfa-encryption-key)', variables('keyVaultName')), '')]",
         "KEY_VAULT_URL": "[format('https://{0}{1}/', variables('keyVaultName'), environment().suffixes.keyvaultDns)]"
       },
       "dependsOn": [
         "[resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
         "[resourceId('Microsoft.Web/sites', parameters('appServiceName'))]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'acs-connection-string')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url-app')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'service-bus-connection-string')]",

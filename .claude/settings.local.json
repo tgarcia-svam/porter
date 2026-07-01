@@ -48,7 +48,12 @@
       "Bash(curl -fsSL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE)",
       "Bash(xargs cat)",
       "Bash(sed \"s/.*'\\\\\\(Microsoft\\\\.[^']*\\\\\\)'.*/\\\\1/\")",
-      "PowerShell($out = az bicep build --file \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\\\\bicep\\\\main.bicep\" --stdout 2>&1 | Out-String; if \\($out -match 'Error|Warning'\\) { \\($out -split \"`n\" | Select-String -Pattern 'Error|Warning'\\) } else { \"No errors or warnings\" })"
+      "PowerShell($out = az bicep build --file \"c:\\\\Users\\\\ThomasGarcia\\\\Documents\\\\vibe\\\\porter\\\\bicep\\\\main.bicep\" --stdout 2>&1 | Out-String; if \\($out -match 'Error|Warning'\\) { \\($out -split \"`n\" | Select-String -Pattern 'Error|Warning'\\) } else { \"No errors or warnings\" })",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED='0'; npm install otplib qrcode @azure/communication-email; if \\($?\\) { npm install -D '@types/qrcode' })",
+      "PowerShell(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('base64'\\)\\)\")",
+      "PowerShell(az bicep build --file bicep/main.bicep 2>&1 | Select-String -Pattern 'Error|Warning' | Select-Object -First 40; \"exit: $LASTEXITCODE\")",
+      "PowerShell($env:NODE_TLS_REJECT_UNAUTHORIZED='0'; npx tsc --noEmit 2>&1 | Select-Object -First 60; \"exit: $LASTEXITCODE\")",
+      "Bash(node -e \"const o=require\\('otplib'\\); console.log\\('keys:', Object.keys\\(o\\)\\); console.log\\('ver:', require\\('otplib/package.json'\\).version\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\ThomasGarcia\\Documents\\vibe\\porter\\src\\lib"

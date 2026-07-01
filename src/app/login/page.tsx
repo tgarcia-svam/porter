@@ -1,13 +1,17 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Suspense, useState } from "react";
+import { apiFetch } from "@/lib/apiFetch";
 
 function LoginContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
+  const callbackUrl = searchParams.get("callbackUrl") || "/";
 
   const oauthError =
     error === "AccessDenied"
@@ -16,6 +20,100 @@ function LoginContent() {
       ? "Sign-in failed. Please try again."
       : null;
 
+  const [step, setStep] = useState<"credentials" | "mfa">("credentials");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function messageFor(code: string | undefined, retryAfterSec?: number): string {
+    switch (code) {
+      case "bad_credentials":
+        return "Incorrect email or password.";
+      case "mfa_invalid":
+        return "That code didn't match. Try again.";
+      case "locked_temp": {
+        const mins = Math.max(1, Math.ceil((retryAfterSec ?? 900) / 60));
+        return `Too many attempts. Try again in about ${mins} minute${mins === 1 ? "" : "s"}.`;
+      }
+      case "locked_reset":
+        return "Account locked after too many failed attempts. Reset your password to unlock it.";
+      case "mfa_setup_required":
+        return "Finish setting up your account from the email link, or reset your password.";
+      default:
+        return "Sign-in failed. Please try again.";
+    }
+  }
+
+  async function submitCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch("/api/account/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.code === "mfa_required") {
+        setStep("mfa");
+        return;
+      }
+      if (res.ok && data?.ok && data?.ticket) {
+        await finalize(data.ticket);
+        return;
+      }
+      setFormError(messageFor(data?.code, data?.retryAfterSec));
+    } catch {
+      setFormError("Sign-in failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitMfa(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch("/api/account/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password, totp: totp.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok && data?.ticket) {
+        await finalize(data.ticket);
+        return;
+      }
+      if (data?.code === "locked_reset" || data?.code === "locked_temp") {
+        setStep("credentials");
+      }
+      setFormError(messageFor(data?.code, data?.retryAfterSec));
+    } catch {
+      setFormError("Sign-in failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finalize(ticket: string) {
+    const res = await signIn("credentials", {
+      redirect: false,
+      email: email.trim().toLowerCase(),
+      ticket,
+      callbackUrl,
+    });
+    if (res?.ok) {
+      router.push(callbackUrl);
+      router.refresh();
+    } else {
+      setFormError("Sign-in failed. Please try again.");
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-md">
@@ -23,12 +121,7 @@ function LoginContent() {
           {/* Logo / wordmark */}
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600 mb-4">
-              <svg
-                className="w-8 h-8 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -49,15 +142,99 @@ function LoginContent() {
             </div>
           )}
 
-          {oauthError && (
+          {(oauthError || formError) && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">
-              {oauthError}
+              {formError ?? oauthError}
             </div>
           )}
 
+          {/* Username / password */}
+          {step === "credentials" ? (
+            <form onSubmit={submitCredentials} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                <input
+                  type="email"
+                  autoComplete="username"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="••••••••••••••••"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+              >
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+              <div className="text-right">
+                <Link href="/account/forgot" className="text-xs text-brand-600 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={submitMfa} className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Enter the 6-digit code from your authenticator app.
+              </p>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={6}
+                required
+                autoFocus
+                value={totp}
+                onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-center text-lg tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="000000"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+              >
+                {busy ? "Verifying…" : "Verify & sign in"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setStep("credentials"); setTotp(""); setFormError(null); }}
+                className="w-full text-xs text-gray-500 hover:underline"
+              >
+                Back
+              </button>
+            </form>
+          )}
+
+          {/* SSO */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-gray-200" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-2 text-xs text-gray-400">or continue with</span>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <button
-              onClick={() => signIn("google", { callbackUrl: "/" })}
+              onClick={() => signIn("google", { callbackUrl })}
               className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
             >
               <GoogleIcon />
@@ -65,7 +242,7 @@ function LoginContent() {
             </button>
 
             <button
-              onClick={() => signIn("microsoft-entra-id", { callbackUrl: "/" })}
+              onClick={() => signIn("microsoft-entra-id", { callbackUrl })}
               className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
             >
               <MicrosoftIcon />

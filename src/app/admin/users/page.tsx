@@ -26,12 +26,19 @@ export default async function UsersPage() {
       </div>
 
       <UserManager
+        // Pick fields explicitly — never ship passwordHash / mfaSecretEnc to the client.
         initialUsers={users.map((u) => ({
-          ...u,
-          createdAt: u.createdAt.toISOString(),
-          updatedAt: u.updatedAt.toISOString(),
-          lockedUntil: u.lockedUntil ? u.lockedUntil.toISOString() : null,
+          id: u.id,
+          email: u.email,
+          name: u.name,
           role: u.role as "ADMIN" | "UPLOADER",
+          createdAt: u.createdAt.toISOString(),
+          organization: u.organization,
+          authMethod: u.authMethod as "PASSWORD" | "SSO",
+          mfaEnabled: u.mfaEnabled,
+          lockedUntil: u.lockedUntil ? u.lockedUntil.toISOString() : null,
+          lockedForReset: u.lockedForReset,
+          failedLoginAttempts: u.failedLoginAttempts,
         }))}
         allOrganizations={organizations}
       />
