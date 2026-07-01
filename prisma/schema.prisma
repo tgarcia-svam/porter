@@ -76,6 +76,28 @@ model User {
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   uploads      FileUpload[]
   authTokens   AuthToken[]
+  passkeys     Passkey[]
+}
+
+// WebAuthn/passkey credential — an alternative MFA second factor to TOTP for
+// PASSWORD accounts (biometric / security-key tap instead of a typed code). Only
+// the public key is stored (public keys are not secret); the private key never
+// leaves the user's device. `counter` is the signature counter used for
+// clone-detection; `credentialId` is the base64url credential id.
+model Passkey {
+  id           String    @id @default(cuid())
+  userId       String
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      Int       @default(0)
+  transports   String[]
+  deviceName   String?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // Single-use, hashed tokens backing the invite / password-reset / MFA-enrollment

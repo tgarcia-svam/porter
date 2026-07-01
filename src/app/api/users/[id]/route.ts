@@ -61,6 +61,11 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
 
     const user = await prisma.user.update({ where: { id }, data });
 
+    // Clearing MFA or moving to SSO also removes any registered passkeys.
+    if (resetMfa || authMethod === "SSO") {
+      await prisma.passkey.deleteMany({ where: { userId: id } });
+    }
+
     // ── Side-effects (token issuance + email) ────────────────────────────────
     const switchedToPassword = authMethod === "PASSWORD" && current.authMethod !== "PASSWORD";
 

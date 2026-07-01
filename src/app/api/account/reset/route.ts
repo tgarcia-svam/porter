@@ -50,6 +50,10 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
   if (!user) return apiBadRequest("Account no longer exists.");
 
+  // MFA is satisfied by a TOTP secret OR at least one passkey.
+  const passkeyCount = await prisma.passkey.count({ where: { userId: user.id } });
+  const mfaReady = user.mfaEnabled || passkeyCount > 0;
+
   const check = validatePassword(password, user.email);
   if (!check.ok) return NextResponse.json({ error: check.errors }, { status: 422 });
 
@@ -63,7 +67,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   await invalidateUserTokens(user.id, "INVITE");
   await invalidateUserTokens(user.id, "RESET");
 
-  if (!user.mfaEnabled) {
+  if (!mfaReady) {
     const { rawToken } = await createAuthToken({ userId: user.id, purpose: "MFA_ENROLL" });
     return NextResponse.json({ ok: true, next: "mfa", enrollToken: rawToken });
   }

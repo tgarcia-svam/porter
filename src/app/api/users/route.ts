@@ -33,6 +33,7 @@ export const GET = withHandler(async (req: NextRequest) => {
       lockedForReset: true,
       failedLoginAttempts: true,
       organization: { select: { id: true, name: true } },
+      _count: { select: { passkeys: true } },
     },
     orderBy: { createdAt: "asc" },
   });

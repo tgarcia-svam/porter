@@ -1,17 +1,22 @@
 import crypto from "crypto";
 
 /**
- * Short-lived, HMAC-signed "login ticket". The /api/account/login route performs
- * all credential + MFA + lockout checks (where we fully control the responses) and,
- * only on full success, issues a ticket. NextAuth's Credentials authorize() then
- * trusts a valid, unexpired ticket instead of re-implementing password/MFA logic.
+ * HMAC-signed tickets used by the local sign-in flow (no DB round-trip). Two kinds:
  *
- * The ticket is signed with NEXTAUTH_SECRET (no DB round-trip) and bound to the
- * email + a 60s expiry, so it can't be forged and is useless after the immediate
- * exchange. HTTPS prevents capture; the tiny window bounds any replay.
+ *  - "pending" (5 min): issued by /api/account/login once the PASSWORD step passes
+ *    but a second factor is still required. It authorizes the follow-up TOTP or
+ *    passkey step WITHOUT re-sending the password.
+ *  - "login" (60 s): issued once BOTH factors pass. NextAuth's Credentials
+ *    authorize() trusts a valid "login" ticket and mints the session — it never
+ *    sees the password or second factor.
+ *
+ * Both are signed with NEXTAUTH_SECRET and bound to the email + a kind tag, so a
+ * pending ticket can't be replayed as a login ticket. HTTPS + the short TTLs bound
+ * any replay window.
  */
 
-const TICKET_TTL_MS = 60 * 1000;
+type Kind = "pending" | "login";
+const TTL_MS: Record<Kind, number> = { pending: 5 * 60 * 1000, login: 60 * 1000 };
 
 function getSecret(): string {
   const s = process.env.NEXTAUTH_SECRET;
@@ -23,26 +28,25 @@ function sign(payload: string): string {
   return crypto.createHmac("sha256", getSecret()).update(payload).digest("hex");
 }
 
-export function issueLoginTicket(email: string): string {
-  const exp = Date.now() + TICKET_TTL_MS;
-  const payload = `${Buffer.from(email.toLowerCase()).toString("base64url")}.${exp}`;
+function issue(kind: Kind, email: string): string {
+  const exp = Date.now() + TTL_MS[kind];
+  const payload = `${kind}.${Buffer.from(email.toLowerCase()).toString("base64url")}.${exp}`;
   return `${payload}.${sign(payload)}`;
 }
 
-/** Returns the verified email if the ticket is authentic and unexpired, else null. */
-export function verifyLoginTicket(ticket: string): string | null {
+/** Returns the verified email if the ticket is authentic, unexpired, and of `kind`. */
+function verify(kind: Kind, ticket: string): string | null {
   if (!ticket) return null;
   const parts = ticket.split(".");
-  if (parts.length !== 3) return null;
-  const [emailB64, expStr, sig] = parts;
-  const payload = `${emailB64}.${expStr}`;
+  if (parts.length !== 4) return null;
+  const [kindPart, emailB64, expStr, sig] = parts;
+  const payload = `${kindPart}.${emailB64}.${expStr}`;
 
   const expected = sign(payload);
   const sigBuf = Buffer.from(sig);
   const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-    return null;
-  }
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+  if (kindPart !== kind) return null;
 
   const exp = Number(expStr);
   if (!Number.isFinite(exp) || Date.now() > exp) return null;
@@ -53,3 +57,8 @@ export function verifyLoginTicket(ticket: string): string | null {
     return null;
   }
 }
+
+export const issuePendingTicket = (email: string) => issue("pending", email);
+export const verifyPendingTicket = (ticket: string) => verify("pending", ticket);
+export const issueLoginTicket = (email: string) => issue("login", email);
+export const verifyLoginTicket = (ticket: string) => verify("login", ticket);

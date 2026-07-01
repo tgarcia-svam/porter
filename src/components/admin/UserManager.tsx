@@ -15,6 +15,7 @@ type User = {
   organization: OrgRef | null;
   authMethod: AuthMethod;
   mfaEnabled: boolean;
+  passkeyCount: number;
   lockedUntil: string | null;
   lockedForReset: boolean;
   failedLoginAttempts: number;
@@ -277,9 +278,17 @@ export default function UserManager({
                     {user.authMethod === "PASSWORD" ? (
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-medium text-gray-700">Password</span>
-                        <span className={`text-[11px] ${user.mfaEnabled ? "text-green-600" : "text-amber-600"}`}>
-                          {user.mfaEnabled ? "MFA enrolled" : "MFA pending"}
-                        </span>
+                        {(() => {
+                          const factors = [
+                            user.mfaEnabled ? "authenticator" : null,
+                            user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
+                          ].filter(Boolean);
+                          return factors.length > 0 ? (
+                            <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
+                          ) : (
+                            <span className="text-[11px] text-amber-600">MFA pending</span>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <span className="text-xs font-medium text-gray-700">SSO</span>
@@ -295,7 +304,7 @@ export default function UserManager({
                           Unlock
                         </button>
                       )}
-                      {user.authMethod === "PASSWORD" && !user.mfaEnabled && (
+                      {user.authMethod === "PASSWORD" && !user.mfaEnabled && user.passkeyCount === 0 && (
                         <button
                           onClick={() => handleResendInvite(user.id, user.email)}
                           className="text-xs text-brand-600 hover:underline"
@@ -303,7 +312,7 @@ export default function UserManager({
                           Resend invite
                         </button>
                       )}
-                      {user.authMethod === "PASSWORD" && user.mfaEnabled && (
+                      {user.authMethod === "PASSWORD" && (user.mfaEnabled || user.passkeyCount > 0) && (
                         <button
                           onClick={() => handleResetMfa(user.id, user.email)}
                           className="text-xs text-amber-600 hover:underline"

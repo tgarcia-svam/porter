@@ -6,6 +6,7 @@ export default async function UsersPage() {
     prisma.user.findMany({
       include: {
         organization: { select: { id: true, name: true } },
+        _count: { select: { passkeys: true } },
       },
       orderBy: { createdAt: "asc" },
     }),
@@ -36,6 +37,7 @@ export default async function UsersPage() {
           organization: u.organization,
           authMethod: u.authMethod as "PASSWORD" | "SSO",
           mfaEnabled: u.mfaEnabled,
+          passkeyCount: u._count.passkeys,
           lockedUntil: u.lockedUntil ? u.lockedUntil.toISOString() : null,
           lockedForReset: u.lockedForReset,
           failedLoginAttempts: u.failedLoginAttempts,
