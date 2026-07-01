@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 
 type OrgRef = { id: string; name: string };
+type AuthMethod = "PASSWORD" | "SSO";
 type User = {
   id: string;
   email: string;
@@ -12,7 +13,11 @@ type User = {
   role: "ADMIN" | "UPLOADER";
   createdAt: string;
   organization: OrgRef | null;
+  authMethod: AuthMethod;
+  mfaEnabled: boolean;
+  passkeyCount: number;
   lockedUntil: string | null;
+  lockedForReset: boolean;
   failedLoginAttempts: number;
 };
 
@@ -28,8 +33,10 @@ export default function UserManager({
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<"ADMIN" | "UPLOADER">("UPLOADER");
   const [newOrgId, setNewOrgId] = useState<string>("");
+  const [newAuthMethod, setNewAuthMethod] = useState<AuthMethod>("PASSWORD");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addNotice, setAddNotice] = useState<string | null>(null);
 
   async function refreshUsers() {
     const res = await fetch("/api/users");
@@ -41,6 +48,7 @@ export default function UserManager({
   async function handleAddUser(e: React.FormEvent) {
     e.preventDefault();
     setAddError(null);
+    setAddNotice(null);
     setAdding(true);
     try {
       const res = await apiFetch("/api/users", {
@@ -50,15 +58,22 @@ export default function UserManager({
           email: newEmail.trim(),
           role: newRole,
           organizationId: newOrgId || null,
+          authMethod: newAuthMethod,
         }),
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error ?? "Failed to add user");
       }
+      setAddNotice(
+        newAuthMethod === "PASSWORD"
+          ? `Invite sent to ${newEmail.trim()} to set a password and enroll MFA.`
+          : `${newEmail.trim()} can now sign in with SSO.`
+      );
       setNewEmail("");
       setNewRole("UPLOADER");
       setNewOrgId("");
+      setNewAuthMethod("PASSWORD");
       await refreshUsers();
       router.refresh();
     } catch (err) {
@@ -66,6 +81,25 @@ export default function UserManager({
     } finally {
       setAdding(false);
     }
+  }
+
+  async function handleResetMfa(id: string, email: string) {
+    if (!confirm(`Reset MFA for "${email}"? They'll get an email to set a new password and re-enroll.`)) return;
+    await apiFetch(`/api/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resetMfa: true }),
+    });
+    await refreshUsers();
+  }
+
+  async function handleResendInvite(id: string, email: string) {
+    await apiFetch(`/api/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resendInvite: true }),
+    });
+    alert(`Invite re-sent to ${email}.`);
   }
 
   async function handleUnlock(id: string) {
@@ -122,6 +156,19 @@ export default function UserManager({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
+              Sign-in
+            </label>
+            <select
+              value={newAuthMethod}
+              onChange={(e) => setNewAuthMethod(e.target.value as AuthMethod)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="PASSWORD">Password + MFA</option>
+              <option value="SSO">SSO</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
               Role
             </label>
             <select
@@ -159,6 +206,9 @@ export default function UserManager({
         {addError && (
           <p className="mt-2 text-sm text-red-600">{addError}</p>
         )}
+        {addNotice && (
+          <p className="mt-2 text-sm text-green-700">{addNotice}</p>
+        )}
       </div>
 
       {/* User List */}
@@ -174,6 +224,7 @@ export default function UserManager({
                 <th className="px-6 py-3 font-medium text-gray-500">User</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Role</th>
                 <th className="px-6 py-3 font-medium text-gray-500">Organization</th>
+                <th className="px-6 py-3 font-medium text-gray-500">Sign-in</th>
                 <th className="px-6 py-3 font-medium text-gray-500" />
               </tr>
             </thead>
@@ -190,9 +241,9 @@ export default function UserManager({
                           <div className="text-xs text-gray-500">{user.email}</div>
                         )}
                       </div>
-                      {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                      {((user.lockedUntil && new Date(user.lockedUntil) > new Date()) || user.lockedForReset) && (
                         <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-                          Locked
+                          {user.lockedForReset ? "Locked (reset required)" : "Locked"}
                         </span>
                       )}
                     </div>
@@ -224,13 +275,49 @@ export default function UserManager({
                     </select>
                   </td>
                   <td className="px-6 py-3">
+                    {user.authMethod === "PASSWORD" ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-medium text-gray-700">Password</span>
+                        {(() => {
+                          const factors = [
+                            user.mfaEnabled ? "authenticator" : null,
+                            user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
+                          ].filter(Boolean);
+                          return factors.length > 0 ? (
+                            <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
+                          ) : (
+                            <span className="text-[11px] text-amber-600">MFA pending</span>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <span className="text-xs font-medium text-gray-700">SSO</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3">
                     <div className="flex items-center justify-end gap-3">
-                      {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                      {((user.lockedUntil && new Date(user.lockedUntil) > new Date()) || user.lockedForReset) && (
                         <button
                           onClick={() => handleUnlock(user.id)}
                           className="text-xs text-amber-600 hover:underline"
                         >
                           Unlock
+                        </button>
+                      )}
+                      {user.authMethod === "PASSWORD" && !user.mfaEnabled && user.passkeyCount === 0 && (
+                        <button
+                          onClick={() => handleResendInvite(user.id, user.email)}
+                          className="text-xs text-brand-600 hover:underline"
+                        >
+                          Resend invite
+                        </button>
+                      )}
+                      {user.authMethod === "PASSWORD" && (user.mfaEnabled || user.passkeyCount > 0) && (
+                        <button
+                          onClick={() => handleResetMfa(user.id, user.email)}
+                          className="text-xs text-amber-600 hover:underline"
+                        >
+                          Reset MFA
                         </button>
                       )}
                       <button

@@ -18,6 +18,9 @@ const REQUIRED_SECRETS: Record<string, string> = {
   "database-url":                  "DATABASE_URL",
   "sso-porter":                    "AZURE_AD_CLIENT_SECRET",
   "google-client-secret":          "GOOGLE_CLIENT_SECRET",
+  // Local (username/password) auth: AES key for TOTP secrets + ACS email sender.
+  "mfa-encryption-key":            "MFA_ENCRYPTION_KEY",
+  "acs-connection-string":         "ACS_CONNECTION_STRING",
 };
 
 export async function loadSecretsFromKeyVault(): Promise<void> {

@@ -212,6 +212,29 @@ async function main() {
   await createPolicy("AppSetting", "appsetting_select", "SELECT", "USING (true)");
   console.log("  AppSetting  read-only");
 
+  // ── AuthToken: admin-only, fully denied to porterapp ───────────────────────
+  // Invite / reset / MFA-enrollment tokens are created and consumed exclusively
+  // through prismaAdmin (the auth flows run before any org/user context exists).
+  // Enable RLS with no policies so the runtime porterapp role can never read or
+  // write password-reset tokens; the owner/admin role bypasses via BYPASSRLS.
+  await enableRls("AuthToken");
+  await dropPolicy("AuthToken", "authtoken_select");
+  await dropPolicy("AuthToken", "authtoken_insert");
+  await dropPolicy("AuthToken", "authtoken_update");
+  await dropPolicy("AuthToken", "authtoken_delete");
+  console.log("  AuthToken  admin-only (no porterapp access)");
+
+  // ── Passkey: admin-only, fully denied to porterapp ─────────────────────────
+  // WebAuthn credentials are created/verified only through prismaAdmin during the
+  // auth flows. Enable RLS with no policies so the runtime porterapp role can
+  // never touch them; the owner/admin role bypasses via BYPASSRLS.
+  await enableRls("Passkey");
+  await dropPolicy("Passkey", "passkey_select");
+  await dropPolicy("Passkey", "passkey_insert");
+  await dropPolicy("Passkey", "passkey_update");
+  await dropPolicy("Passkey", "passkey_delete");
+  console.log("  Passkey   admin-only (no porterapp access)");
+
   console.log("\nAll RLS policies applied.");
 }
 

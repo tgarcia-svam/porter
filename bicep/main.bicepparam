@@ -49,6 +49,11 @@ param uploadWorkerSecret   = ''   // overridden in main.secrets.bicepparam
 // ── Retention job (daily cleanup) ─────────────────────────────────────────────
 param retentionWorkerSecret = ''   // overridden in main.secrets.bicepparam
 
+// ── Local auth (username/password + MFA) ──────────────────────────────────────
+// AES-256 key (base64, 32 bytes) for encrypting MFA TOTP secrets. Empty here;
+// CI passes secrets.MFA_ENCRYPTION_KEY inline. Leaving it empty disables MFA.
+param mfaEncryptionKey = ''
+
 // ── Data-warehouse export ─────────────────────────────────────────────────────
 // No params here: the destination is configured in the admin Settings UI. The
 // deployment only creates a user-assigned managed identity (see main.bicep) and

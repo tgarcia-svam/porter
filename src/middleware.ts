@@ -4,10 +4,14 @@ import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/csrf";
 // ── Rate limit config ────────────────────────────────────────────────────────
 // Auth endpoints get a tighter limit to slow credential-stuffing attempts.
 // General API endpoints get a generous limit for normal use.
+// Most-specific prefixes first: LIMITS.find() returns the first startsWith match.
 const LIMITS: { prefix: string; max: number; windowMs: number }[] = [
-  { prefix: "/api/auth",   max: 20,  windowMs: 60_000 }, // 20 req/min per IP
-  { prefix: "/api/upload", max: 10,  windowMs: 60_000 }, // 10 req/min per IP
-  { prefix: "/api/",       max: 120, windowMs: 60_000 }, // 120 req/min per IP
+  { prefix: "/api/auth",            max: 20,  windowMs: 60_000 },      // 20 req/min per IP
+  { prefix: "/api/account/forgot",  max: 5,   windowMs: 15 * 60_000 }, // 5 per 15 min (anti-spam)
+  { prefix: "/api/account/login",   max: 15,  windowMs: 60_000 },      // 15 req/min (anti-stuffing)
+  { prefix: "/api/account",         max: 30,  windowMs: 60_000 },      // reset / mfa endpoints
+  { prefix: "/api/upload",          max: 10,  windowMs: 60_000 },      // 10 req/min per IP
+  { prefix: "/api/",                max: 120, windowMs: 60_000 },      // 120 req/min per IP
 ];
 
 // ── In-memory store ──────────────────────────────────────────────────────────

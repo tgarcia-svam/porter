@@ -46,6 +46,7 @@ jobs:
               googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
               uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
               retentionWorkerSecret=${{ secrets.RETENTION_WORKER_SECRET }} \
+              mfaEncryptionKey=${{ secrets.MFA_ENCRYPTION_KEY }} \
               seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
               googleClientId=${{ vars.GOOGLE_CLIENT_ID }} \
               azureAdClientId=${{ vars.AZURE_AD_CLIENT_ID }} \

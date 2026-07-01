@@ -1,10 +1,12 @@
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
+import Credentials from "next-auth/providers/credentials";
 // Authentication runs before any user/org context exists, so it must bypass RLS.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
+import { verifyLoginTicket } from "@/lib/login-ticket";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
 declare module "next-auth" {
@@ -38,6 +40,14 @@ const callbacks: NextAuthConfig["callbacks"] = {
 
     if (!dbUser) {
       logAuthEvent({ action: "auth.login.failed", userEmail: email });
+      return false;
+    }
+
+    // Enforce the admin's chosen sign-in method: a PASSWORD account must not be
+    // able to authenticate via an SSO provider (and vice-versa — the credentials
+    // path checks authMethod === PASSWORD before issuing a login ticket).
+    if (dbUser.authMethod === "PASSWORD") {
+      logAuthEvent({ action: "auth.login.failed", userEmail: email, userId: dbUser.id });
       return false;
     }
 
@@ -141,6 +151,35 @@ async function buildInstance(): Promise<AuthInstance> {
   const msTenant     = process.env.AZURE_AD_TENANT_ID ?? "common";
 
   const providers: NextAuthConfig["providers"] = [];
+
+  // Local username/password sign-in. The heavy lifting — password + TOTP
+  // verification, lockout, audit — happens in POST /api/account/login, which on
+  // success mints a 60s HMAC login ticket. authorize() only validates that
+  // ticket, so NextAuth never sees the password and we keep full control over
+  // error messaging in the route. Always registered (no env gating).
+  providers.push(
+    Credentials({
+      id: "credentials",
+      name: "Email and password",
+      credentials: { email: {}, ticket: {} },
+      async authorize(creds) {
+        const email = (creds?.email as string | undefined)?.toLowerCase();
+        const ticket = creds?.ticket as string | undefined;
+        if (!email || !ticket) return null;
+
+        const ticketEmail = verifyLoginTicket(ticket);
+        if (!ticketEmail || ticketEmail.toLowerCase() !== email) return null;
+
+        const dbUser = await prisma.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { id: true, email: true, name: true, role: true, authMethod: true },
+        });
+        if (!dbUser || dbUser.authMethod !== "PASSWORD") return null;
+
+        return { id: dbUser.id, email: dbUser.email, name: dbUser.name ?? undefined };
+      },
+    })
+  );
 
   // prompt=select_account forces the IdP to show the account chooser on every
   // sign-in. Without it, signing out of the app leaves the IdP session intact,

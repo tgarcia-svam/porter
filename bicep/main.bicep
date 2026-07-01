@@ -91,6 +91,13 @@ param uploadWorkerSecret string
 @secure()
 param retentionWorkerSecret string
 
+@description('AES-256 key (base64, 32 bytes) used to encrypt MFA TOTP secrets at rest. Generate with: openssl rand -base64 32. Leave empty to disable local-account MFA.')
+@secure()
+param mfaEncryptionKey string = ''
+
+@description('Data residency for Azure Communication Services (email). e.g. United States, Europe, Canada.')
+param acsDataLocation string = 'Canada'
+
 // Data-warehouse export destination (account URL, tenant ID, client ID,
 // container, root path) is configured by an admin in the Settings UI and stored
 // in the database — not here. The only infrastructure piece is the user-assigned
@@ -108,6 +115,8 @@ var appInsightsName         = '${appServiceName}-insights'
 var serviceBusNamespaceName = '${appServiceName}-bus'
 var workerFunctionName      = '${appServiceName}-worker'
 var warehouseIdentityName   = '${appServiceName}-warehouse-id'
+var acsName                 = '${appServiceName}-comms'
+var emailServiceName        = '${appServiceName}-email'
 // Storage account names: max 24 chars, alphanumeric only
 var workerStorageName       = take('fnwrk${uniqueString(resourceGroup().id, appServiceName)}', 24)
 
@@ -556,6 +565,22 @@ resource kvRetentionWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' 
   properties: { value: retentionWorkerSecret }
 }
 
+// ACS email connection string — derived from the resource keys, never a param.
+resource kvAcsConnectionString 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'acs-connection-string'
+  properties: {
+    value: communicationService.listKeys().primaryConnectionString
+  }
+}
+
+// AES key for encrypting MFA TOTP secrets at rest. Only created when supplied.
+resource kvMfaEncryptionKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(mfaEncryptionKey)) {
+  parent: keyVault
+  name: 'mfa-encryption-key'
+  properties: { value: mfaEncryptionKey }
+}
+
 // User-assigned managed identity Porter uses to federate into the data team's
 // warehouse app (cross-tenant workload identity federation). A user-assigned
 // identity is a native ARM resource — re-deploys are idempotent and never
@@ -565,6 +590,51 @@ resource kvRetentionWorkerSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' 
 resource warehouseIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: warehouseIdentityName
   location: location
+}
+
+// ── Azure Communication Services — transactional email ──────────────────────────
+// Powers local-account onboarding (invite / set-password links) and password
+// resets. Uses an Azure-managed domain so it works without DNS verification (the
+// from-address is a generic <guid>.azurecomm.net subdomain); a branded custom
+// domain can be added later. ACS resources are global (location: 'global') with a
+// configurable data-residency region.
+
+resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
+  name: emailServiceName
+  location: 'global'
+  properties: {
+    dataLocation: acsDataLocation
+  }
+}
+
+resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = {
+  parent: emailService
+  name: 'AzureManagedDomain'
+  location: 'global'
+  properties: {
+    domainManagement: 'AzureManaged'
+    userEngagementTracking: 'Disabled'
+  }
+}
+
+resource emailSender 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = {
+  parent: emailDomain
+  name: 'DoNotReply'
+  properties: {
+    username: 'DoNotReply'
+    displayName: 'Porter'
+  }
+}
+
+resource communicationService 'Microsoft.Communication/communicationServices@2023-04-01' = {
+  name: acsName
+  location: 'global'
+  properties: {
+    dataLocation: acsDataLocation
+    linkedDomains: [
+      emailDomain.id
+    ]
+  }
 }
 
 // ── App Service Plan ──────────────────────────────────────────────────────────
@@ -670,9 +740,16 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     APPLICATIONINSIGHTS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=appinsights-connection-string)'
 
+    // Local (username/password) auth: ACS email sender + MFA secret encryption key.
+    ACS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=acs-connection-string)'
+    EMAIL_SENDER_ADDRESS:  'DoNotReply@${emailDomain.properties.fromSenderDomain}'
+    MFA_ENCRYPTION_KEY: !empty(mfaEncryptionKey)
+      ? '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=mfa-encryption-key)'
+      : ''
+
     KEY_VAULT_URL: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/'
   }
-  dependsOn: [kvUploadWorkerSecret, kvServiceBusConnectionString, kvDatabaseUrlApp, kvDatabaseUrl]
+  dependsOn: [kvUploadWorkerSecret, kvServiceBusConnectionString, kvDatabaseUrlApp, kvDatabaseUrl, kvAcsConnectionString]
 }
 
 // ── Storage Account Private Endpoint ─────────────────────────────────────────
