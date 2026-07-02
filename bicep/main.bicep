@@ -98,6 +98,12 @@ param mfaEncryptionKey string = ''
 @description('Data residency for Azure Communication Services (email). e.g. United States, Europe, Canada.')
 param acsDataLocation string = 'Canada'
 
+@description('Custom email sender domain (e.g. mail.porterdata.com) for deliverability (SPF/DKIM/DMARC). Leave empty to use the Azure-managed test domain (lands in spam).')
+param emailSenderDomain string = ''
+
+@description('Set true ONLY after the custom email domain\'s DNS records are published and verified in ACS. Gates linking/sending so the first deploy can create the domain and emit DNS records without failing.')
+param emailDomainVerified bool = false
+
 // Data-warehouse export destination (account URL, tenant ID, client ID,
 // container, root path) is configured by an admin in the Settings UI and stored
 // in the database — not here. The only infrastructure piece is the user-assigned
@@ -594,10 +600,29 @@ resource warehouseIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@202
 
 // ── Azure Communication Services — transactional email ──────────────────────────
 // Powers local-account onboarding (invite / set-password links) and password
-// resets. Uses an Azure-managed domain so it works without DNS verification (the
-// from-address is a generic <guid>.azurecomm.net subdomain); a branded custom
-// domain can be added later. ACS resources are global (location: 'global') with a
-// configurable data-residency region.
+// resets. ACS resources are global (location: 'global') with a configurable
+// data-residency region.
+//
+// Deliverability: a custom domain (emailSenderDomain, e.g. mail.porterdata.com)
+// authenticates mail as coming from your domain via SPF/DKIM, which keeps it out
+// of spam. The Azure-managed <guid>.azurecomm.net domain (used when
+// emailSenderDomain is empty) can't be brand-authenticated and lands in spam.
+//
+// Custom domains must be VERIFIED before they can be linked/sent from, but
+// verification needs DNS records that only exist after this resource is created —
+// a chicken-and-egg. So deploy in two phases:
+//   1. emailDomainVerified=false → creates the pending domain; read the DNS
+//      records from the emailDomainVerificationRecords output, publish them, and
+//      verify each type (Domain, SPF, DKIM, DKIM2) via `az communication email
+//      domain initiate-verification`.
+//   2. emailDomainVerified=true → links the verified domain + creates the sender,
+//      so the app can send from it.
+// (The Azure-managed domain needs no verification and is linked immediately.)
+
+var useCustomEmailDomain = !empty(emailSenderDomain)
+// The domain can be linked/sent-from when it's the managed domain, or the custom
+// domain has been verified (operator flips emailDomainVerified after DNS is live).
+var emailDomainReady = !useCustomEmailDomain || emailDomainVerified
 
 resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
   name: emailServiceName
@@ -609,15 +634,17 @@ resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
 
 resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = {
   parent: emailService
-  name: 'AzureManagedDomain'
+  name: useCustomEmailDomain ? emailSenderDomain : 'AzureManagedDomain'
   location: 'global'
   properties: {
-    domainManagement: 'AzureManaged'
+    domainManagement: useCustomEmailDomain ? 'CustomerManaged' : 'AzureManaged'
     userEngagementTracking: 'Disabled'
   }
 }
 
-resource emailSender 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = {
+// Sender username is created only once the domain is ready (a custom domain must
+// be verified first).
+resource emailSender 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = if (emailDomainReady) {
   parent: emailDomain
   name: 'DoNotReply'
   properties: {
@@ -631,9 +658,9 @@ resource communicationService 'Microsoft.Communication/communicationServices@202
   location: 'global'
   properties: {
     dataLocation: acsDataLocation
-    linkedDomains: [
-      emailDomain.id
-    ]
+    // Linking an unverified custom domain is rejected by ACS, so only link once
+    // the domain is ready.
+    linkedDomains: emailDomainReady ? [emailDomain.id] : []
   }
 }
 
@@ -742,7 +769,9 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
 
     // Local (username/password) auth: ACS email sender + MFA secret encryption key.
     ACS_CONNECTION_STRING: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=acs-connection-string)'
-    EMAIL_SENDER_ADDRESS:  'DoNotReply@${emailDomain.properties.fromSenderDomain}'
+    // Custom domain: deterministic (mail.porterdata.com). Managed domain: the
+    // generated <guid>.azurecomm.net value ACS assigns.
+    EMAIL_SENDER_ADDRESS:  useCustomEmailDomain ? 'DoNotReply@${emailSenderDomain}' : 'DoNotReply@${emailDomain.properties.fromSenderDomain}'
     MFA_ENCRYPTION_KEY: !empty(mfaEncryptionKey)
       ? '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=mfa-encryption-key)'
       : ''
@@ -924,6 +953,17 @@ output dbHostname              string = postgresServer.properties.fullyQualified
 output keyVaultUri             string = keyVault.properties.vaultUri
 output serviceBusNamespaceFqdn string = '${serviceBusNamespaceName}.servicebus.windows.net'
 output workerFunctionName      string = workerFunction.name
+
+// Email sender + the DNS records to publish for a custom domain. After phase-1
+// deploy, read these (az deployment group show ... --query properties.outputs)
+// to get the Domain/SPF/DKIM/DKIM2 records to add at your DNS provider, then
+// verify and re-deploy with emailDomainVerified=true.
+output emailSenderAddress string = useCustomEmailDomain
+  ? 'DoNotReply@${emailSenderDomain}'
+  : 'DoNotReply@${emailDomain.properties.fromSenderDomain}'
+output emailDomainVerificationRecords object = useCustomEmailDomain
+  ? emailDomain.properties.verificationRecords
+  : {}
 
 // Hand these to the data team to configure the federated identity credential on
 // their warehouse app (one-time, in their tenant). The FIC subject is the

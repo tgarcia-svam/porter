@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "9236415633799509859"
+      "templateHash": "9206198990150911785"
     }
   },
   "parameters": {
@@ -188,6 +188,20 @@
         "description": "Data residency for Azure Communication Services (email). e.g. United States, Europe, Canada."
       }
     },
+    "emailSenderDomain": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Custom email sender domain (e.g. mail.porterdata.com) for deliverability (SPF/DKIM/DMARC). Leave empty to use the Azure-managed test domain (lands in spam)."
+      }
+    },
+    "emailDomainVerified": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Set true ONLY after the custom email domain's DNS records are published and verified in ACS. Gates linking/sending so the first deploy can create the domain and emit DNS records without failing."
+      }
+    },
     "blobTierToCoolAfterDays": {
       "type": "int",
       "defaultValue": 30,
@@ -236,6 +250,8 @@
     "acsName": "[format('{0}-comms', parameters('appServiceName'))]",
     "emailServiceName": "[format('{0}-email', parameters('appServiceName'))]",
     "workerStorageName": "[take(format('fnwrk{0}', uniqueString(resourceGroup().id, parameters('appServiceName'))), 24)]",
+    "useCustomEmailDomain": "[not(empty(parameters('emailSenderDomain')))]",
+    "emailDomainReady": "[or(not(variables('useCustomEmailDomain')), parameters('emailDomainVerified'))]",
     "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
     "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
     "storageBlobDataContributorRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
@@ -784,10 +800,10 @@
     {
       "type": "Microsoft.Communication/emailServices/domains",
       "apiVersion": "2023-04-01",
-      "name": "[format('{0}/{1}', variables('emailServiceName'), 'AzureManagedDomain')]",
+      "name": "[format('{0}/{1}', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'))]",
       "location": "global",
       "properties": {
-        "domainManagement": "AzureManaged",
+        "domainManagement": "[if(variables('useCustomEmailDomain'), 'CustomerManaged', 'AzureManaged')]",
         "userEngagementTracking": "Disabled"
       },
       "dependsOn": [
@@ -795,15 +811,16 @@
       ]
     },
     {
+      "condition": "[variables('emailDomainReady')]",
       "type": "Microsoft.Communication/emailServices/domains/senderUsernames",
       "apiVersion": "2023-04-01",
-      "name": "[format('{0}/{1}/{2}', variables('emailServiceName'), 'AzureManagedDomain', 'DoNotReply')]",
+      "name": "[format('{0}/{1}/{2}', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'), 'DoNotReply')]",
       "properties": {
         "username": "DoNotReply",
         "displayName": "Porter"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'))]"
       ]
     },
     {
@@ -813,12 +830,10 @@
       "location": "global",
       "properties": {
         "dataLocation": "[parameters('acsDataLocation')]",
-        "linkedDomains": [
-          "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
-        ]
+        "linkedDomains": "[if(variables('emailDomainReady'), createArray(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'))), createArray())]"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]"
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'))]"
       ]
     },
     {
@@ -894,14 +909,14 @@
         "SEED_ADMIN_EMAIL": "[parameters('seedAdminEmail')]",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=appinsights-connection-string)', variables('keyVaultName'))]",
         "ACS_CONNECTION_STRING": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=acs-connection-string)', variables('keyVaultName'))]",
-        "EMAIL_SENDER_ADDRESS": "[format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain'), '2023-04-01').fromSenderDomain)]",
+        "EMAIL_SENDER_ADDRESS": "[if(variables('useCustomEmailDomain'), format('DoNotReply@{0}', parameters('emailSenderDomain')), format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain')), '2023-04-01').fromSenderDomain))]",
         "MFA_ENCRYPTION_KEY": "[if(not(empty(parameters('mfaEncryptionKey'))), format('@Microsoft.KeyVault(VaultName={0};SecretName=mfa-encryption-key)', variables('keyVaultName')), '')]",
         "KEY_VAULT_URL": "[format('https://{0}{1}/', variables('keyVaultName'), environment().suffixes.keyvaultDns)]"
       },
       "dependsOn": [
         "[resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
         "[resourceId('Microsoft.Web/sites', parameters('appServiceName'))]",
-        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), 'AzureManagedDomain')]",
+        "[resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain'))]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'acs-connection-string')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'database-url-app')]",
@@ -1143,6 +1158,14 @@
     "workerFunctionName": {
       "type": "string",
       "value": "[variables('workerFunctionName')]"
+    },
+    "emailSenderAddress": {
+      "type": "string",
+      "value": "[if(variables('useCustomEmailDomain'), format('DoNotReply@{0}', parameters('emailSenderDomain')), format('DoNotReply@{0}', reference(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain')), '2023-04-01').fromSenderDomain))]"
+    },
+    "emailDomainVerificationRecords": {
+      "type": "object",
+      "value": "[if(variables('useCustomEmailDomain'), reference(resourceId('Microsoft.Communication/emailServices/domains', variables('emailServiceName'), if(variables('useCustomEmailDomain'), parameters('emailSenderDomain'), 'AzureManagedDomain')), '2023-04-01').verificationRecords, createObject())]"
     },
     "warehouseIdentityClientId": {
       "type": "string",
