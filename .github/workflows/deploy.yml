@@ -21,13 +21,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Azure Communication Services (email) lives under the Microsoft.Communication
-      # resource provider, which must be registered on the subscription before the
-      # first deploy that uses it. Registration is idempotent and subscription-wide,
-      # so this is a no-op on subsequent runs. --wait blocks until it's Registered.
-      - name: Register resource providers
-        run: az provider register --namespace Microsoft.Communication --wait
-
       - name: Build and push image to ACR
         run: |
           ACR_NAME=$(cat bicep/main.bicepparam | grep 'acrName' | sed "s/.*= '\\(.*\\)'/\\1/")
