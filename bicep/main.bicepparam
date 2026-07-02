@@ -54,6 +54,13 @@ param retentionWorkerSecret = ''   // overridden in main.secrets.bicepparam
 // CI passes secrets.MFA_ENCRYPTION_KEY inline. Leaving it empty disables MFA.
 param mfaEncryptionKey = ''
 
+// ── Email deliverability (Azure Communication Services) ────────────────────────
+// Custom sender domain so invite/reset mail is SPF/DKIM-authenticated (out of spam).
+// Two-phase: deploy once with emailDomainVerified=false, publish the DNS records
+// from the emailDomainVerificationRecords output + verify them, then flip to true.
+param emailSenderDomain   = 'mail.porterdata.com'
+param emailDomainVerified = false
+
 // ── Data-warehouse export ─────────────────────────────────────────────────────
 // No params here: the destination is configured in the admin Settings UI. The
 // deployment only creates a user-assigned managed identity (see main.bicep) and
