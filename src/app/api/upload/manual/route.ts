@@ -41,6 +41,7 @@ const RowData = z.record(z.string(), z.string());
 
 const Body = z.object({
   schemaId: z.string(),
+  projectId: z.string().optional(),
   edits: z.array(z.object({ rowIndex: z.number().int().nonnegative(), data: RowData })).optional(),
   additions: z.array(z.object({ data: RowData })).optional(),
   deletions: z.array(z.number().int().nonnegative()).optional(),
@@ -66,7 +67,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
-  const { schemaId, edits = [], additions = [], deletions = [] } = parsed.data;
+  const { schemaId, projectId = null, edits = [], additions = [], deletions = [] } = parsed.data;
   if (edits.length === 0 && additions.length === 0 && deletions.length === 0) {
     return apiBadRequest("At least one of edits, additions, or deletions is required");
   }
@@ -78,9 +79,12 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
   if (!user?.organization) return apiForbidden("You must belong to an organization to submit data");
 
+  // When a project is specified it must contain this schema and be assigned to
+  // the user's org; otherwise any project of the org that contains the schema.
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
+      ...(projectId ? { projectId } : {}),
       schema: { deletedAt: null },
       project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
@@ -174,6 +178,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const upload = await createUploadWithResults({
     userId,
     schemaId,
+    projectId,
     schemaVersion: schema.version,
     fileName,
     blobUrl,

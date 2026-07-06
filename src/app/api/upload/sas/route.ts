@@ -34,6 +34,7 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   const body = await req.json();
   const { schemaId, fileName, mimeType } = body;
+  const projectId: string | null = body.projectId || null;
   console.log("[upload/sas] body:", { schemaId, mimeType });
 
   if (!schemaId || !fileName || !mimeType) {
@@ -81,9 +82,12 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   if (!schema) return apiNotFound("Schema not found");
 
-  // Build blob path
+  // Build blob path. When a specific project was chosen, partition under just
+  // that project; otherwise fall back to all of the schema's projects.
   const sanitize = (s: string) => s.replace(/[/\\?#%]/g, "_").trim() || "_";
-  const projectNames = schema.projects.map((sp) => sanitize(sp.project.name));
+  const projectNames = schema.projects
+    .filter((sp) => !projectId || sp.projectId === projectId)
+    .map((sp) => sanitize(sp.project.name));
   const projectSegment = projectNames.length > 0 ? projectNames.join("+") : "no-project";
   const orgSegment = sanitize(user.organization.name);
   const schemaSegment = sanitize(schema.name);

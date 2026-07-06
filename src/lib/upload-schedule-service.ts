@@ -36,13 +36,13 @@ export type ScheduleRunResult = {
   overdueSent: number;
 };
 
-type SchemaRef = { id: string; name: string };
+export type SchemaRef = { id: string; name: string };
 
 /**
  * Schemas in the project still missing a VALID upload from `organizationId` for
  * the period ending at `due`. Empty ⇒ the org is fulfilled for that period.
  */
-async function missingSchemasForPeriod(
+export async function missingSchemasForPeriod(
   schedule: ScheduleShape,
   schemas: SchemaRef[],
   organizationId: string,

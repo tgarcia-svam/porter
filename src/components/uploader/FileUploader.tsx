@@ -239,6 +239,7 @@ export default function FileUploader({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             schemaId: selectedSchemaId,
+            projectId: selectedProjectId,
             fileName: selectedFile.name,
             mimeType: selectedFile.type || "application/octet-stream",
           }),
@@ -285,6 +286,7 @@ export default function FileUploader({
           body: JSON.stringify({
             blobName,
             schemaId: selectedSchemaId,
+            projectId: selectedProjectId,
             fileName: selectedFile.name,
             mimeType: selectedFile.type || "application/octet-stream",
             sheetName: selectedSheet || undefined,
@@ -302,6 +304,7 @@ export default function FileUploader({
         const formData = new FormData();
         formData.append("file", selectedFile);
         formData.append("schemaId", selectedSchemaId);
+        formData.append("projectId", selectedProjectId);
         if (selectedSheet) formData.append("sheetName", selectedSheet);
 
         const res = await apiFetch("/api/upload", { method: "POST", body: formData });
