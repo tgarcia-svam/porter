@@ -59,7 +59,10 @@ param mfaEncryptionKey = ''
 // Two-phase: deploy once with emailDomainVerified=false, publish the DNS records
 // from the emailDomainVerificationRecords output + verify them, then flip to true.
 param emailSenderDomain   = 'mail.porterdata.com'
-param emailDomainVerified = false
+// Set true after the custom domain's DNS records are verified in ACS (done
+// 2026-07-06). Links the domain to the Communication Services resource so the
+// app can send from DoNotReply@mail.porterdata.com.
+param emailDomainVerified = true
 
 // ── Data-warehouse export ─────────────────────────────────────────────────────
 // No params here: the destination is configured in the admin Settings UI. The
