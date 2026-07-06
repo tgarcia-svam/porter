@@ -22,6 +22,7 @@ export default async function ProjectsPage() {
           where: { schema: { deletedAt: null } },
           include: { schema: { select: { id: true, name: true } } },
         },
+        schedule: true,
         _count: { select: { schemas: true } },
       },
     }),

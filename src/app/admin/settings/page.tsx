@@ -394,6 +394,71 @@ function WarehouseExportSection() {
   );
 }
 
+// ── Upload schedules section ──────────────────────────────────────────────────
+
+type ScheduleRunResult = {
+  ranAt: string;
+  schedulesChecked: number;
+  remindersSent: number;
+  overdueSent: number;
+};
+
+function UploadSchedulesSection() {
+  const [running, setRunning] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [lastRun, setLastRun] = useState<ScheduleRunResult | null>(null);
+
+  async function handleRunNow() {
+    setRunning(true);
+    setFeedback(null);
+    try {
+      const res = await apiFetch("/api/admin/schedules/run", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setFeedback({ ok: false, message: "Schedule run failed." });
+        return;
+      }
+      setLastRun(data);
+      setFeedback({
+        ok: true,
+        message: `Checked ${data.schedulesChecked} schedule(s): ${data.remindersSent} reminder(s), ${data.overdueSent} overdue notice(s) sent.`,
+      });
+    } catch {
+      setFeedback({ ok: false, message: "An error occurred while running schedules." });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+      <SectionHeader
+        title="Upload Schedules"
+        description="Per-project upload cadences and their reminder/overdue emails are configured on each project (Projects → Schedule). They run daily via a scheduled job; trigger a check manually below."
+      />
+      <div className="px-6 py-5 space-y-3">
+        <Feedback value={feedback} />
+        <button
+          type="button"
+          onClick={handleRunNow}
+          disabled={running}
+          className="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+        >
+          {running ? "Running…" : "Run schedule check now"}
+        </button>
+        {lastRun && (
+          <p className="text-xs text-gray-500">
+            Last run at {new Date(lastRun.ranAt).toLocaleString()}:
+            {" "}{lastRun.schedulesChecked} checked,
+            {" "}{lastRun.remindersSent} reminder(s),
+            {" "}{lastRun.overdueSent} overdue notice(s).
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -407,6 +472,7 @@ export default function SettingsPage() {
       </div>
       <WarehouseExportSection />
       <RetentionSection />
+      <UploadSchedulesSection />
     </div>
   );
 }

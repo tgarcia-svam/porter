@@ -235,6 +235,25 @@ async function main() {
   await dropPolicy("Passkey", "passkey_delete");
   console.log("  Passkey   admin-only (no porterapp access)");
 
+  // ── UploadSchedule & ScheduleNotification: admin-only ──────────────────────
+  // Upload cadences and the reminder/overdue ledger are configured and evaluated
+  // exclusively through prismaAdmin (admin routes + the scheduled worker run).
+  // Enable RLS with no policies so the runtime porterapp role can never touch
+  // them; the owner/admin role bypasses via BYPASSRLS.
+  await enableRls("UploadSchedule");
+  await dropPolicy("UploadSchedule", "uploadschedule_select");
+  await dropPolicy("UploadSchedule", "uploadschedule_insert");
+  await dropPolicy("UploadSchedule", "uploadschedule_update");
+  await dropPolicy("UploadSchedule", "uploadschedule_delete");
+  console.log("  UploadSchedule  admin-only (no porterapp access)");
+
+  await enableRls("ScheduleNotification");
+  await dropPolicy("ScheduleNotification", "schedulenotification_select");
+  await dropPolicy("ScheduleNotification", "schedulenotification_insert");
+  await dropPolicy("ScheduleNotification", "schedulenotification_update");
+  await dropPolicy("ScheduleNotification", "schedulenotification_delete");
+  console.log("  ScheduleNotification  admin-only (no porterapp access)");
+
   console.log("\nAll RLS policies applied.");
 }
 

@@ -30,8 +30,54 @@ model Project {
 
   schemas       SchemaProject[]
   organizations ProjectOrganization[]
+  schedule      UploadSchedule?
 
   @@index([deletedAt])
+}
+
+// Per-project upload cadence. Admins set a recurring due date (weekly / monthly /
+// quarterly / yearly) and optionally opt into reminder emails (sent N days before
+// the due date) and overdue emails. Fulfillment is evaluated per organization
+// assigned to the project: an org is caught up for a period only when it has a
+// VALID upload for EVERY schema in the project during that period. One schedule
+// per project (1:1). Admin-managed only (RLS: no porterapp policy).
+model UploadSchedule {
+  id                 String            @id @default(cuid())
+  projectId          String            @unique
+  frequency          ScheduleFrequency
+
+  // Calendar-friendly cadence — only the fields relevant to `frequency` are set:
+  weekday            Int?              // WEEKLY: 0=Mon … 6=Sun
+  dayOfMonth         Int?              // MONTHLY + QUARTERLY + YEARLY: 1–31 (clamped to month length)
+  monthOfQuarter     Int?              // QUARTERLY: 1–3 (which month within the quarter)
+  monthOfYear        Int?              // YEARLY: 1–12
+
+  reminderEnabled    Boolean           @default(false)
+  reminderDaysBefore Int?              // required when reminderEnabled
+  overdueEnabled     Boolean           @default(false)
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  project            Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  notifications      ScheduleNotification[]
+}
+
+// Idempotency ledger: one row per (schedule, org, dueDate, type) actually emailed.
+// The daily job checks this before sending so each org gets each reminder/overdue
+// notice exactly once per period even though the timer fires every day.
+model ScheduleNotification {
+  id             String           @id @default(cuid())
+  scheduleId     String
+  organizationId String
+  dueDate        DateTime         @db.Date   // the occurrence the notice was about (period key)
+  type           NotificationType
+  sentAt         DateTime         @default(now())
+
+  schedule       UploadSchedule   @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, organizationId, dueDate, type])
+  @@index([scheduleId])
 }
 
 model ProjectOrganization {
@@ -292,6 +338,18 @@ enum AuthTokenPurpose {
   INVITE
   RESET
   MFA_ENROLL
+}
+
+enum ScheduleFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum NotificationType {
+  REMINDER
+  OVERDUE
 }
 
 enum DataType {

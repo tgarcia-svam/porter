@@ -1,5 +1,8 @@
 import { app, InvocationContext } from "@azure/functions";
 
+// Registers the daily upload-schedule notification timer (side-effect import).
+import "./schedule-timer";
+
 interface UploadJobMessage {
   uploadId: string;
   blobName: string;

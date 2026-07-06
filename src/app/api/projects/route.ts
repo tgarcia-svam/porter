@@ -21,6 +21,7 @@ export const GET = withHandler(async (req: NextRequest) => {
         include: { schema: { select: { id: true, name: true } } },
         orderBy: { assignedAt: "asc" },
       },
+      schedule: true,
       _count: { select: { schemas: true } },
     },
     orderBy: { name: "asc" },

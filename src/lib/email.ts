@@ -17,7 +17,8 @@ function baseUrl(): string {
 }
 
 async function sendMail(opts: {
-  to: string;
+  to: string | string[];
+  cc?: string | string[];
   subject: string;
   text: string;
   html: string;
@@ -25,10 +26,16 @@ async function sendMail(opts: {
   const connectionString = process.env.ACS_CONNECTION_STRING;
   const sender = process.env.EMAIL_SENDER_ADDRESS;
 
+  const toList = (Array.isArray(opts.to) ? opts.to : [opts.to]).filter(Boolean);
+  const ccList = (opts.cc ? (Array.isArray(opts.cc) ? opts.cc : [opts.cc]) : []).filter(Boolean);
+  if (toList.length === 0) return; // nothing to send to
+
   if (!connectionString || !sender) {
-    // Dev / unconfigured: don't fail the flow — log so the link is recoverable.
+    // Dev / unconfigured: don't fail the flow — log so the content is recoverable.
     console.warn(
-      `[email] ACS not configured — would send to ${opts.to}: ${opts.subject}\n${opts.text}`
+      `[email] ACS not configured — would send to ${toList.join(", ")}` +
+        (ccList.length ? ` (cc ${ccList.join(", ")})` : "") +
+        `: ${opts.subject}\n${opts.text}`
     );
     return;
   }
@@ -38,7 +45,10 @@ async function sendMail(opts: {
   const poller = await client.beginSend({
     senderAddress: sender,
     content: { subject: opts.subject, plainText: opts.text, html: opts.html },
-    recipients: { to: [{ address: opts.to }] },
+    recipients: {
+      to: toList.map((address) => ({ address })),
+      ...(ccList.length ? { cc: ccList.map((address) => ({ address })) } : {}),
+    },
   });
   await poller.pollUntilDone();
 }
@@ -63,6 +73,82 @@ export async function sendInviteEmail(to: string, rawToken: string): Promise<voi
       `<p>You've been invited to Porter. Click below to set your password and configure two-factor authentication. This link expires in 72 hours.</p>
        <p><a href="${link}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Set your password</a></p>
        <p style="font-size:12px;color:#666">Or paste this URL into your browser:<br>${link}</p>`
+    ),
+  });
+}
+
+function schemaListHtml(names: string[]): string {
+  if (names.length === 0) return "";
+  const items = names.map((n) => `<li>${escapeHtml(n)}</li>`).join("");
+  return `<ul style="margin:8px 0 0;padding-left:20px">${items}</ul>`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
+  );
+}
+
+/**
+ * Reminder that an upload is due soon. Sent to every user of the organization
+ * that's behind (within-org only — other orgs never see this). `missingSchemas`
+ * names the schemas that still need a VALID upload for the current period.
+ */
+export async function sendUploadReminderEmail(opts: {
+  recipients: string[];
+  projectName: string;
+  dueDate: string; // YYYY-MM-DD
+  daysBefore: number;
+  missingSchemas: string[];
+}): Promise<void> {
+  if (opts.recipients.length === 0) return;
+  const when =
+    opts.daysBefore === 0
+      ? "today"
+      : `in ${opts.daysBefore} day${opts.daysBefore === 1 ? "" : "s"} (${opts.dueDate})`;
+  const listText = opts.missingSchemas.length
+    ? `\n\nStill needed:\n${opts.missingSchemas.map((n) => `  • ${n}`).join("\n")}`
+    : "";
+  await sendMail({
+    to: opts.recipients,
+    subject: `Reminder: "${opts.projectName}" upload due ${opts.daysBefore === 0 ? "today" : "on " + opts.dueDate}`,
+    text:
+      `An upload for the project "${opts.projectName}" is due ${when}.` +
+      ` Please sign in to Porter and submit the required file(s) before the due date.${listText}`,
+    html: layout(
+      `Upload due ${opts.daysBefore === 0 ? "today" : "soon"}`,
+      `<p>An upload for the project <strong>${escapeHtml(opts.projectName)}</strong> is due <strong>${when}</strong>.</p>
+       <p>Please sign in to Porter and submit the required file(s) before the due date.</p>
+       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still needed:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}`
+    ),
+  });
+}
+
+/**
+ * Notice that an upload is overdue — the due date has passed and the org has not
+ * submitted every required file. Sent to every user of that organization only.
+ */
+export async function sendUploadOverdueEmail(opts: {
+  recipients: string[];
+  projectName: string;
+  dueDate: string; // YYYY-MM-DD
+  missingSchemas: string[];
+}): Promise<void> {
+  if (opts.recipients.length === 0) return;
+  const listText = opts.missingSchemas.length
+    ? `\n\nStill missing:\n${opts.missingSchemas.map((n) => `  • ${n}`).join("\n")}`
+    : "";
+  await sendMail({
+    to: opts.recipients,
+    subject: `Overdue: "${opts.projectName}" upload was due ${opts.dueDate}`,
+    text:
+      `An upload for the project "${opts.projectName}" was due on ${opts.dueDate} and has not been completed.` +
+      ` Please sign in to Porter and submit the required file(s) as soon as possible.${listText}`,
+    html: layout(
+      "Upload overdue",
+      `<p>An upload for the project <strong>${escapeHtml(opts.projectName)}</strong> was due on <strong>${opts.dueDate}</strong> and has not been completed.</p>
+       <p>Please sign in to Porter and submit the required file(s) as soon as possible.</p>
+       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still missing:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}`
     ),
   });
 }
