@@ -31,6 +31,7 @@ model Project {
   schemas       SchemaProject[]
   organizations ProjectOrganization[]
   schedule      UploadSchedule?
+  uploads       FileUpload[]
 
   @@index([deletedAt])
 }
@@ -61,6 +62,7 @@ model UploadSchedule {
 
   project            Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   notifications      ScheduleNotification[]
+  dismissals         OverdueDismissal[]
 }
 
 // Idempotency ledger: one row per (schedule, org, dueDate, type) actually emailed.
@@ -77,6 +79,27 @@ model ScheduleNotification {
   schedule       UploadSchedule   @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
   @@unique([scheduleId, organizationId, dueDate, type])
+  @@index([scheduleId])
+}
+
+// Admin dismissal of a specific overdue obligation surfaced in the App Usage
+// "Overdue Uploads" report. Keyed by (schedule, org, schema, dueDate) — i.e. one
+// missing file format for one org for one due period. Once dismissed, that exact
+// obligation is hidden from the report even though it remains unfulfilled; a
+// later period (new dueDate) re-surfaces normally. Admin-managed only (RLS: no
+// porterapp policy).
+model OverdueDismissal {
+  id                String         @id @default(cuid())
+  scheduleId        String
+  organizationId    String
+  schemaId          String
+  dueDate           DateTime       @db.Date
+  dismissedByUserId String?
+  dismissedAt       DateTime       @default(now())
+
+  schedule          UploadSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, organizationId, schemaId, dueDate])
   @@index([scheduleId])
 }
 
@@ -248,6 +271,11 @@ model FileUpload {
   id            String       @id @default(cuid())
   userId        String
   schemaId      String
+  // The project the upload was submitted under. Captured at upload time from the
+  // uploader's project selection (a schema can belong to several projects, so it
+  // is not derivable from schemaId alone). Nullable: legacy rows and rows whose
+  // schema→project mapping is ambiguous stay null.
+  projectId     String?
   schemaVersion Int          @default(1)
   fileName      String
   blobUrl       String?
@@ -269,11 +297,13 @@ model FileUpload {
 
   user    User               @relation(fields: [userId], references: [id])
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  project Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   results ValidationResult[]
   rows    UploadRow[]
 
   @@index([deletedAt])
   @@index([createdAt])
+  @@index([projectId])
   // Accelerates "latest VALID upload for this schema" lookups (latest-data, stats).
   @@index([schemaId, status, createdAt(sort: Desc)])
 }

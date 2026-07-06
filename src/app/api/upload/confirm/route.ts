@@ -12,7 +12,7 @@ import { auth } from "@/lib/auth";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { enqueueUploadJob } from "@/lib/service-bus";
 import { verifySessionBinding } from "@/lib/session-binding";
-import { apiUnauthorized, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
+import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
 
 export const POST = withHandler(async (req: NextRequest) => {
   console.log("[upload/confirm] request received");
@@ -31,10 +31,29 @@ export const POST = withHandler(async (req: NextRequest) => {
   const userId = session.user.id;
   const body = await req.json();
   const { blobName, schemaId, fileName, mimeType, sheetName } = body;
+  const projectId: string | null = body.projectId || null;
   console.log("[upload/confirm] body:", { schemaId, mimeType, sheetName });
 
   if (!blobName || !schemaId || !fileName || !mimeType) {
     return apiBadRequest("blobName, schemaId, fileName, and mimeType are required");
+  }
+
+  // If a project is specified it must contain this schema and be assigned to the
+  // user's org — mirrors the /api/upload/sas access check.
+  if (projectId) {
+    const access = await prisma.schemaProject.findFirst({
+      where: {
+        schemaId,
+        projectId,
+        schema: { deletedAt: null },
+        project: {
+          deletedAt: null,
+          organizations: { some: { organization: { users: { some: { id: userId } } } } },
+        },
+      },
+      select: { schemaId: true },
+    });
+    if (!access) return apiForbidden("Project not accessible for this upload");
   }
 
   // Log env var presence
@@ -58,7 +77,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   let record: { id: string };
   try {
     record = await prisma.fileUpload.create({
-      data: { userId, schemaId, schemaVersion: schema.version, fileName, blobUrl, status: "PENDING" },
+      data: { userId, schemaId, projectId, schemaVersion: schema.version, fileName, blobUrl, status: "PENDING" },
     });
     console.log("[upload/confirm] DB record created:", record.id);
   } catch (err) {

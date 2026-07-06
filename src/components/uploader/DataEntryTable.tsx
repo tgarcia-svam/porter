@@ -281,6 +281,7 @@ export default function DataEntryTable({
 
     const payload = {
       schemaId: schema.id,
+      projectId,
       edits: Array.from(edits.entries()).map(([rowIndex, data]) => ({ rowIndex, data })),
       additions: newRows.map((data) => ({ data })),
       deletions: Array.from(deletions),

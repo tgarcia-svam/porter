@@ -216,6 +216,8 @@ async function writeValidationResults(opts: {
 export async function createUploadWithResults(opts: {
   userId: string;
   schemaId: string;
+  /** Project the upload was submitted under (validated by the caller). */
+  projectId?: string | null;
   schemaVersion: number;
   fileName: string;
   blobUrl: string | null;
@@ -231,6 +233,7 @@ export async function createUploadWithResults(opts: {
     data: {
       userId: opts.userId,
       schemaId: opts.schemaId,
+      projectId: opts.projectId ?? null,
       schemaVersion: opts.schemaVersion,
       fileName: opts.fileName,
       blobUrl: opts.blobUrl,

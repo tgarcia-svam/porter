@@ -16,7 +16,7 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
   const pathname = usePathname();
 
   const adminLinks: NavLink[] = [
-    { href: "/admin", label: "Dashboard" },
+    { href: "/admin/analytics", label: "Analytics" },
     { href: "/admin/schemas", label: "File Formats" },
     { href: "/admin/classifications", label: "Classifications" },
     { href: "/admin/users", label: "Users" },
@@ -39,10 +39,7 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
             </Link>
             <div className="hidden sm:flex items-center gap-1">
               {links.map((link) => {
-                const active =
-                  link.href === "/admin"
-                    ? pathname === "/admin"
-                    : pathname.startsWith(link.href);
+                const active = pathname.startsWith(link.href);
                 return (
                   <Link
                     key={link.href}

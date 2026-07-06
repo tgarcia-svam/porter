@@ -56,6 +56,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const schemaId = formData.get("schemaId") as string | null;
+  const projectId = (formData.get("projectId") as string | null) || null;
   const sheetName = (formData.get("sheetName") as string | null) ?? undefined;
 
   if (!file || !schemaId) return apiBadRequest("file and schemaId are required");
@@ -70,9 +71,12 @@ export const POST = withHandler(async (req: NextRequest) => {
     return apiForbidden("You must belong to an organization to upload files");
   }
 
+  // When a project is specified it must contain this schema AND be assigned to
+  // the user's org; otherwise any project of the org that contains the schema.
   const access = await prisma.schemaProject.findFirst({
     where: {
       schemaId,
+      ...(projectId ? { projectId } : {}),
       schema: { deletedAt: null },
       project: { deletedAt: null, organizations: { some: { organizationId: user.organizationId! } } },
     },
@@ -145,7 +149,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   // calls POST /api/upload/process with the message payload.
   if (isServiceBusConfigured()) {
     const record = await prisma.fileUpload.create({
-      data: { userId, schemaId, schemaVersion: schema.version, fileName: file.name, blobUrl, status: "PENDING" },
+      data: { userId, schemaId, projectId, schemaVersion: schema.version, fileName: file.name, blobUrl, status: "PENDING" },
     });
 
     await enqueueUploadJob({ uploadId: record.id, blobName, mimeType, sheetName });
@@ -177,6 +181,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const record = await createUploadWithResults({
     userId,
     schemaId,
+    projectId,
     schemaVersion: schema.version,
     fileName: file.name,
     blobUrl,

@@ -254,6 +254,16 @@ async function main() {
   await dropPolicy("ScheduleNotification", "schedulenotification_delete");
   console.log("  ScheduleNotification  admin-only (no porterapp access)");
 
+  // ── OverdueDismissal: admin-only ───────────────────────────────────────────
+  // Admin "Remove from List" acknowledgements for the overdue report. Managed
+  // exclusively through prismaAdmin (admin routes); porterapp gets no access.
+  await enableRls("OverdueDismissal");
+  await dropPolicy("OverdueDismissal", "overduedismissal_select");
+  await dropPolicy("OverdueDismissal", "overduedismissal_insert");
+  await dropPolicy("OverdueDismissal", "overduedismissal_update");
+  await dropPolicy("OverdueDismissal", "overduedismissal_delete");
+  console.log("  OverdueDismissal  admin-only (no porterapp access)");
+
   console.log("\nAll RLS policies applied.");
 }
 
