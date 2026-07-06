@@ -1,0 +1,38 @@
+import { app, InvocationContext, Timer } from "@azure/functions";
+
+/**
+ * Daily timer that drives the per-project upload-schedule notifications. It POSTs
+ * to the Next.js app's /api/admin/schedules/run using the shared worker secret
+ * (the same dual-auth pattern as the retention job). All schedule evaluation and
+ * email sending happens app-side; this function is just the clock.
+ *
+ * Runs at 07:00 UTC daily. The endpoint is idempotent (ScheduleNotification
+ * ledger), so an occasional double-fire or catch-up run sends nothing extra.
+ */
+app.timer("scheduleChecker", {
+  schedule: "0 0 7 * * *", // NCRONTAB: sec min hour day month day-of-week
+  handler: async (_timer: Timer, context: InvocationContext): Promise<void> => {
+    const appUrl = process.env.APP_URL;
+    const workerSecret = process.env.UPLOAD_WORKER_SECRET;
+
+    if (!appUrl || !workerSecret) {
+      throw new Error("APP_URL or UPLOAD_WORKER_SECRET is not configured");
+    }
+
+    const url = `${appUrl.replace(/\/$/, "")}/api/admin/schedules/run`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "x-worker-secret": workerSecret },
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(no body)");
+      throw new Error(`/api/admin/schedules/run responded ${res.status}: ${body}`);
+    }
+
+    const result = await res.json().catch(() => ({}));
+    context.log(
+      `Schedule run complete: checked=${result.schedulesChecked} reminders=${result.remindersSent} overdue=${result.overdueSent}`
+    );
+  },
+});

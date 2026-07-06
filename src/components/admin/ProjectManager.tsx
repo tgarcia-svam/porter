@@ -3,9 +3,25 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
+import { describeSchedule } from "@/lib/upload-schedule";
 
 type OrgRef = { id: string; name: string };
 type SchemaRef = { id: string; name: string };
+
+type ScheduleFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+
+type Schedule = {
+  id: string;
+  projectId: string;
+  frequency: ScheduleFrequency;
+  weekday: number | null;
+  dayOfMonth: number | null;
+  monthOfQuarter: number | null;
+  monthOfYear: number | null;
+  reminderEnabled: boolean;
+  reminderDaysBefore: number | null;
+  overdueEnabled: boolean;
+};
 
 type Project = {
   id: string;
@@ -14,6 +30,7 @@ type Project = {
   _count: { schemas: number };
   organizations: { organization: OrgRef }[];
   schemas: { schema: SchemaRef }[];
+  schedule: Schedule | null;
 };
 
 export default function ProjectManager({
@@ -33,6 +50,7 @@ export default function ProjectManager({
   const [addError, setAddError] = useState<string | null>(null);
   const [expandedOrgId, setExpandedOrgId] = useState<string | null>(null);
   const [expandedSchemaId, setExpandedSchemaId] = useState<string | null>(null);
+  const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
 
   async function refresh() {
     const res = await fetch("/api/projects");
@@ -147,6 +165,7 @@ export default function ProjectManager({
             const assignedSchemaIds = new Set(project.schemas.map((s) => s.schema.id));
             const isOrgExpanded = expandedOrgId === project.id;
             const isSchemaExpanded = expandedSchemaId === project.id;
+            const isScheduleExpanded = expandedScheduleId === project.id;
 
             return (
               <div key={project.id} className="bg-white rounded-xl border border-gray-200">
@@ -190,6 +209,22 @@ export default function ProjectManager({
                         ))}
                       </div>
                     )}
+                    {/* Schedule badge */}
+                    {project.schedule && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                          📅 {describeSchedule(project.schedule)}
+                        </span>
+                        {project.schedule.reminderEnabled && (
+                          <span className="text-xs text-gray-400">
+                            reminder {project.schedule.reminderDaysBefore}d before
+                          </span>
+                        )}
+                        {project.schedule.overdueEnabled && (
+                          <span className="text-xs text-gray-400">· overdue on</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="shrink-0 flex items-center gap-3">
@@ -198,6 +233,7 @@ export default function ProjectManager({
                         onClick={() => {
                           setExpandedSchemaId(isSchemaExpanded ? null : project.id);
                           setExpandedOrgId(null);
+                          setExpandedScheduleId(null);
                         }}
                         className="text-xs text-purple-600 hover:underline font-medium"
                       >
@@ -209,12 +245,23 @@ export default function ProjectManager({
                         onClick={() => {
                           setExpandedOrgId(isOrgExpanded ? null : project.id);
                           setExpandedSchemaId(null);
+                          setExpandedScheduleId(null);
                         }}
                         className="text-xs text-brand-600 hover:underline font-medium"
                       >
                         {isOrgExpanded ? "Done" : "Assign orgs"}
                       </button>
                     )}
+                    <button
+                      onClick={() => {
+                        setExpandedScheduleId(isScheduleExpanded ? null : project.id);
+                        setExpandedOrgId(null);
+                        setExpandedSchemaId(null);
+                      }}
+                      className="text-xs text-amber-600 hover:underline font-medium"
+                    >
+                      {isScheduleExpanded ? "Done" : "Schedule"}
+                    </button>
                     <button
                       onClick={() => handleDelete(project.id, project.name)}
                       className="text-xs text-red-500 hover:underline font-medium"
@@ -283,11 +330,221 @@ export default function ProjectManager({
                     </div>
                   </div>
                 )}
+
+                {/* Schedule panel */}
+                {isScheduleExpanded && (
+                  <div className="border-t border-gray-100 px-5 py-4">
+                    <ScheduleEditor
+                      project={project}
+                      onSaved={async () => {
+                        await refresh();
+                        router.refresh();
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () => Promise<void> }) {
+  const s = project.schedule;
+  const [frequency, setFrequency] = useState<ScheduleFrequency>(s?.frequency ?? "MONTHLY");
+  const [weekday, setWeekday] = useState<number>(s?.weekday ?? 0);
+  const [dayOfMonth, setDayOfMonth] = useState<number>(s?.dayOfMonth ?? 1);
+  const [monthOfQuarter, setMonthOfQuarter] = useState<number>(s?.monthOfQuarter ?? 1);
+  const [monthOfYear, setMonthOfYear] = useState<number>(s?.monthOfYear ?? 1);
+  const [reminderEnabled, setReminderEnabled] = useState<boolean>(s?.reminderEnabled ?? false);
+  const [reminderDaysBefore, setReminderDaysBefore] = useState<number>(s?.reminderDaysBefore ?? 3);
+  const [overdueEnabled, setOverdueEnabled] = useState<boolean>(s?.overdueEnabled ?? false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [nextDue, setNextDue] = useState<string | null>(null);
+
+  async function handleSave() {
+    setError(null);
+    setSaving(true);
+    try {
+      const body = {
+        frequency,
+        weekday: frequency === "WEEKLY" ? weekday : null,
+        dayOfMonth: frequency === "WEEKLY" ? null : dayOfMonth,
+        monthOfQuarter: frequency === "QUARTERLY" ? monthOfQuarter : null,
+        monthOfYear: frequency === "YEARLY" ? monthOfYear : null,
+        reminderEnabled,
+        reminderDaysBefore: reminderEnabled ? reminderDaysBefore : null,
+        overdueEnabled,
+      };
+      const res = await apiFetch(`/api/projects/${project.id}/schedule`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to save schedule");
+      }
+      const saved = await res.json();
+      setNextDue(saved.nextDueDate ?? null);
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save schedule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    if (!confirm("Remove the upload schedule for this project? No further reminders will be sent.")) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/projects/${project.id}/schedule`, { method: "DELETE" });
+      setNextDue(null);
+      await onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fieldClass =
+    "rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500";
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-medium text-gray-500">
+        Upload cadence — each organization must submit a valid file for every file format in this
+        project by the due date.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs text-gray-600">Frequency</label>
+        <select
+          value={frequency}
+          onChange={(e) => setFrequency(e.target.value as ScheduleFrequency)}
+          className={fieldClass}
+        >
+          <option value="WEEKLY">Weekly</option>
+          <option value="MONTHLY">Monthly</option>
+          <option value="QUARTERLY">Quarterly</option>
+          <option value="YEARLY">Yearly</option>
+        </select>
+
+        {frequency === "WEEKLY" && (
+          <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={fieldClass}>
+            {WEEKDAYS.map((d, i) => (
+              <option key={d} value={i}>{d}</option>
+            ))}
+          </select>
+        )}
+
+        {frequency === "MONTHLY" && (
+          <label className="flex items-center gap-1 text-xs text-gray-600">
+            Day
+            <input
+              type="number" min={1} max={31} value={dayOfMonth}
+              onChange={(e) => setDayOfMonth(Number(e.target.value))}
+              className={`${fieldClass} w-20`}
+            />
+            <span className="text-gray-400">(clamped to month length)</span>
+          </label>
+        )}
+
+        {frequency === "QUARTERLY" && (
+          <>
+            <select value={monthOfQuarter} onChange={(e) => setMonthOfQuarter(Number(e.target.value))} className={fieldClass}>
+              <option value={1}>1st month of quarter</option>
+              <option value={2}>2nd month of quarter</option>
+              <option value={3}>3rd month of quarter</option>
+            </select>
+            <label className="flex items-center gap-1 text-xs text-gray-600">
+              Day
+              <input
+                type="number" min={1} max={31} value={dayOfMonth}
+                onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                className={`${fieldClass} w-20`}
+              />
+            </label>
+          </>
+        )}
+
+        {frequency === "YEARLY" && (
+          <>
+            <select value={monthOfYear} onChange={(e) => setMonthOfYear(Number(e.target.value))} className={fieldClass}>
+              {MONTHS.map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+            <label className="flex items-center gap-1 text-xs text-gray-600">
+              Day
+              <input
+                type="number" min={1} max={31} value={dayOfMonth}
+                onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                className={`${fieldClass} w-20`}
+              />
+            </label>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox" checked={reminderEnabled}
+            onChange={(e) => setReminderEnabled(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+          />
+          Send reminder
+        </label>
+        {reminderEnabled && (
+          <label className="flex items-center gap-1 text-xs text-gray-600">
+            <input
+              type="number" min={1} max={365} value={reminderDaysBefore}
+              onChange={(e) => setReminderDaysBefore(Number(e.target.value))}
+              className={`${fieldClass} w-20`}
+            />
+            days before due
+          </label>
+        )}
+        <label className="flex items-center gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox" checked={overdueEnabled}
+            onChange={(e) => setOverdueEnabled(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+          />
+          Send overdue notice
+        </label>
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {nextDue && <p className="text-xs text-gray-500">Next due date: <strong>{nextDue}</strong></p>}
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+        >
+          {saving ? "Saving…" : s ? "Update schedule" : "Set schedule"}
+        </button>
+        {s && (
+          <button
+            onClick={handleRemove}
+            disabled={saving}
+            className="text-xs text-red-500 hover:underline font-medium"
+          >
+            Remove schedule
+          </button>
+        )}
+      </div>
     </div>
   );
 }
