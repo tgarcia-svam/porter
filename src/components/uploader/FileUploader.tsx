@@ -37,11 +37,49 @@ type Schema = {
   columns: Column[];
 };
 
+type Schedule = {
+  frequency: "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+  weekday: number | null;
+  dayOfMonth: number | null;
+  monthOfQuarter: number | null;
+  monthOfYear: number | null;
+};
+
 type Project = {
   id: string;
   name: string;
+  schedule: Schedule | null;
   schemas: Schema[];
 };
+
+const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const MONTHS = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
+const QUARTER_MONTHS = ["first","second","third"];
+
+function ordinal(n: number) {
+  const v = n % 100;
+  return n + (["th","st","nd","rd"][(v - 20) % 10] ?? ["th","st","nd","rd"][v] ?? "th");
+}
+
+function formatSchedule(s: Schedule): string {
+  switch (s.frequency) {
+    case "WEEKLY":
+      return s.weekday != null ? `Every ${WEEKDAYS[s.weekday]}` : "Weekly";
+    case "MONTHLY":
+      return s.dayOfMonth != null ? `Monthly on the ${ordinal(s.dayOfMonth)}` : "Monthly";
+    case "QUARTERLY": {
+      const m = s.monthOfQuarter != null ? QUARTER_MONTHS[s.monthOfQuarter - 1] : null;
+      const d = s.dayOfMonth != null ? ordinal(s.dayOfMonth) : null;
+      return m && d ? `Quarterly — ${d} of the ${m} month` : "Quarterly";
+    }
+    case "YEARLY": {
+      const m = s.monthOfYear != null ? MONTHS[s.monthOfYear - 1] : null;
+      const d = s.dayOfMonth != null ? ordinal(s.dayOfMonth) : null;
+      return m && d ? `Annually on ${m} ${d}` : "Annually";
+    }
+  }
+}
 
 type UploadRecord = {
   id: string;
@@ -69,6 +107,14 @@ type UploadResult = {
   errorsCapped: boolean;
   errors: ValidationError[];
 };
+
+function DownloadIcon() {
+  return (
+    <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
 
 export default function FileUploader({
   projects,
@@ -139,6 +185,70 @@ export default function FileUploader({
     localStorage.setItem("porter:projectId", projectId);
     localStorage.setItem("porter:schemaId", schemaId);
     clearFileState();
+  }
+
+  async function handleExportExcel() {
+    if (!selectedSchema) return;
+    const { default: ExcelJS } = await import("exceljs");
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(selectedSchema.name);
+
+    ws.columns = selectedSchema.columns.map((col) => ({
+      header: col.name,
+      key: col.name,
+      width: Math.max(col.name.length + 4, 14),
+    }));
+
+    const headerRow = ws.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FF1E3A5F" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+      cell.border = {
+        bottom: { style: "thin", color: { argb: "FF93C5FD" } },
+      };
+      cell.alignment = { vertical: "middle" };
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const slug = selectedSchema.name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    const url = URL.createObjectURL(
+      new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}_template.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportSql() {
+    if (!selectedSchema) return;
+    const SQL_TYPES: Record<string, string> = {
+      TEXT: "TEXT",
+      NUMBER: "NUMERIC",
+      INTEGER: "INTEGER",
+      BOOLEAN: "BOOLEAN",
+      DATE: "DATE",
+      EMAIL: "VARCHAR(255)",
+    };
+    const toSnake = (s: string) =>
+      s.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+
+    const table = toSnake(selectedSchema.name);
+    const cols = [...selectedSchema.columns]
+      .sort((a, b) => a.order - b.order)
+      .map((col) => {
+        const type = SQL_TYPES[col.dataType] ?? "TEXT";
+        return `  ${toSnake(col.name)} ${type}${col.required ? " NOT NULL" : ""}`;
+      });
+    const ddl = `CREATE TABLE ${table} (\n${cols.join(",\n")}\n);\n`;
+
+    const url = URL.createObjectURL(new Blob([ddl], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${table}_ddl.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleFileSelect(file: File) {
@@ -415,6 +525,19 @@ export default function FileUploader({
             <p className="mt-1.5 text-xs text-gray-500 leading-snug">{selectedSchema.description}</p>
           )}
         </div>
+
+        {selectedProject?.schedule && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+              Upload Frequency
+            </p>
+            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+              <p className="text-xs font-medium text-blue-800">
+                {formatSchedule(selectedProject.schedule)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Main panel ── */}
@@ -445,9 +568,29 @@ export default function FileUploader({
             <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
               {selectedSchema && selectedSchema.columns.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    Expected Data Format
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Expected Data Format
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleExportExcel}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
+                      >
+                        <DownloadIcon />
+                        Excel Template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExportSql}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
+                      >
+                        <DownloadIcon />
+                        SQL DDL
+                      </button>
+                    </div>
+                  </div>
                   <div className="overflow-x-auto rounded-lg border border-gray-200 inline-block max-w-full">
                     <table className="text-xs w-auto">
                       <thead>

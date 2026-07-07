@@ -22,6 +22,15 @@ export default async function UploadPage() {
           organizations: { some: { organizationId: user.organizationId } },
         },
         include: {
+          schedule: {
+            select: {
+              frequency: true,
+              weekday: true,
+              dayOfMonth: true,
+              monthOfQuarter: true,
+              monthOfYear: true,
+            },
+          },
           schemas: {
             where: { schema: { deletedAt: null } },
             include: {
@@ -62,6 +71,15 @@ export default async function UploadPage() {
     .map((p) => ({
       id: p.id,
       name: p.name,
+      schedule: p.schedule
+        ? {
+            frequency: p.schedule.frequency,
+            weekday: p.schedule.weekday,
+            dayOfMonth: p.schedule.dayOfMonth,
+            monthOfQuarter: p.schedule.monthOfQuarter,
+            monthOfYear: p.schedule.monthOfYear,
+          }
+        : null,
       schemas: p.schemas.map((sp) => ({
         ...sp.schema,
         columns: sp.schema.columns.map((col) => ({
