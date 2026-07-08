@@ -152,16 +152,12 @@ export default function DataEntryTable({
   });
 
   // Diff tracked across pages — survives pagination/search.
-  //   edits:          rowIndex → modified data (overlays the server row when shown)
-  //   deletions:      rowIndexes the user has removed (filtered out of display)
-  //   newRows:        unsaved additions; shown pinned to the top of page 1
-  //   justSubmitted:  rows from the last successful submit; pinned at top until the
-  //                   user adds a new row or changes schema/project, so they can
-  //                   confirm their data was saved without navigating to the last page
+  //   edits:      rowIndex → modified data (overlays the server row when shown)
+  //   deletions:  rowIndexes the user has removed (filtered out of display)
+  //   newRows:    unsaved additions; shown pinned to the top of page 1
   const [edits, setEdits] = useState<Map<number, Record<string, string>>>(new Map());
   const [deletions, setDeletions] = useState<Set<number>>(new Set());
   const [newRows, setNewRows] = useState<Record<string, string>[]>([]);
-  const [justSubmitted, setJustSubmitted] = useState<Record<string, string>[]>([]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [loadingData, setLoadingData] = useState(false);
@@ -174,7 +170,6 @@ export default function DataEntryTable({
     setEdits(new Map());
     setDeletions(new Set());
     setNewRows([]);
-    setJustSubmitted([]);
     setSearchQuery("");
     setResult(null);
     setSubmitError(null);
@@ -249,7 +244,6 @@ export default function DataEntryTable({
   }
 
   function addRow() {
-    setJustSubmitted([]);
     setNewRows((prev) => [emptyRow(schema.columns), ...prev]);
     setPagination((p) => ({ ...p, page: 1 }));
   }
@@ -306,9 +300,6 @@ export default function DataEntryTable({
       }
       setResult(data as UploadResult);
       if ((data as UploadResult).status === "VALID") {
-        // Pin the just-submitted rows at the top so users can see what was saved
-        // before the refetch loads page 1 (which won't include the new rows).
-        if (newRows.length > 0) setJustSubmitted([...newRows]);
         clearAllPending();
         setPagination((p) => ({ ...p, page: 1 }));
         void fetchPage();
@@ -383,13 +374,13 @@ export default function DataEntryTable({
       {/* Scrollable table — dimmed while fetching so users see the load is in progress */}
       <div
         className={`relative overflow-x-auto overflow-y-auto max-h-[60vh] rounded-lg border border-gray-200 transition-opacity ${
-          loadingData && (pinnedNewRows.length > 0 || justSubmitted.length > 0 || visibleServerRows.length > 0)
+          loadingData && (pinnedNewRows.length > 0 || visibleServerRows.length > 0)
             ? "opacity-60"
             : ""
         }`}
         aria-busy={loadingData}
       >
-        {loadingData && (pinnedNewRows.length > 0 || justSubmitted.length > 0 || visibleServerRows.length > 0) && (
+        {loadingData && (pinnedNewRows.length > 0 || visibleServerRows.length > 0) && (
           <div className="absolute top-2 right-2 z-20 rounded-full bg-white/80 backdrop-blur-sm px-2 py-1 shadow-sm">
             <Spinner size="xs" label="Loading data" />
           </div>
@@ -414,7 +405,7 @@ export default function DataEntryTable({
             </tr>
           </thead>
           <tbody>
-            {pinnedNewRows.length === 0 && justSubmitted.length === 0 && visibleServerRows.length === 0 ? (
+            {pinnedNewRows.length === 0 && visibleServerRows.length === 0 ? (
               <tr>
                 <td colSpan={schema.columns.length + 2} className="px-3 py-10 text-center text-sm text-gray-600">
                   {loadingData ? (
@@ -440,27 +431,6 @@ export default function DataEntryTable({
                     label="new"
                   />
                 ))}
-                {justSubmitted.length > 0 && pinnedNewRows.length === 0 && (
-                  <>
-                    {justSubmitted.map((row, i) => (
-                      <SubmittedRow
-                        key={`submitted-${i}`}
-                        columns={schema.columns}
-                        data={row}
-                      />
-                    ))}
-                    {visibleServerRows.length > 0 && (
-                      <tr>
-                        <td
-                          colSpan={schema.columns.length + 2}
-                          className="px-3 py-1 text-xs text-gray-400 bg-gray-50 border-b border-gray-200"
-                        >
-                          Previous records
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                )}
                 {visibleServerRows.map((r) => (
                   <Row
                     key={`row-${r.rowIndex}`}
@@ -526,32 +496,6 @@ export default function DataEntryTable({
 
       {result && <ValidationResults result={result} />}
     </div>
-  );
-}
-
-// ── SubmittedRow component ──────────────────────────────────────────────────
-// Read-only row pinned at the top after a successful submission so users can
-// confirm their data was saved without navigating to the last page.
-
-function SubmittedRow({
-  columns,
-  data,
-}: {
-  columns: Column[];
-  data: Record<string, string>;
-}) {
-  return (
-    <tr className="border-b border-green-100 bg-green-50/50">
-      <td className="px-3 py-1.5 text-xs text-green-600 select-none font-medium">
-        ✓
-      </td>
-      {columns.map((col) => (
-        <td key={col.id} className="px-2 py-1.5 text-sm text-gray-800 whitespace-nowrap">
-          {data[col.name] || <span className="text-gray-400 italic">—</span>}
-        </td>
-      ))}
-      <td className="px-2 py-1.5" />
-    </tr>
   );
 }
 
