@@ -86,7 +86,7 @@ export const GET = withHandler(async (req: NextRequest) => {
         FROM "UploadRow"
         WHERE "uploadId" = ${upload.id}
           ${searchFilter}
-        ORDER BY "rowIndex" ASC
+        ORDER BY "rowIndex" DESC
         OFFSET ${(page - 1) * pageSize}
         LIMIT ${pageSize}
       `,
