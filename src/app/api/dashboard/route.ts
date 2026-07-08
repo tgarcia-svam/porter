@@ -57,7 +57,7 @@ export const GET = withHandler(async (req: NextRequest) => {
   if (!schema) return apiNotFound("Schema not found");
 
   if (schema.visualizations.length === 0) {
-    return NextResponse.json({ hasData: false, visualizations: [] });
+    return NextResponse.json({ hasData: false, hasVisualizations: false, visualizations: [] });
   }
 
   // All upload-data reads enforce org isolation via RLS.
@@ -81,6 +81,6 @@ export const GET = withHandler(async (req: NextRequest) => {
     session.user.id
   );
 
-  if (!result) return NextResponse.json({ hasData: false, visualizations: [] });
-  return NextResponse.json({ hasData: true, visualizations: result });
+  if (!result) return NextResponse.json({ hasData: false, hasVisualizations: true, visualizations: [] });
+  return NextResponse.json({ hasData: true, hasVisualizations: true, visualizations: result });
 });

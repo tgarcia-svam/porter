@@ -6,6 +6,7 @@ import VisualizationGrid, { type Visualization } from "@/components/Visualizatio
 
 type DashboardData = {
   hasData: boolean;
+  hasVisualizations: boolean;
   visualizations: Visualization[];
 };
 
@@ -34,10 +35,10 @@ export default function DashboardPanel({ schemaId, projectId }: { schemaId: stri
 
   const visualizations = data?.visualizations ?? [];
 
-  if (visualizations.length === 0) {
+  if (!data?.hasVisualizations) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
-        No visualizations have been configured for this file format yet.
+        No reports have been configured for this file format.
       </div>
     );
   }
@@ -45,7 +46,15 @@ export default function DashboardPanel({ schemaId, projectId }: { schemaId: stri
   if (!data?.hasData) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
-        No valid data has been uploaded yet. Upload a valid file to populate the dashboard.
+        No data available yet — upload a valid file to see your reports here.
+      </div>
+    );
+  }
+
+  if (visualizations.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
+        No reports have been configured for this file format.
       </div>
     );
   }
