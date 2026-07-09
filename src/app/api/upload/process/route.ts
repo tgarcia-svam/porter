@@ -12,6 +12,7 @@
  * called by an Azure Function, not a browser.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 // Worker has no user session — must bypass RLS to write across orgs.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
@@ -31,11 +32,10 @@ export const maxDuration = 300;
 
 function verifyWorkerSecret(req: NextRequest): boolean {
   const secret = process.env.UPLOAD_WORKER_SECRET;
-  if (!secret) {
-    // If no secret is configured, deny all — don't allow unauthenticated processing
-    return false;
-  }
-  return req.headers.get("x-worker-secret") === secret;
+  if (!secret) return false;
+  const provided = req.headers.get("x-worker-secret") ?? "";
+  if (provided.length !== secret.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
 }
 
 export async function POST(req: NextRequest) {
@@ -144,7 +144,8 @@ export async function POST(req: NextRequest) {
     buffer,
     mimeType,
     columnsForValidation,
-    sheetName
+    sheetName,
+    blobName.split("/").pop(),
   );
   console.log(`[process] validation: rows=${rowCount} errors=${errors.length} duration=${Date.now() - tValidate}ms elapsed=${elapsed()}`);
 

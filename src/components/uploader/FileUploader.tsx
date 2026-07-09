@@ -330,6 +330,10 @@ export default function FileUploader({
     }
   }
 
+  useEffect(() => {
+    return () => stopPolling();
+  }, []);
+
   async function handleUpload() {
     if (!selectedFile || !selectedSchemaId) return;
     setUploading(true);

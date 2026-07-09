@@ -57,12 +57,10 @@ const callbacks: NextAuthConfig["callbacks"] = {
       return false;
     }
 
-    // Increment failed attempts and lock if threshold reached
-    // (This path is hit when the account exists but is in a bad state — e.g.
-    // a race between lockout expiry and a new attempt, or manual testing.)
-    // Normal happy-path resets the counter below.
-    const newCount = dbUser.failedLoginAttempts + 1;
-    if (newCount >= MAX_FAILED_ATTEMPTS) {
+    // Lock if pre-existing failed attempts have hit the threshold (e.g. accumulated
+    // via a prior password-reset flow or manual DB update). Do NOT increment here —
+    // this callback fires only on a successful OAuth authentication.
+    if (dbUser.failedLoginAttempts >= MAX_FAILED_ATTEMPTS) {
       await prisma.user.update({
         where: { id: dbUser.id },
         data: {
@@ -99,13 +97,11 @@ const callbacks: NextAuthConfig["callbacks"] = {
         user?.email ??
         (profile as Record<string, unknown>)?.preferred_username as string | undefined ??
         profile?.email;
-      console.log("[auth] jwt — email resolved:", !!email);
       if (email) {
         const dbUser = await prisma.user.findFirst({
           where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
           select: { id: true, role: true },
         });
-        console.log("[auth] jwt DB lookup →", dbUser ? `id=${dbUser.id}` : "NOT FOUND");
         if (dbUser) {
           token["id"] = dbUser.id;
           token["role"] = dbUser.role;
@@ -247,75 +243,18 @@ function getInstance(): Promise<AuthInstance> {
 
 // ── Proxy exports ─────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function reqPath(req: any): string {
-  try {
-    return req?.nextUrl?.pathname ?? new URL(req.url).pathname;
-  } catch {
-    return "";
-  }
-}
-
-/** Comma-joined cookie NAMES from an incoming Cookie header (values omitted). */
-function inCookieNames(header: string | null | undefined): string {
-  if (!header) return "(none)";
-  return (
-    header
-      .split(";")
-      .map((c) => c.split("=")[0].trim())
-      .filter(Boolean)
-      .join(", ") || "(none)"
-  );
-}
-
 export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GET: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
-    const res = await (await getInstance()).handlers.GET(req);
-    // DIAG: on the OAuth callback, log the host the request arrived on plus the
-    // cookies the browser actually sent. Compare the host against the sign-in
-    // host below — if they differ, the host-only pkce cookie won't be sent.
-    const path = reqPath(req);
-    if (path.includes("/callback/")) {
-      console.log(
-        "[auth][diag] callback IN —",
-        diagHost(req),
-        "| cookies:",
-        inCookieNames(req?.headers?.get?.("cookie"))
-      );
-    }
-    return res;
+    return (await getInstance()).handlers.GET(req);
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   POST: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
-    const res = await (await getInstance()).handlers.POST(req);
-    // DIAG: on sign-in, log the host plus the Set-Cookie names/flags Auth.js
-    // emitted (e.g. __Secure- prefix, SameSite, Secure, Domain).
-    const path = reqPath(req);
-    if (path.includes("/signin/")) {
-      const sc =
-        typeof res?.headers?.getSetCookie === "function" ? res.headers.getSetCookie() : [];
-      console.log(
-        "[auth][diag] signin OUT —",
-        diagHost(req),
-        "| set-cookie:",
-        sc.length
-          ? sc.map((c: string) => c.split(";")[0].split("=")[0] + " [" + c.split(";").slice(1).map((a: string) => a.trim()).join(" ") + "]").join(" | ")
-          : "(none)"
-      );
-    }
-    return res;
+    return (await getInstance()).handlers.POST(req);
   },
 };
-
-/** host / x-forwarded-host / proto, for spotting host mismatches between legs. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function diagHost(req: any): string {
-  const h = (k: string) => req?.headers?.get?.(k) ?? "-";
-  return `host=${h("host")} xfh=${h("x-forwarded-host")} xfp=${h("x-forwarded-proto")} url=${reqPath(req)}`;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const auth: AuthInstance["auth"] = ((...args: any[]) =>

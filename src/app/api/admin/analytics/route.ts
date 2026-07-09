@@ -72,21 +72,24 @@ export const GET = withHandler(async (req: NextRequest) => {
   }
 
   // Latest VALID upload per selected provider for this (schema, project).
-  const uploadIds: string[] = [];
-  for (const organizationId of selectedOrgIds) {
-    const upload = await prismaAdmin.fileUpload.findFirst({
-      where: {
-        schemaId,
-        status: "VALID",
-        deletedAt: null,
-        schema: { projects: { some: { projectId } } },
-        user: { organizationId },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { id: true },
-    });
-    if (upload) uploadIds.push(upload.id);
-  }
+  // Run all org lookups in parallel — one round-trip per org is still N queries
+  // but they execute concurrently rather than serially.
+  const uploadResults = await Promise.all(
+    selectedOrgIds.map((organizationId) =>
+      prismaAdmin.fileUpload.findFirst({
+        where: {
+          schemaId,
+          status: "VALID",
+          deletedAt: null,
+          schema: { projects: { some: { projectId } } },
+          user: { organizationId },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      })
+    )
+  );
+  const uploadIds = uploadResults.filter(Boolean).map((u) => u!.id);
 
   if (uploadIds.length === 0) {
     return NextResponse.json({ configured: true, hasData: false, visualizations: [] });

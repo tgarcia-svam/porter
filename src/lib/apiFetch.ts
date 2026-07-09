@@ -1,3 +1,5 @@
+import { signOut } from "next-auth/react";
+
 const CSRF_COOKIE = "csrf-token";
 const CSRF_HEADER = "x-csrf-token";
 
@@ -8,18 +10,28 @@ function getCsrfToken(): string {
   return match ? match.split("=")[1] : "";
 }
 
+// When any API call returns 401 outside the login page the JWT has expired or
+// the session binding failed — redirect rather than showing a silent error.
+function handle401(res: Response): Response {
+  if (res.status === 401 && window.location.pathname !== "/login") {
+    void signOut({ callbackUrl: "/login?reason=session_expired" });
+  }
+  return res;
+}
+
 /**
  * Drop-in replacement for fetch() that automatically injects the CSRF token
- * header on state-changing requests (POST, PUT, DELETE, PATCH).
+ * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
+ * to the login page on 401 (expired session / UA mismatch).
  */
 export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
-  if (!mutating) return fetch(input, init);
+  if (!mutating) return fetch(input, init).then(handle401);
 
   const headers = new Headers(init?.headers);
   headers.set(CSRF_HEADER, getCsrfToken());
 
-  return fetch(input, { ...init, headers });
+  return fetch(input, { ...init, headers }).then(handle401);
 }

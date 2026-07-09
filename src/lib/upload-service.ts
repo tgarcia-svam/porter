@@ -11,10 +11,12 @@
  *   3. toMissingColumnErrors   — wrap required-but-absent column names into ValidationError shape
  *   4. createUploadWithResults / finalizeUpload — persist results, chunking large row sets
  *
- * Uses prismaAdmin throughout — the inline + manual routes are tagged
- * TODO(RLS) and currently bypass row-level security; the worker has no user
- * session and must bypass. When the user-facing write path is migrated to
- * withOrgContext(), these helpers can accept an optional tx client instead.
+ * Uses prismaAdmin throughout — Classification is admin-owned config; the
+ * worker (/api/upload/process) has no user session and must bypass RLS.
+ * User-facing write paths (fileUpload.create, uploadRow.createMany) are safe
+ * with prismaAdmin because userId is always set from the authenticated session.
+ * User-data READ paths have been migrated to withOrgContext() in their respective
+ * route handlers.
  */
 
 import { prismaAdmin } from "./prisma-admin";
