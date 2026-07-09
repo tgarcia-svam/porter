@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-// TODO(RLS): refactor this route to use withOrgContext for the user-upload
-// path; keep prismaAdmin for the admin GET listing. For now both use admin
-// access so app-layer checks remain the enforcement boundary.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
+import { withOrgContext } from "@/lib/with-org-context";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob, waitForMalwareScanResult, deleteBlobByName, isMalwareScanFailClosed } from "@/lib/azure-storage";
 import { exportUploadToWarehouse } from "@/lib/warehouse-export";
@@ -173,7 +171,8 @@ export const POST = withHandler(async (req: NextRequest) => {
     buffer,
     mimeType,
     columnsForValidation,
-    sheetName
+    sheetName,
+    file.name,
   );
 
   const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
@@ -210,28 +209,42 @@ export const GET = withHandler(async (req: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
+  // prismaAdmin for the user lookup — User is admin-owned config, not user-data.
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { organizationId: true, role: true },
   });
 
-  const uploads = await prisma.fileUpload.findMany({
-    where: {
-      deletedAt: null,
-      ...(currentUser?.organizationId
-        ? { user: { organizationId: currentUser.organizationId } }
-        : { userId: session.user.id }),
-    },
-    include: {
-      schema: { select: { name: true } },
-      results: true,
-      user: { select: { name: true, email: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-
   const isAdmin = currentUser?.role === "ADMIN";
+
+  // withOrgContext so the RLS policy filters FileUpload to this org only,
+  // providing a database-level safety net on top of the app-layer org filter.
+  // Fall back to userId-scoped admin query for orphan accounts (dev only).
+  const uploads = currentUser?.organizationId
+    ? await withOrgContext(currentUser.organizationId, (tx) =>
+        tx.fileUpload.findMany({
+          where: { deletedAt: null },
+          include: {
+            schema: { select: { name: true } },
+            results: true,
+            user: { select: { name: true, email: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+        session.user.id
+      )
+    : await prisma.fileUpload.findMany({
+        where: { deletedAt: null, userId: session.user.id },
+        include: {
+          schema: { select: { name: true } },
+          results: true,
+          user: { select: { name: true, email: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+
   const response = isAdmin
     ? uploads
     : uploads.map(({ blobUrl: _blobUrl, ...rest }) => ({ ...rest, blobUrl: null }));

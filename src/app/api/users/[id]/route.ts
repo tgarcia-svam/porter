@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
@@ -33,8 +34,7 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
 
     const { unlock, resetMfa, resendInvite, authMethod, ...rest } = parsed.data;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: Record<string, any> = { ...rest };
+    const data: Prisma.UserUncheckedUpdateInput = { ...rest };
 
     if (unlock) {
       data.failedLoginAttempts = 0;
@@ -100,6 +100,17 @@ export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
     if (!session) return apiForbidden();
 
     const { id } = await params;
+
+    if (id === session.user.id) return apiForbidden("Cannot delete your own account");
+
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+    if (!target) return apiNotFound();
+
+    if (target.role === "ADMIN") {
+      const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+      if (adminCount <= 1) return apiForbidden("Cannot remove the last admin account");
+    }
+
     await prisma.user.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });
   }

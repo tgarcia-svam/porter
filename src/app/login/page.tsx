@@ -166,6 +166,12 @@ function LoginContent() {
             </div>
           )}
 
+          {reason === "session_expired" && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+              Your session has expired. Please sign in again.
+            </div>
+          )}
+
           {(oauthError || formError) && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">
               {formError ?? oauthError}

@@ -37,6 +37,7 @@ export default function UserManager({
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addNotice, setAddNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function refreshUsers() {
     const res = await fetch("/api/users");
@@ -85,53 +86,89 @@ export default function UserManager({
 
   async function handleResetMfa(id: string, email: string) {
     if (!confirm(`Reset MFA for "${email}"? They'll get an email to set a new password and re-enroll.`)) return;
-    await apiFetch(`/api/users/${id}`, {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resetMfa: true }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to reset MFA");
+      return;
+    }
     await refreshUsers();
   }
 
   async function handleResendInvite(id: string, email: string) {
-    await apiFetch(`/api/users/${id}`, {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ resendInvite: true }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to resend invite");
+      return;
+    }
     alert(`Invite re-sent to ${email}.`);
   }
 
   async function handleUnlock(id: string) {
-    await apiFetch(`/api/users/${id}`, {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ unlock: true }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to unlock account");
+      return;
+    }
     await refreshUsers();
   }
 
   async function handleDeleteUser(id: string, email: string) {
     if (!confirm(`Remove user "${email}"?`)) return;
-    await apiFetch(`/api/users/${id}`, { method: "DELETE" });
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to remove user");
+      return;
+    }
     await refreshUsers();
   }
 
   async function handleRoleChange(id: string, role: "ADMIN" | "UPLOADER") {
-    await apiFetch(`/api/users/${id}`, {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to update role");
+      return;
+    }
     await refreshUsers();
   }
 
   async function handleOrgChange(id: string, organizationId: string | null) {
-    await apiFetch(`/api/users/${id}`, {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ organizationId }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to update organization");
+      return;
+    }
     await refreshUsers();
   }
 
@@ -210,6 +247,12 @@ export default function UserManager({
           <p className="mt-2 text-sm text-green-700">{addNotice}</p>
         )}
       </div>
+
+      {actionError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
 
       {/* User List */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

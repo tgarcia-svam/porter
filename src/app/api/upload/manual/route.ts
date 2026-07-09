@@ -20,7 +20,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { prismaAdmin as prisma } from "@/lib/prisma-admin";
+import { prismaAdmin } from "@/lib/prisma-admin";
+import { withOrgContext } from "@/lib/with-org-context";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
 import { exportUploadToWarehouse } from "@/lib/warehouse-export";
@@ -72,16 +73,15 @@ export const POST = withHandler(async (req: NextRequest) => {
     return apiBadRequest("At least one of edits, additions, or deletions is required");
   }
 
-  // Access checks unchanged from prior version.
-  const user = await prisma.user.findUnique({
+  // prismaAdmin for User/Schema/SchemaProject — these are admin-owned config,
+  // not user data, so they live outside the RLS boundary.
+  const user = await prismaAdmin.user.findUnique({
     where: { id: userId },
     include: { organization: { select: { name: true } } },
   });
   if (!user?.organization) return apiForbidden("You must belong to an organization to submit data");
 
-  // When a project is specified it must contain this schema and be assigned to
-  // the user's org; otherwise any project of the org that contains the schema.
-  const access = await prisma.schemaProject.findFirst({
+  const access = await prismaAdmin.schemaProject.findFirst({
     where: {
       schemaId,
       ...(projectId ? { projectId } : {}),
@@ -91,7 +91,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
   if (!access) return apiForbidden("Schema not accessible to your organization");
 
-  const schema = await prisma.schema.findUnique({
+  const schema = await prismaAdmin.schema.findUnique({
     where: { id: schemaId },
     include: {
       columns: { orderBy: { order: "asc" } },
@@ -103,25 +103,29 @@ export const POST = withHandler(async (req: NextRequest) => {
   // ── Materialise the merged dataset ────────────────────────────────────────
   // 1. Read the prior dataset (latest VALID upload for this schema + org).
   //    Empty if none exists — additions become the initial dataset.
-  const prior = await prisma.fileUpload.findFirst({
-    where: {
-      schemaId,
-      status: "VALID",
-      deletedAt: null,
-      user: { organizationId: user.organizationId! },
+  //
+  // withOrgContext so the RLS policy enforces org isolation on these reads at
+  // the database level, independent of the application-layer access check above.
+  type PriorRow = { rowIndex: number; data: Record<string, string> };
+  const { prior, priorRows } = await withOrgContext(
+    user.organizationId!,
+    async (tx) => {
+      const prior = await tx.fileUpload.findFirst({
+        where: { schemaId, status: "VALID", deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      const priorRows: PriorRow[] = prior
+        ? (await tx.uploadRow.findMany({
+            where: { uploadId: prior.id },
+            orderBy: { rowIndex: "asc" },
+            select: { rowIndex: true, data: true },
+          })) as PriorRow[]
+        : [];
+      return { prior, priorRows };
     },
-    orderBy: { createdAt: "desc" },
-    select: { id: true },
-  });
-
-  const priorRows: { rowIndex: number; data: Record<string, string> }[] = prior
-    ? await prisma.uploadRow.findMany({
-        where: { uploadId: prior.id },
-        orderBy: { rowIndex: "asc" },
-        select: { rowIndex: true, data: true },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any
-    : [];
+    userId,
+  );
 
   // 2. Apply deletions, then edits, then keep additions. Renumber 1..N.
   const editMap = new Map(edits.map((e) => [e.rowIndex, e.data]));

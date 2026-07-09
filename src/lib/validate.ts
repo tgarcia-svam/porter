@@ -491,12 +491,18 @@ export async function validateFile(
   buffer: Buffer,
   mimeType: string,
   columns: ColumnDef[],
-  sheetName?: string
+  sheetName?: string,
+  fileName?: string,
 ): Promise<ValidationReport> {
+  const ext = fileName?.split(".").pop()?.toLowerCase();
+  // Treat application/octet-stream as Excel only when the extension confirms it —
+  // browsers (especially on Windows) report "" for CSV files, which gets
+  // substituted to octet-stream at the call site, causing valid CSVs to be
+  // routed to the Excel parser and fail with a cryptic error.
   const isExcel =
     mimeType.includes("spreadsheetml") ||
     mimeType.includes("ms-excel") ||
-    mimeType === "application/octet-stream";
+    (mimeType === "application/octet-stream" && (ext === "xlsx" || ext === "xls"));
 
   // Compile regex / parse date bounds once, up front.
   const prepared = prepareColumns(columns);

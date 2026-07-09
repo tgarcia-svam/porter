@@ -18,7 +18,15 @@ export function generateCsrfToken(): string {
 export function validateCsrf(req: NextRequest): boolean {
   const cookieToken = req.cookies.get(CSRF_COOKIE)?.value;
   const headerToken = req.headers.get(CSRF_HEADER);
-  if (!cookieToken || !headerToken) return false;
-  // Constant-time comparison to prevent timing attacks
-  return cookieToken === headerToken && cookieToken.length === 64;
+  if (!cookieToken || !headerToken || cookieToken.length !== 64 || headerToken.length !== 64) {
+    return false;
+  }
+  // XOR every character position so the loop always runs to completion —
+  // `===` can short-circuit on the first differing byte, enabling timing attacks.
+  // Node crypto.timingSafeEqual is unavailable in the Edge runtime used by middleware.
+  let diff = 0;
+  for (let i = 0; i < 64; i++) {
+    diff |= cookieToken.charCodeAt(i) ^ headerToken.charCodeAt(i);
+  }
+  return diff === 0;
 }

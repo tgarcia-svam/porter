@@ -78,8 +78,10 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
+  // Use the last hop in X-Forwarded-For: Azure App Service appends the real
+  // client IP at the end of any existing chain, so [0] is attacker-controlled.
   const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ??
     req.headers.get("x-real-ip") ??
     "unknown";
 

@@ -223,7 +223,7 @@ export default function DataEntryTable({
     } finally {
       if (requestIdRef.current === myId) setLoadingData(false);
     }
-  }, [schema.id, projectId, pagination.page, debouncedQ, schema.columns]);
+  }, [schema.id, projectId, pagination.page, debouncedQ]);
 
   useEffect(() => { void fetchPage(); }, [fetchPage]);
 
