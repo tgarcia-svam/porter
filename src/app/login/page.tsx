@@ -11,7 +11,9 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const raw = searchParams.get("callbackUrl") || "/";
+  // Reject absolute URLs and protocol-relative URLs to prevent open redirect.
+  const callbackUrl = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
 
   const oauthError =
     error === "AccessDenied"

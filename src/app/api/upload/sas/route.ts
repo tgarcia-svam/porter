@@ -81,9 +81,8 @@ export const POST = withHandler(async (req: NextRequest) => {
   try {
     sasUrl = await generateUploadSasUrl(blobName);
   } catch (err) {
-    return apiInternalError(
-      `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}`
-    );
+    console.error("[upload/sas] failed to generate SAS URL:", err);
+    return apiInternalError("Could not generate upload URL. Please try again or contact an administrator.");
   }
 
   return NextResponse.json({ sasUrl, blobName });
