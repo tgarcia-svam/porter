@@ -1,0 +1,88 @@
+name: Deploy (Demo)
+
+on:
+  push:
+    branches: [demo]
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: porter-demo
+  PARAMS_FILE: bicep/main.demo.bicepparam
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: demo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build and push image to ACR
+        run: |
+          ACR_NAME=$(cat $PARAMS_FILE | grep 'acrName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          az acr login --name $ACR_NAME
+          docker build \
+            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
+            -t $ACR_NAME.azurecr.io/porter:latest \
+            .
+          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
+          docker push $ACR_NAME.azurecr.io/porter:latest
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file bicep/main.bicep \
+            --parameters ${{ env.PARAMS_FILE }} \
+            --parameters \
+              nextauthSecret=${{ secrets.NEXTAUTH_SECRET }} \
+              dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
+              dbAppUserPassword=${{ secrets.DB_APP_USER_PASSWORD }} \
+              azureAdClientSecret=${{ secrets.AZURE_AD_CLIENT_SECRET }} \
+              googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+              uploadWorkerSecret=${{ secrets.UPLOAD_WORKER_SECRET }} \
+              retentionWorkerSecret=${{ secrets.RETENTION_WORKER_SECRET }} \
+              mfaEncryptionKey=${{ secrets.MFA_ENCRYPTION_KEY }} \
+              seedAdminEmail=${{ vars.SEED_ADMIN_EMAIL }} \
+              googleClientId=${{ vars.GOOGLE_CLIENT_ID }} \
+              azureAdClientId=${{ vars.AZURE_AD_CLIENT_ID }} \
+              azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
+              containerTag=${{ github.sha }}
+
+      - name: Restart App Service
+        run: |
+          APP_SERVICE_NAME=$(cat $PARAMS_FILE | grep 'appServiceName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          az webapp restart \
+            --name $APP_SERVICE_NAME \
+            --resource-group ${{ env.RESOURCE_GROUP }}
+
+      - name: Build and deploy upload-worker Function App
+        run: |
+          WORKER_NAME=$(az deployment group show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name main \
+            --query properties.outputs.workerFunctionName.value \
+            --output tsv)
+
+          cd functions/upload-worker
+          npm ci
+          npm run build
+
+          npm prune --omit=dev
+          mkdir -p staging
+          cp host.json package.json staging/
+          cp -r dist staging/
+          cp -r node_modules staging/
+          cd staging
+          zip -r ../function.zip .
+          cd ..
+
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name $WORKER_NAME \
+            --src function.zip
