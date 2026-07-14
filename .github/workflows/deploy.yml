@@ -23,7 +23,7 @@ jobs:
 
       - name: Build and push image to ACR
         run: |
-          ACR_NAME=$(cat bicep/main.bicepparam | grep 'acrName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          ACR_NAME=$(cat bicep/main.bicepparam | grep "^param acrName" | sed "s/.*= '\\(.*\\)'/\\1/")
           az acr login --name $ACR_NAME
           docker build \
             -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
@@ -55,7 +55,7 @@ jobs:
 
       - name: Restart App Service
         run: |
-          APP_SERVICE_NAME=$(cat bicep/main.bicepparam | grep 'appServiceName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          APP_SERVICE_NAME=$(cat bicep/main.bicepparam | grep "^param appServiceName" | sed "s/.*= '\\(.*\\)'/\\1/")
           az webapp restart \
             --name $APP_SERVICE_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }}
