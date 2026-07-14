@@ -22,17 +22,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build and push image to ACR
-        run: |
-          ACR_NAME=$(cat $PARAMS_FILE | grep "^param acrName" | sed "s/.*= '\\(.*\\)'/\\1/")
-          az acr login --name $ACR_NAME
-          docker build \
-            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
-            -t $ACR_NAME.azurecr.io/porter:latest \
-            .
-          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
-          docker push $ACR_NAME.azurecr.io/porter:latest
-
+      # Bicep runs first so the ACR exists before we try to push to it.
+      # On subsequent runs the ACR already exists; Bicep is idempotent.
       - name: Deploy Bicep
         run: |
           az deployment group create \
@@ -53,6 +44,17 @@ jobs:
               azureAdClientId=${{ vars.AZURE_AD_CLIENT_ID }} \
               azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
               containerTag=${{ github.sha }}
+
+      - name: Build and push image to ACR
+        run: |
+          ACR_NAME=$(cat $PARAMS_FILE | grep "^param acrName" | sed "s/.*= '\\(.*\\)'/\\1/")
+          az acr login --name $ACR_NAME
+          docker build \
+            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
+            -t $ACR_NAME.azurecr.io/porter:latest \
+            .
+          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
+          docker push $ACR_NAME.azurecr.io/porter:latest
 
       - name: Restart App Service
         run: |
