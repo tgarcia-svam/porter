@@ -45,6 +45,50 @@ jobs:
               azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
               containerTag=${{ github.sha }}
 
+      - name: Open Postgres firewall for runner
+        run: |
+          DB_SERVER=$(cat $PARAMS_FILE | grep "^param dbServerName" | sed "s/.*= '\\(.*\\)'/\\1/")
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          az postgres flexible-server firewall-rule create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name $DB_SERVER \
+            --rule-name github-actions-runner \
+            --start-ip-address $RUNNER_IP \
+            --end-ip-address $RUNNER_IP
+
+      - name: Setup database
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: |
+          DB_HOST=$(az deployment group show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name main \
+            --query properties.outputs.dbHostname.value -o tsv)
+
+          ADMIN_URL="postgresql://porteradmin:${{ secrets.DB_ADMIN_PASSWORD }}@${DB_HOST}:5432/porter?sslmode=require"
+
+          npm ci
+          npx prisma generate
+
+          DATABASE_URL="$ADMIN_URL" npm run db:push
+          DATABASE_URL="$ADMIN_URL" \
+            PORTER_APP_USER_PASSWORD="${{ secrets.DB_APP_USER_PASSWORD }}" \
+            npm run db:create-app-user
+          DATABASE_URL="$ADMIN_URL" npm run db:rls
+          DATABASE_URL="$ADMIN_URL" \
+            SEED_ADMIN_EMAIL="${{ vars.SEED_ADMIN_EMAIL }}" \
+            npm run db:seed
+
+      - name: Close Postgres firewall
+        if: always()
+        run: |
+          DB_SERVER=$(cat $PARAMS_FILE | grep "^param dbServerName" | sed "s/.*= '\\(.*\\)'/\\1/")
+          az postgres flexible-server firewall-rule delete \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name $DB_SERVER \
+            --rule-name github-actions-runner \
+            --yes
+
       - name: Build and push image to ACR
         run: |
           ACR_NAME=$(cat $PARAMS_FILE | grep "^param acrName" | sed "s/.*= '\\(.*\\)'/\\1/")
