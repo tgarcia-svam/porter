@@ -15,9 +15,12 @@ param location = 'canadacentral'
 
 // ── Resource names ────────────────────────────────────────────────────────────
 // All names must be globally unique in Azure — cannot reuse production values.
-param appServiceName     = 'porter-demo'           // → porter-demo.azurewebsites.net
-param acrName            = 'porterdemoregistry'    // alphanumeric only, globally unique
-param storageAccountName = 'porterdemostorage'     // alphanumeric only, max 24 chars
+// appServiceName  → porter-demo.azurewebsites.net
+// acrName         → alphanumeric only, globally unique
+// storageAccountName → alphanumeric only, max 24 chars
+param appServiceName     = 'porter-demo'
+param acrName            = 'porterdemoregistry'
+param storageAccountName = 'porterdemostorage'
 param storageContainerName = 'porter-uploads'
 
 // ── Database ──────────────────────────────────────────────────────────────────
