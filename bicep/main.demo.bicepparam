@@ -78,7 +78,7 @@ param mfaEncryptionKey = ''   // overridden in main.demo.secrets.bicepparam
 //         --verification-type <Domain|SPF|DKIM|DKIM2>
 //   Phase 2 (second deploy): flip emailDomainVerified=true to link and activate.
 param emailSenderDomain   = 'mail.demo.porterdata.com'
-param emailDomainVerified = false
+param emailDomainVerified = true
 
 // ── Cost controls (lower than production for a demo environment) ──────────────
 param blobTierToCoolAfterDays    = 30

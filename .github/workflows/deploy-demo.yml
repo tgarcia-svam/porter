@@ -70,7 +70,24 @@ jobs:
           npm ci
           npx prisma generate
 
-          DATABASE_URL="$ADMIN_URL" npm run db:push
+          # If the DB was previously set up with db:push (tables exist but no
+          # _prisma_migrations table), baseline each migration as applied so
+          # migrate deploy can take over going forward.
+          HAS_TABLES=$(psql "$ADMIN_URL" -tAc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'" \
+            2>/dev/null | tr -d '[:space:]' || echo 0)
+          HAS_MIGRATION_TABLE=$(psql "$ADMIN_URL" -tAc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='_prisma_migrations'" \
+            2>/dev/null | tr -d '[:space:]' || echo 0)
+
+          if [ "${HAS_TABLES}" -gt "0" ] && [ "${HAS_MIGRATION_TABLE}" -eq "0" ]; then
+            echo "Baselining migration history from db:push state..."
+            for dir in prisma/migrations/*/; do
+              DATABASE_URL="$ADMIN_URL" npx prisma migrate resolve --applied "$(basename "$dir")"
+            done
+          fi
+
+          DATABASE_URL="$ADMIN_URL" npx prisma migrate deploy
           DATABASE_URL="$ADMIN_URL" \
             PORTER_APP_USER_PASSWORD="${{ secrets.DB_APP_USER_PASSWORD }}" \
             npm run db:create-app-user
