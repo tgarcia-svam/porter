@@ -51,8 +51,8 @@ jobs:
           RUNNER_IP=$(curl -s https://api.ipify.org)
           az postgres flexible-server firewall-rule create \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name $DB_SERVER \
-            --rule-name github-actions-runner \
+            --server-name $DB_SERVER \
+            --name github-actions-runner \
             --start-ip-address $RUNNER_IP \
             --end-ip-address $RUNNER_IP
 
@@ -85,8 +85,8 @@ jobs:
           DB_SERVER=$(cat $PARAMS_FILE | grep "^param dbServerName" | sed "s/.*= '\\(.*\\)'/\\1/")
           az postgres flexible-server firewall-rule delete \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name $DB_SERVER \
-            --rule-name github-actions-runner \
+            --server-name $DB_SERVER \
+            --name github-actions-runner \
             --yes
 
       - name: Build and push image to ACR
