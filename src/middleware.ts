@@ -134,6 +134,7 @@ export function middleware(req: NextRequest) {
       sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
       path: "/",
+      maxAge: 8 * 60 * 60, // 8 hours — persistent so it survives screen lock
     });
   }
   return res;
