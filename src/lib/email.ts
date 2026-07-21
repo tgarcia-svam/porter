@@ -109,17 +109,20 @@ export async function sendUploadReminderEmail(opts: {
   const listText = opts.missingSchemas.length
     ? `\n\nStill needed:\n${opts.missingSchemas.map((n) => `  • ${n}`).join("\n")}`
     : "";
+  const uploadUrl = `${baseUrl()}/upload`;
   await sendMail({
     to: opts.recipients,
     subject: `Reminder: "${opts.projectName}" upload due ${opts.daysBefore === 0 ? "today" : "on " + opts.dueDate}`,
     text:
       `An upload for the project "${opts.projectName}" is due ${when}.` +
-      ` Please sign in to Porter and submit the required file(s) before the due date.${listText}`,
+      ` Please sign in to Porter and submit the required file(s) before the due date.${listText}` +
+      `\n\nSubmit your files: ${uploadUrl}`,
     html: layout(
       `Upload due ${opts.daysBefore === 0 ? "today" : "soon"}`,
       `<p>An upload for the project <strong>${escapeHtml(opts.projectName)}</strong> is due <strong>${when}</strong>.</p>
        <p>Please sign in to Porter and submit the required file(s) before the due date.</p>
-       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still needed:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}`
+       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still needed:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}
+       <p style="margin-top:20px"><a href="${uploadUrl}" style="display:inline-block;background:#d97706;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Go to Porter</a></p>`
     ),
   });
 }
@@ -138,17 +141,20 @@ export async function sendUploadOverdueEmail(opts: {
   const listText = opts.missingSchemas.length
     ? `\n\nStill missing:\n${opts.missingSchemas.map((n) => `  • ${n}`).join("\n")}`
     : "";
+  const uploadUrl = `${baseUrl()}/upload`;
   await sendMail({
     to: opts.recipients,
     subject: `Overdue: "${opts.projectName}" upload was due ${opts.dueDate}`,
     text:
       `An upload for the project "${opts.projectName}" was due on ${opts.dueDate} and has not been completed.` +
-      ` Please sign in to Porter and submit the required file(s) as soon as possible.${listText}`,
+      ` Please sign in to Porter and submit the required file(s) as soon as possible.${listText}` +
+      `\n\nSubmit your files: ${uploadUrl}`,
     html: layout(
       "Upload overdue",
       `<p>An upload for the project <strong>${escapeHtml(opts.projectName)}</strong> was due on <strong>${opts.dueDate}</strong> and has not been completed.</p>
        <p>Please sign in to Porter and submit the required file(s) as soon as possible.</p>
-       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still missing:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}`
+       ${opts.missingSchemas.length ? `<p style="margin-bottom:0"><strong>Still missing:</strong></p>${schemaListHtml(opts.missingSchemas)}` : ""}
+       <p style="margin-top:20px"><a href="${uploadUrl}" style="display:inline-block;background:#d97706;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Go to Porter</a></p>`
     ),
   });
 }

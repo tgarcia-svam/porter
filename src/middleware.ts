@@ -49,9 +49,11 @@ const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 // from a cross-origin form, so the same-origin session check is sufficient there.
 const CSRF_EXEMPT = [
   "/api/auth",
-  "/api/upload/process", // authenticated by X-Worker-Secret header, not session/CSRF
-  "/api/upload/sas",     // session-authenticated JSON POST — no cookie available from SAS flow
-  "/api/upload/confirm", // follows SAS upload — session-authenticated JSON POST
+  "/api/upload/process",         // authenticated by X-Worker-Secret header, not session/CSRF
+  "/api/upload/sas",             // session-authenticated JSON POST — no cookie available from SAS flow
+  "/api/upload/confirm",         // follows SAS upload — session-authenticated JSON POST
+  "/api/admin/schedules/run",    // called by Function App timer via X-Worker-Secret, no cookie
+  "/api/admin/retention/run",    // same pattern — worker secret auth, no cookie
 ];
 
 // ── Middleware ───────────────────────────────────────────────────────────────
@@ -134,6 +136,7 @@ export function middleware(req: NextRequest) {
       sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
       path: "/",
+      maxAge: 8 * 60 * 60, // 8 hours — persistent so it survives screen lock
     });
   }
   return res;

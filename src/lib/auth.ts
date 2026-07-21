@@ -206,7 +206,7 @@ async function buildInstance(): Promise<AuthInstance> {
     providers,
     pages: { signIn: "/login", error: "/login" },
     callbacks,
-    session: { strategy: "jwt", maxAge: 30 * 60 }, // 30 minutes
+    session: { strategy: "jwt", maxAge: 30 * 60, updateAge: 0 }, // 30-min idle: rolls on every request
     logger: {
       // Surface the real cause behind generic Auth.js errors. InvalidCheck
       // ("pkceCodeVerifier value could not be parsed") hides whether the cookie

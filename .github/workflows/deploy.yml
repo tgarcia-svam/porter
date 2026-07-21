@@ -2,16 +2,17 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, demo]
   workflow_dispatch:
-
-env:
-  RESOURCE_GROUP: porter-setup
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: dev
+    environment: ${{ github.ref == 'refs/heads/demo' && 'demo' || 'dev' }}
+
+    env:
+      RESOURCE_GROUP: ${{ github.ref == 'refs/heads/demo' && 'porter-demo' || 'porter-setup' }}
+      PARAMS_FILE: ${{ github.ref == 'refs/heads/demo' && 'bicep/main.demo.bicepparam' || 'bicep/main.bicepparam' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -21,23 +22,14 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build and push image to ACR
-        run: |
-          ACR_NAME=$(cat bicep/main.bicepparam | grep 'acrName' | sed "s/.*= '\\(.*\\)'/\\1/")
-          az acr login --name $ACR_NAME
-          docker build \
-            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
-            -t $ACR_NAME.azurecr.io/porter:latest \
-            .
-          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
-          docker push $ACR_NAME.azurecr.io/porter:latest
-
+      # Bicep runs first so the ACR exists before we try to push to it.
+      # On subsequent runs the ACR already exists; Bicep is idempotent.
       - name: Deploy Bicep
         run: |
           az deployment group create \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --template-file bicep/main.bicep \
-            --parameters bicep/main.bicepparam \
+            --parameters $PARAMS_FILE \
             --parameters \
               nextauthSecret=${{ secrets.NEXTAUTH_SECRET }} \
               dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }} \
@@ -53,9 +45,81 @@ jobs:
               azureAdTenantId=${{ vars.AZURE_AD_TENANT_ID }} \
               containerTag=${{ github.sha }}
 
+      - name: Open Postgres firewall for runner
+        run: |
+          DB_SERVER=$(grep "^param dbServerName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          az postgres flexible-server firewall-rule create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --server-name $DB_SERVER \
+            --name github-actions-runner \
+            --start-ip-address $RUNNER_IP \
+            --end-ip-address $RUNNER_IP
+
+      - name: Setup database
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: |
+          DB_HOST=$(az deployment group show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name main \
+            --query properties.outputs.dbHostname.value -o tsv)
+          DB_ADMIN_USER=$(grep "^param dbAdminUser" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          DB_NAME=$(grep "^param dbName"       $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+
+          ADMIN_URL="postgresql://${DB_ADMIN_USER}:${{ secrets.DB_ADMIN_PASSWORD }}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
+
+          npm ci
+          npx prisma generate
+
+          # Baseline migration history if DB was previously set up with db:push
+          HAS_TABLES=$(psql "$ADMIN_URL" -tAc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'" \
+            2>/dev/null | tr -d '[:space:]' || echo 0)
+          HAS_MIGRATION_TABLE=$(psql "$ADMIN_URL" -tAc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='_prisma_migrations'" \
+            2>/dev/null | tr -d '[:space:]' || echo 0)
+
+          if [ "${HAS_TABLES}" -gt "0" ] && [ "${HAS_MIGRATION_TABLE}" -eq "0" ]; then
+            echo "Baselining migration history..."
+            for dir in prisma/migrations/*/; do
+              DATABASE_URL="$ADMIN_URL" npx prisma migrate resolve --applied "$(basename "$dir")"
+            done
+          fi
+
+          DATABASE_URL="$ADMIN_URL" npx prisma migrate deploy
+          DATABASE_URL="$ADMIN_URL" \
+            PORTER_APP_USER_PASSWORD="${{ secrets.DB_APP_USER_PASSWORD }}" \
+            npm run db:create-app-user
+          DATABASE_URL="$ADMIN_URL" npm run db:rls
+          DATABASE_URL="$ADMIN_URL" \
+            SEED_ADMIN_EMAIL="${{ vars.SEED_ADMIN_EMAIL }}" \
+            npm run db:seed
+
+      - name: Close Postgres firewall
+        if: always()
+        run: |
+          DB_SERVER=$(grep "^param dbServerName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          az postgres flexible-server firewall-rule delete \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --server-name $DB_SERVER \
+            --name github-actions-runner \
+            --yes
+
+      - name: Build and push image to ACR
+        run: |
+          ACR_NAME=$(grep "^param acrName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          az acr login --name $ACR_NAME
+          docker build \
+            -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
+            -t $ACR_NAME.azurecr.io/porter:latest \
+            .
+          docker push $ACR_NAME.azurecr.io/porter:${{ github.sha }}
+          docker push $ACR_NAME.azurecr.io/porter:latest
+
       - name: Restart App Service
         run: |
-          APP_SERVICE_NAME=$(cat bicep/main.bicepparam | grep 'appServiceName' | sed "s/.*= '\\(.*\\)'/\\1/")
+          APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
           az webapp restart \
             --name $APP_SERVICE_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }}
@@ -72,11 +136,6 @@ jobs:
           npm ci
           npm run build
 
-          # Assemble the deployment package:
-          #   host.json          — Functions host config (must be at root)
-          #   package.json       — needed by the Functions runtime
-          #   dist/              — compiled JS output
-          #   node_modules/      — production dependencies only
           npm prune --omit=dev
           mkdir -p staging
           cp host.json package.json staging/

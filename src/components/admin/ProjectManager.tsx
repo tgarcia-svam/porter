@@ -369,6 +369,8 @@ function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () =>
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextDue, setNextDue] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; skipped: number } | null>(null);
 
   async function handleSave() {
     setError(null);
@@ -400,6 +402,25 @@ function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () =>
       setError(err instanceof Error ? err.message : "Failed to save schedule");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSendNow() {
+    setSending(true);
+    setSendResult(null);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/projects/${project.id}/schedule/notify`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to send reminders");
+      }
+      const data = await res.json();
+      setSendResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send reminders");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -526,8 +547,19 @@ function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () =>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {nextDue && <p className="text-xs text-gray-500">Next due date: <strong>{nextDue}</strong></p>}
+      {sendResult && (
+        <p className="text-xs text-green-700">
+          Reminders sent: <strong>{sendResult.sent}</strong>
+          {sendResult.skipped > 0 && (
+            <span className="text-gray-500"> ({sendResult.skipped} org{sendResult.skipped !== 1 ? "s" : ""} already up to date)</span>
+          )}
+          {sendResult.sent === 0 && sendResult.skipped === 0 && (
+            <span className="text-gray-500"> — no organizations assigned to this project</span>
+          )}
+        </p>
+      )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={handleSave}
           disabled={saving}
@@ -536,13 +568,22 @@ function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () =>
           {saving ? "Saving…" : s ? "Update schedule" : "Set schedule"}
         </button>
         {s && (
-          <button
-            onClick={handleRemove}
-            disabled={saving}
-            className="text-xs text-red-500 hover:underline font-medium"
-          >
-            Remove schedule
-          </button>
+          <>
+            <button
+              onClick={handleSendNow}
+              disabled={sending || saving}
+              className="rounded-lg border border-amber-600 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50 transition-colors"
+            >
+              {sending ? "Sending…" : "Send Reminder Now"}
+            </button>
+            <button
+              onClick={handleRemove}
+              disabled={saving}
+              className="text-xs text-red-500 hover:underline font-medium"
+            >
+              Remove schedule
+            </button>
+          </>
         )}
       </div>
     </div>
