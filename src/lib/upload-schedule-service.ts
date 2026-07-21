@@ -36,6 +36,11 @@ export type ScheduleRunResult = {
   overdueSent: number;
 };
 
+export type ScheduleNotifyResult = {
+  sent: number;
+  skipped: number; // orgs with no missing uploads — nothing to remind
+};
+
 export type SchemaRef = { id: string; name: string };
 
 /**
@@ -187,4 +192,72 @@ export async function runScheduleNotifications(
     remindersSent,
     overdueSent,
   };
+}
+
+/**
+ * On-demand reminder for a single project. Bypasses the date-based condition
+ * (reminderDaysBefore) and the idempotency ledger — the admin explicitly wants
+ * to send now. Still skips orgs that have already uploaded every schema for the
+ * upcoming period so we never spam an org that's already caught up.
+ */
+export async function sendProjectScheduleRemindersNow(
+  projectId: string,
+  now: Date = new Date()
+): Promise<ScheduleNotifyResult> {
+  const schedule = await prismaAdmin.uploadSchedule.findUnique({
+    where: { projectId },
+    include: {
+      project: {
+        include: {
+          schemas: {
+            where: { schema: { deletedAt: null } },
+            include: { schema: { select: { id: true, name: true } } },
+          },
+          organizations: {
+            where: { organization: { deletedAt: null } },
+            include: {
+              organization: {
+                include: { users: { select: { email: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!schedule) return { sent: 0, skipped: 0 };
+
+  const schemas: SchemaRef[] = schedule.project.schemas.map((sp) => sp.schema);
+  const orgs = schedule.project.organizations.map((po) => po.organization);
+  const today = utcDay(now);
+  const { upcomingDue } = computeOccurrences(schedule, today);
+
+  let sent = 0;
+  let skipped = 0;
+
+  for (const org of orgs) {
+    const recipients = org.users.map((u) => u.email).filter(Boolean);
+    if (recipients.length === 0) { skipped++; continue; }
+
+    const missing = await missingSchemasForPeriod(schedule, schemas, org.id, upcomingDue);
+    if (missing.length === 0) { skipped++; continue; }
+
+    try {
+      await sendUploadReminderEmail({
+        recipients,
+        projectName: schedule.project.name,
+        dueDate: formatUtcDate(upcomingDue),
+        daysBefore: Math.ceil(
+          (upcomingDue.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+        ),
+        missingSchemas: missing.map((s) => s.name),
+      });
+      sent++;
+    } catch (err) {
+      console.error(`[schedules] manual reminder failed for org ${org.id}:`, err);
+    }
+  }
+
+  return { sent, skipped };
 }
