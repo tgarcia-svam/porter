@@ -20,7 +20,6 @@ export default function NavBar({ userEmail, userName, role }: NavBarProps) {
     { href: "/admin/schemas", label: "File Formats" },
     { href: "/admin/classifications", label: "Classifications" },
     { href: "/admin/users", label: "Users" },
-    { href: "/admin/organizations", label: "Organizations" },
     { href: "/admin/projects", label: "Projects" },
     { href: "/admin/settings", label: "Settings" },
   ];

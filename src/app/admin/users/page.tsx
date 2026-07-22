@@ -12,7 +12,7 @@ export default async function UsersPage() {
     }),
     prisma.organization.findMany({
       where: { deletedAt: null },
-      select: { id: true, name: true },
+      include: { _count: { select: { users: true } } },
       orderBy: { name: "asc" },
     }),
   ]);
@@ -22,7 +22,7 @@ export default async function UsersPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Users</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Add users by email and assign schemas to them.
+          Manage users and organizations.
         </p>
       </div>
 
