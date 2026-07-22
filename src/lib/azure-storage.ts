@@ -158,6 +158,40 @@ export async function generateUploadSasUrl(blobName: string): Promise<string> {
   return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
 }
 
+/**
+ * Generates a short-lived, read-only SAS URL for downloading a resource blob.
+ * Signed with a user delegation key (managed identity) — no storage account key.
+ */
+export async function generateDownloadSasUrl(blobName: string): Promise<string> {
+  const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
+
+  if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
+  if (!accountName) throw new Error("AZURE_STORAGE_ACCOUNT_NAME is not set");
+
+  const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
+  const userDelegationKey = await getDelegationKey(blobServiceClient);
+
+  const startsOn = new Date(Date.now() - 5 * 60 * 1000);
+  const expiresOn = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+  const sasQuery = generateBlobSASQueryParameters(
+    {
+      containerName,
+      blobName,
+      permissions: BlobSASPermissions.parse("r"), // read only
+      startsOn,
+      expiresOn,
+      protocol: SASProtocol.Https,
+    },
+    userDelegationKey,
+    accountName
+  );
+
+  return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
+}
+
 export async function uploadToBlob(
   buffer: Buffer,
   blobName: string,

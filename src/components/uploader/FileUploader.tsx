@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
@@ -149,7 +149,7 @@ export default function FileUploader({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "dashboard">("upload");
+  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "dashboard" | "files">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -172,7 +172,7 @@ export default function FileUploader({
     setUploadError(null);
   }
 
-  function handleTabChange(tab: "upload" | "entry" | "dashboard") {
+  function handleTabChange(tab: "upload" | "entry" | "dashboard" | "files") {
     setActiveTab(tab);
     if (tab !== "dashboard") clearFileState();
   }
@@ -480,10 +480,11 @@ export default function FileUploader({
     );
   }
 
-  const tabs: { key: "upload" | "entry" | "dashboard"; label: string }[] = [
-    { key: "upload", label: "File Upload" },
-    { key: "entry",  label: "Manual Entry" },
+  const tabs: { key: "upload" | "entry" | "dashboard" | "files"; label: string }[] = [
+    { key: "upload",    label: "File Upload" },
+    { key: "entry",     label: "Manual Entry" },
     { key: "dashboard", label: "Dashboard" },
+    { key: "files",     label: "Files" },
   ];
 
   return (
@@ -542,6 +543,7 @@ export default function FileUploader({
             </div>
           </div>
         )}
+
       </div>
 
       {/* ── Main panel ── */}
@@ -788,6 +790,16 @@ export default function FileUploader({
             )
         )}
 
+        {activeTab === "files" && (
+          selectedProjectId
+            ? <FilesPanel projectId={selectedProjectId} />
+            : (
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
+                Select a project to browse files.
+              </div>
+            )
+        )}
+
       </div>
     </div>
   );
@@ -878,5 +890,206 @@ function UploadIcon() {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
       </svg>
     </div>
+  );
+}
+
+type ProjectResource = {
+  id: string;
+  fileName: string;
+  filePath: string | null;
+  contentType: string | null;
+  organizationIds: string[];
+  createdAt: string;
+};
+
+function normalizePath(p: string | null | undefined): string {
+  return (p ?? "").replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "").trim();
+}
+
+function FilesPanel({ projectId }: { projectId: string }) {
+  const [resources, setResources] = useState<ProjectResource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPath, setCurrentPath] = useState("");
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setCurrentPath("");
+    fetch(`/api/projects/${projectId}/resources`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setResources)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  const { filesAtLevel, subfolders } = useMemo(() => {
+    const filesAtLevel: ProjectResource[] = [];
+    const subfolderSet = new Set<string>();
+
+    for (const r of resources) {
+      const rPath = normalizePath(r.filePath);
+      if (rPath === currentPath) {
+        filesAtLevel.push(r);
+      } else if (currentPath === "" && rPath !== "") {
+        subfolderSet.add(rPath.split("/")[0]);
+      } else if (currentPath !== "" && rPath.startsWith(currentPath + "/")) {
+        const remaining = rPath.slice(currentPath.length + 1);
+        subfolderSet.add(remaining.split("/")[0]);
+      }
+    }
+
+    return {
+      filesAtLevel,
+      subfolders: [...subfolderSet].sort((a, b) => a.localeCompare(b)),
+    };
+  }, [resources, currentPath]);
+
+  const breadcrumbs = useMemo(() => {
+    if (!currentPath) return [];
+    return currentPath.split("/");
+  }, [currentPath]);
+
+  async function handleDownload(r: ProjectResource) {
+    setDownloading(r.id);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/resources/${r.id}/download`);
+      if (!res.ok) return;
+      const { downloadUrl } = await res.json();
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = r.fileName;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  function navigateTo(path: string) {
+    setCurrentPath(path);
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+        Loading…
+      </div>
+    );
+  }
+
+  if (resources.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+        No files available for this project.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-4 py-3 border-b border-gray-100 text-sm bg-gray-50">
+        <button
+          onClick={() => navigateTo("")}
+          className={currentPath === "" ? "font-medium text-gray-700" : "text-brand-600 hover:underline"}
+        >
+          Files
+        </button>
+        {breadcrumbs.map((segment, i) => {
+          const path = breadcrumbs.slice(0, i + 1).join("/");
+          const isLast = i === breadcrumbs.length - 1;
+          return (
+            <span key={path} className="flex items-center gap-1">
+              <span className="text-gray-300">/</span>
+              {isLast ? (
+                <span className="font-medium text-gray-700">{segment}</span>
+              ) : (
+                <button onClick={() => navigateTo(path)} className="text-brand-600 hover:underline">
+                  {segment}
+                </button>
+              )}
+            </span>
+          );
+        })}
+      </div>
+
+      {/* Directory contents */}
+      <div className="divide-y divide-gray-100">
+        {subfolders.length === 0 && filesAtLevel.length === 0 && (
+          <div className="px-6 py-8 text-center text-sm text-gray-400">
+            This folder is empty.
+          </div>
+        )}
+
+        {/* Folders */}
+        {subfolders.map((folder) => {
+          const targetPath = currentPath ? `${currentPath}/${folder}` : folder;
+          return (
+            <button
+              key={folder}
+              onClick={() => navigateTo(targetPath)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-gray-50 transition-colors group"
+            >
+              <FolderIcon />
+              <span className="flex-1 text-gray-800 font-medium group-hover:text-brand-700">
+                {folder}
+              </span>
+              <ChevronIcon />
+            </button>
+          );
+        })}
+
+        {/* Files */}
+        {filesAtLevel.map((r) => (
+          <button
+            key={r.id}
+            onClick={() => handleDownload(r)}
+            disabled={downloading === r.id}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-gray-50 disabled:opacity-50 transition-colors group"
+          >
+            <FileDocIcon contentType={r.contentType} />
+            <span className="flex-1 text-gray-700 group-hover:text-gray-900">{r.fileName}</span>
+            {downloading === r.id ? (
+              <span className="text-xs text-gray-400">Downloading…</span>
+            ) : (
+              <DownloadIcon />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg className="w-5 h-5 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function FileDocIcon({ contentType }: { contentType: string | null }) {
+  const ct = contentType ?? "";
+  let color = "text-gray-400";
+  if (ct.includes("pdf")) color = "text-red-400";
+  else if (ct.includes("spreadsheet") || ct.includes("excel") || ct.includes("csv")) color = "text-green-500";
+  else if (ct.includes("word") || ct.includes("document")) color = "text-blue-400";
+  else if (ct.includes("image")) color = "text-purple-400";
+  return (
+    <svg className={`w-5 h-5 shrink-0 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
   );
 }

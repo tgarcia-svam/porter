@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import { describeSchedule } from "@/lib/upload-schedule";
@@ -51,6 +51,7 @@ export default function ProjectManager({
   const [expandedOrgId, setExpandedOrgId] = useState<string | null>(null);
   const [expandedSchemaId, setExpandedSchemaId] = useState<string | null>(null);
   const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
+  const [expandedResourceId, setExpandedResourceId] = useState<string | null>(null);
 
   async function refresh() {
     const res = await fetch("/api/projects");
@@ -166,6 +167,7 @@ export default function ProjectManager({
             const isOrgExpanded = expandedOrgId === project.id;
             const isSchemaExpanded = expandedSchemaId === project.id;
             const isScheduleExpanded = expandedScheduleId === project.id;
+            const isResourceExpanded = expandedResourceId === project.id;
 
             return (
               <div key={project.id} className="bg-white rounded-xl border border-gray-200">
@@ -234,6 +236,7 @@ export default function ProjectManager({
                           setExpandedSchemaId(isSchemaExpanded ? null : project.id);
                           setExpandedOrgId(null);
                           setExpandedScheduleId(null);
+                          setExpandedResourceId(null);
                         }}
                         className="text-xs text-purple-600 hover:underline font-medium"
                       >
@@ -246,6 +249,7 @@ export default function ProjectManager({
                           setExpandedOrgId(isOrgExpanded ? null : project.id);
                           setExpandedSchemaId(null);
                           setExpandedScheduleId(null);
+                          setExpandedResourceId(null);
                         }}
                         className="text-xs text-brand-600 hover:underline font-medium"
                       >
@@ -257,10 +261,22 @@ export default function ProjectManager({
                         setExpandedScheduleId(isScheduleExpanded ? null : project.id);
                         setExpandedOrgId(null);
                         setExpandedSchemaId(null);
+                        setExpandedResourceId(null);
                       }}
                       className="text-xs text-amber-600 hover:underline font-medium"
                     >
                       {isScheduleExpanded ? "Done" : "Schedule"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setExpandedResourceId(isResourceExpanded ? null : project.id);
+                        setExpandedOrgId(null);
+                        setExpandedSchemaId(null);
+                        setExpandedScheduleId(null);
+                      }}
+                      className="text-xs text-teal-600 hover:underline font-medium"
+                    >
+                      {isResourceExpanded ? "Done" : "Resources"}
                     </button>
                     <button
                       onClick={() => handleDelete(project.id, project.name)}
@@ -343,9 +359,231 @@ export default function ProjectManager({
                     />
                   </div>
                 )}
+
+                {/* Resources panel */}
+                {isResourceExpanded && (
+                  <div className="border-t border-gray-100 px-5 py-4">
+                    <ResourcePanel project={project} />
+                  </div>
+                )}
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ResourceRef = {
+  id: string;
+  fileName: string;
+  filePath: string | null;
+  contentType: string | null;
+  organizationIds: string[];
+  createdAt: string;
+};
+
+function ResourcePanel({ project }: { project: Project }) {
+  const [resources, setResources] = useState<ResourceRef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePath, setFilePath] = useState("");
+  const [selectedOrgIds, setSelectedOrgIds] = useState<Set<string>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const projectOrgs = project.organizations.map((o) => o.organization);
+
+  useEffect(() => {
+    fetch(`/api/projects/${project.id}/resources`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setResources)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [project.id]);
+
+  function toggleOrg(orgId: string) {
+    setSelectedOrgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orgId)) next.delete(orgId);
+      else next.add(orgId);
+      return next;
+    });
+  }
+
+  async function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedFile) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", selectedFile);
+      fd.append("organizationIds", JSON.stringify([...selectedOrgIds]));
+      fd.append("filePath", filePath.trim());
+      const res = await apiFetch(`/api/projects/${project.id}/resources`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
+      }
+      const created: ResourceRef = await res.json();
+      setResources((prev) => [...prev, created].sort((a, b) => {
+        const pa = a.filePath ?? "";
+        const pb = b.filePath ?? "";
+        return pa.localeCompare(pb) || a.fileName.localeCompare(b.fileName);
+      }));
+      setSelectedFile(null);
+      setFilePath("");
+      setSelectedOrgIds(new Set());
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDelete(id: string, fileName: string) {
+    if (!confirm(`Delete "${fileName}"?`)) return;
+    const res = await apiFetch(`/api/projects/${project.id}/resources/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok || res.status === 204) {
+      setResources((prev) => prev.filter((r) => r.id !== id));
+    }
+  }
+
+  function describeScope(orgIds: string[]): string {
+    if (orgIds.length === 0) return "All orgs";
+    return orgIds
+      .map((id) => projectOrgs.find((o) => o.id === id)?.name ?? id)
+      .join(", ");
+  }
+
+  const allSelected = projectOrgs.length > 0 && selectedOrgIds.size === projectOrgs.length;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs font-medium text-gray-500">
+        Files appear in the Files tab for uploaders. Use a path like{" "}
+        <code className="bg-gray-100 px-1 rounded">Templates/Q1 2024</code> to organize into
+        folders, or leave blank to place at the root.
+      </p>
+
+      <form onSubmit={handleUpload} className="space-y-2">
+        {/* File picker row */}
+        <div className="flex gap-2">
+          <label className="flex-1 flex items-center rounded-lg border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+            <span className="text-xs text-gray-500 truncate flex-1">
+              {selectedFile ? selectedFile.name : "Choose file…"}
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={uploading || !selectedFile}
+            className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50 transition-colors"
+          >
+            {uploading ? "Uploading…" : "Upload"}
+          </button>
+        </div>
+
+        {/* Path input */}
+        <input
+          type="text"
+          value={filePath}
+          onChange={(e) => setFilePath(e.target.value)}
+          placeholder="Folder path (e.g. Templates/Q1 2024) — leave blank for root"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+        />
+
+        {/* Org visibility */}
+        {projectOrgs.length > 0 && (
+          <div className="rounded-lg border border-gray-200 px-3 py-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-600">Visible to</span>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrgIds(new Set(projectOrgs.map((o) => o.id)))}
+                  className="text-xs text-teal-600 hover:underline"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrgIds(new Set())}
+                  className="text-xs text-gray-400 hover:underline"
+                >
+                  Select none
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {projectOrgs.map((org) => (
+                <label
+                  key={org.id}
+                  className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-gray-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedOrgIds.has(org.id)}
+                    onChange={() => toggleOrg(org.id)}
+                    className="h-3.5 w-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                  />
+                  <span className="text-xs text-gray-700 truncate">{org.name}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 italic">
+              {allSelected || selectedOrgIds.size === 0
+                ? "Visible to all organizations on this project"
+                : `Restricted to ${selectedOrgIds.size} org${selectedOrgIds.size !== 1 ? "s" : ""}`}
+            </p>
+          </div>
+        )}
+
+        {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
+      </form>
+
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : resources.length === 0 ? (
+        <p className="text-xs text-gray-400 italic">No resources uploaded yet.</p>
+      ) : (
+        <div className="space-y-1">
+          {resources.map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2"
+            >
+              <span className="flex-1 min-w-0 text-xs text-gray-800 truncate">
+                {r.filePath ? (
+                  <span className="text-gray-400">{r.filePath}/</span>
+                ) : null}
+                {r.fileName}
+              </span>
+              <span className="shrink-0 text-xs text-gray-400">
+                {describeScope(r.organizationIds)}
+              </span>
+              <button
+                onClick={() => handleDelete(r.id, r.fileName)}
+                className="shrink-0 text-xs text-red-500 hover:underline"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -32,6 +32,7 @@ model Project {
   organizations ProjectOrganization[]
   schedule      UploadSchedule?
   uploads       FileUpload[]
+  resources     ProjectResource[]
 
   @@index([deletedAt])
 }
@@ -142,10 +143,11 @@ model User {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  uploads      FileUpload[]
-  authTokens   AuthToken[]
-  passkeys     Passkey[]
+  organization     Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  uploads          FileUpload[]
+  authTokens       AuthToken[]
+  passkeys         Passkey[]
+  uploadedResources ProjectResource[]
 }
 
 // WebAuthn/passkey credential — an alternative MFA second factor to TOTP for
@@ -331,6 +333,27 @@ model ValidationResult {
   error    String
 
   upload FileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+}
+
+// Files uploaded by admins for uploaders to reference (templates, guides, etc.).
+// organizationIds is empty → visible to all orgs on the project.
+// Non-empty → visible only to the listed orgs.
+model ProjectResource {
+  id               String    @id @default(cuid())
+  projectId        String
+  organizationIds  String[]  @default([])
+  filePath         String?
+  fileName         String
+  blobName         String
+  contentType      String?
+  uploadedByUserId String
+  createdAt        DateTime  @default(now())
+  deletedAt        DateTime?
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([projectId, deletedAt])
 }
 
 model AppSetting {
