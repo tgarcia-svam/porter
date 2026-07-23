@@ -37,9 +37,15 @@ export const GET = withHandler<RouteContext>(async (req, { params }) => {
     if (!access) return apiForbidden("Project not accessible to your organization");
   }
 
+  const disposition = new URL(req.url).searchParams.get("disposition") ?? "inline";
+  const contentDisposition =
+    disposition === "attachment"
+      ? `attachment; filename="${resource.fileName.replace(/"/g, '\\"')}"`
+      : undefined;
+
   let downloadUrl: string;
   try {
-    downloadUrl = await generateDownloadSasUrl(resource.blobName);
+    downloadUrl = await generateDownloadSasUrl(resource.blobName, contentDisposition);
   } catch (err) {
     console.error("[resources/download] SAS generation failed:", err);
     return apiInternalError("Could not generate download URL. Please try again.");

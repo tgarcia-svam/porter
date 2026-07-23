@@ -110,8 +110,17 @@ type UploadResult = {
 
 function DownloadIcon() {
   return (
-    <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
     </svg>
   );
 }
@@ -911,6 +920,7 @@ function FilesPanel({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [currentPath, setCurrentPath] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -949,20 +959,29 @@ function FilesPanel({ projectId }: { projectId: string }) {
     return currentPath.split("/");
   }, [currentPath]);
 
-  async function handleDownload(r: ProjectResource) {
+  async function handleFileAction(r: ProjectResource, disposition: "inline" | "attachment") {
     setDownloading(r.id);
+    setDownloadError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/resources/${r.id}/download`);
-      if (!res.ok) return;
+      const res = await fetch(
+        `/api/projects/${projectId}/resources/${r.id}/download?disposition=${disposition}`
+      );
+      if (!res.ok) {
+        setDownloadError("Action failed. Please try again.");
+        return;
+      }
       const { downloadUrl } = await res.json();
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = r.fileName;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (disposition === "inline") {
+        window.open(downloadUrl, "_blank", "noopener,noreferrer");
+      } else {
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = r.fileName;
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     } finally {
       setDownloading(null);
     }
@@ -990,6 +1009,12 @@ function FilesPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {downloadError && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border-b border-red-100 text-sm text-red-700">
+          <span>{downloadError}</span>
+          <button onClick={() => setDownloadError(null)} className="shrink-0 text-red-400 hover:text-red-600 leading-none">✕</button>
+        </div>
+      )}
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 px-4 py-3 border-b border-gray-100 text-sm bg-gray-50">
         <button
@@ -1044,20 +1069,30 @@ function FilesPanel({ projectId }: { projectId: string }) {
 
         {/* Files */}
         {filesAtLevel.map((r) => (
-          <button
-            key={r.id}
-            onClick={() => handleDownload(r)}
-            disabled={downloading === r.id}
-            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-gray-50 disabled:opacity-50 transition-colors group"
-          >
+          <div key={r.id} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50">
             <FileDocIcon contentType={r.contentType} />
-            <span className="flex-1 text-gray-700 group-hover:text-gray-900">{r.fileName}</span>
+            <span className="flex-1 text-gray-700 truncate">{r.fileName}</span>
             {downloading === r.id ? (
-              <span className="text-xs text-gray-400">Downloading…</span>
+              <span className="shrink-0 text-xs text-gray-400">Loading…</span>
             ) : (
-              <DownloadIcon />
+              <span className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => handleFileAction(r, "inline")}
+                  title="View in browser"
+                  className="p-1.5 rounded text-gray-400 hover:text-brand-600 hover:bg-gray-100 transition-colors"
+                >
+                  <EyeIcon />
+                </button>
+                <button
+                  onClick={() => handleFileAction(r, "attachment")}
+                  title="Download"
+                  className="p-1.5 rounded text-gray-400 hover:text-brand-600 hover:bg-gray-100 transition-colors"
+                >
+                  <DownloadIcon />
+                </button>
+              </span>
             )}
-          </button>
+          </div>
         ))}
       </div>
     </div>

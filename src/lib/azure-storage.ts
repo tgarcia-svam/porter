@@ -130,11 +130,13 @@ async function getDelegationKey(client: BlobServiceClient): Promise<UserDelegati
  */
 export async function generateUploadSasUrl(blobName: string): Promise<string> {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
 
   if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
-  if (!accountName) throw new Error("AZURE_STORAGE_ACCOUNT_NAME is not set");
+  // Derive account name from the URL when not set explicitly
+  // e.g. https://myaccount.blob.core.windows.net → "myaccount"
+  const accountName =
+    process.env.AZURE_STORAGE_ACCOUNT_NAME ?? new URL(accountUrl).hostname.split(".")[0];
 
   const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
   const userDelegationKey = await getDelegationKey(blobServiceClient);
@@ -155,20 +157,23 @@ export async function generateUploadSasUrl(blobName: string): Promise<string> {
     accountName
   );
 
-  return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
+  return `${accountUrl.replace(/\/$/, "")}/${containerName}/${blobName}?${sasQuery.toString()}`;
 }
 
 /**
  * Generates a short-lived, read-only SAS URL for downloading a resource blob.
  * Signed with a user delegation key (managed identity) — no storage account key.
  */
-export async function generateDownloadSasUrl(blobName: string): Promise<string> {
+export async function generateDownloadSasUrl(
+  blobName: string,
+  contentDisposition?: string
+): Promise<string> {
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
   const containerName = process.env.AZURE_STORAGE_CONTAINER ?? "porter-uploads";
 
   if (!accountUrl) throw new Error("AZURE_STORAGE_ACCOUNT_URL is not set");
-  if (!accountName) throw new Error("AZURE_STORAGE_ACCOUNT_NAME is not set");
+  const accountName =
+    process.env.AZURE_STORAGE_ACCOUNT_NAME ?? new URL(accountUrl).hostname.split(".")[0];
 
   const blobServiceClient = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
   const userDelegationKey = await getDelegationKey(blobServiceClient);
@@ -180,16 +185,17 @@ export async function generateDownloadSasUrl(blobName: string): Promise<string> 
     {
       containerName,
       blobName,
-      permissions: BlobSASPermissions.parse("r"), // read only
+      permissions: BlobSASPermissions.parse("r"),
       startsOn,
       expiresOn,
       protocol: SASProtocol.Https,
+      ...(contentDisposition ? { contentDisposition } : {}),
     },
     userDelegationKey,
     accountName
   );
 
-  return `${accountUrl}/${containerName}/${blobName}?${sasQuery.toString()}`;
+  return `${accountUrl.replace(/\/$/, "")}/${containerName}/${blobName}?${sasQuery.toString()}`;
 }
 
 export async function uploadToBlob(

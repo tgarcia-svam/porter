@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import { describeSchedule } from "@/lib/upload-schedule";
@@ -58,7 +58,7 @@ export default function ProjectManager({
     if (res.ok) setProjects(await res.json());
   }
 
-  async function handleAdd(e: React.FormEvent) {
+  async function handleAdd(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setAddError(null);
     setAdding(true);
@@ -276,7 +276,7 @@ export default function ProjectManager({
                       }}
                       className="text-xs text-teal-600 hover:underline font-medium"
                     >
-                      {isResourceExpanded ? "Done" : "Resources"}
+                      {isResourceExpanded ? "Done" : "Files"}
                     </button>
                     <button
                       onClick={() => handleDelete(project.id, project.name)}
@@ -384,12 +384,18 @@ type ResourceRef = {
   createdAt: string;
 };
 
+function normalizeResPath(p: string | null | undefined): string {
+  return (p ?? "").replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "").trim();
+}
+
 function ResourcePanel({ project }: { project: Project }) {
   const [resources, setResources] = useState<ResourceRef[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPath, setCurrentPath] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [filePath, setFilePath] = useState("");
   const [selectedOrgIds, setSelectedOrgIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -404,6 +410,33 @@ function ResourcePanel({ project }: { project: Project }) {
       .finally(() => setLoading(false));
   }, [project.id]);
 
+  const { filesAtLevel, subfolders } = useMemo(() => {
+    const filesAtLevel: ResourceRef[] = [];
+    const subfolderSet = new Set<string>();
+    for (const r of resources) {
+      const rPath = normalizeResPath(r.filePath);
+      if (rPath === currentPath) {
+        filesAtLevel.push(r);
+      } else if (currentPath === "" && rPath !== "") {
+        subfolderSet.add(rPath.split("/")[0]);
+      } else if (currentPath !== "" && rPath.startsWith(currentPath + "/")) {
+        const remaining = rPath.slice(currentPath.length + 1);
+        subfolderSet.add(remaining.split("/")[0]);
+      }
+    }
+    return { filesAtLevel, subfolders: [...subfolderSet].sort() };
+  }, [resources, currentPath]);
+
+  const breadcrumbs = useMemo(
+    () => (currentPath ? currentPath.split("/") : []),
+    [currentPath]
+  );
+
+  function navigateTo(path: string) {
+    setCurrentPath(path);
+    setFilePath(path);
+  }
+
   function toggleOrg(orgId: string) {
     setSelectedOrgIds((prev) => {
       const next = new Set(prev);
@@ -413,7 +446,12 @@ function ResourcePanel({ project }: { project: Project }) {
     });
   }
 
-  async function handleUpload(e: React.FormEvent) {
+  function describeScope(orgIds: string[]): string {
+    if (orgIds.length === 0) return "All orgs";
+    return orgIds.map((id) => projectOrgs.find((o) => o.id === id)?.name ?? id).join(", ");
+  }
+
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedFile) return;
     setUploadError(null);
@@ -432,13 +470,14 @@ function ResourcePanel({ project }: { project: Project }) {
         throw new Error(typeof data.error === "string" ? data.error : "Upload failed");
       }
       const created: ResourceRef = await res.json();
-      setResources((prev) => [...prev, created].sort((a, b) => {
-        const pa = a.filePath ?? "";
-        const pb = b.filePath ?? "";
-        return pa.localeCompare(pb) || a.fileName.localeCompare(b.fileName);
-      }));
+      setResources((prev) =>
+        [...prev, created].sort(
+          (a, b) =>
+            normalizeResPath(a.filePath).localeCompare(normalizeResPath(b.filePath)) ||
+            a.fileName.localeCompare(b.fileName)
+        )
+      );
       setSelectedFile(null);
-      setFilePath("");
       setSelectedOrgIds(new Set());
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
@@ -448,37 +487,117 @@ function ResourcePanel({ project }: { project: Project }) {
     }
   }
 
-  async function handleDelete(id: string, fileName: string) {
-    if (!confirm(`Delete "${fileName}"?`)) return;
-    const res = await apiFetch(`/api/projects/${project.id}/resources/${id}`, {
-      method: "DELETE",
-    });
-    if (res.ok || res.status === 204) {
-      setResources((prev) => prev.filter((r) => r.id !== id));
+  async function handleDelete(id: string) {
+    // Optimistic: remove immediately, restore on failure
+    setResources((prev) => prev.filter((r) => r.id !== id));
+    setConfirmDeleteId(null);
+    const res = await apiFetch(`/api/projects/${project.id}/resources/${id}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 204) {
+      // Restore the list from the server
+      fetch(`/api/projects/${project.id}/resources`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => { if (data) setResources(data); })
+        .catch(() => {});
     }
   }
 
-  function describeScope(orgIds: string[]): string {
-    if (orgIds.length === 0) return "All orgs";
-    return orgIds
-      .map((id) => projectOrgs.find((o) => o.id === id)?.name ?? id)
-      .join(", ");
-  }
-
-  const allSelected = projectOrgs.length > 0 && selectedOrgIds.size === projectOrgs.length;
-
   return (
-    <div className="space-y-4">
-      <p className="text-xs font-medium text-gray-500">
-        Files appear in the Files tab for uploaders. Use a path like{" "}
-        <code className="bg-gray-100 px-1 rounded">Templates/Q1 2024</code> to organize into
-        folders, or leave blank to place at the root.
-      </p>
+    <div className="space-y-3">
+      {/* Directory browser */}
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-sm">
+          <button
+            onClick={() => navigateTo("")}
+            className={currentPath === "" ? "font-medium text-gray-700" : "text-teal-600 hover:underline"}
+          >
+            Files
+          </button>
+          {breadcrumbs.map((segment, i) => {
+            const path = breadcrumbs.slice(0, i + 1).join("/");
+            const isLast = i === breadcrumbs.length - 1;
+            return (
+              <span key={path} className="flex items-center gap-1">
+                <span className="text-gray-300">/</span>
+                {isLast ? (
+                  <span className="font-medium text-gray-700">{segment}</span>
+                ) : (
+                  <button onClick={() => navigateTo(path)} className="text-teal-600 hover:underline">
+                    {segment}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
 
-      <form onSubmit={handleUpload} className="space-y-2">
-        {/* File picker row */}
+        {/* Contents */}
+        {loading ? (
+          <div className="px-4 py-6 text-xs text-gray-400">Loading…</div>
+        ) : subfolders.length === 0 && filesAtLevel.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-gray-400 italic">
+            {resources.length === 0 ? "No files uploaded yet." : "This folder is empty."}
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {/* Folders */}
+            {subfolders.map((folder) => {
+              const targetPath = currentPath ? `${currentPath}/${folder}` : folder;
+              return (
+                <button
+                  key={folder}
+                  onClick={() => navigateTo(targetPath)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors group"
+                >
+                  <AdminFolderIcon />
+                  <span className="flex-1 text-gray-800 font-medium group-hover:text-teal-700">{folder}</span>
+                  <AdminChevronIcon />
+                </button>
+              );
+            })}
+
+            {/* Files */}
+            {filesAtLevel.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+                <AdminFileIcon contentType={r.contentType} />
+                <span className="flex-1 text-sm text-gray-700 truncate">{r.fileName}</span>
+                <span className="shrink-0 text-xs text-gray-400">{describeScope(r.organizationIds)}</span>
+                {confirmDeleteId === r.id ? (
+                  <span className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <span className="text-xs text-gray-500">Delete?</span>
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="text-xs text-red-600 font-medium hover:underline"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs text-gray-400 hover:underline"
+                    >
+                      No
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteId(r.id)}
+                    className="shrink-0 text-xs text-red-500 hover:underline ml-2"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Upload form */}
+      <form onSubmit={handleUpload} className="rounded-xl border border-gray-200 px-4 py-3 space-y-2 bg-gray-50">
+        <p className="text-xs font-medium text-gray-500">Upload to this folder</p>
+
         <div className="flex gap-2">
-          <label className="flex-1 flex items-center rounded-lg border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+          <label className="flex-1 flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 cursor-pointer hover:bg-gray-50">
             <span className="text-xs text-gray-500 truncate flex-1">
               {selectedFile ? selectedFile.name : "Choose file…"}
             </span>
@@ -498,43 +617,26 @@ function ResourcePanel({ project }: { project: Project }) {
           </button>
         </div>
 
-        {/* Path input */}
         <input
           type="text"
           value={filePath}
           onChange={(e) => setFilePath(e.target.value)}
-          placeholder="Folder path (e.g. Templates/Q1 2024) — leave blank for root"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+          placeholder="Folder path (leave blank for root)"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
         />
 
-        {/* Org visibility */}
         {projectOrgs.length > 0 && (
-          <div className="rounded-lg border border-gray-200 px-3 py-2 space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-gray-600">Visible to</span>
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrgIds(new Set(projectOrgs.map((o) => o.id)))}
-                  className="text-xs text-teal-600 hover:underline"
-                >
-                  Select all
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrgIds(new Set())}
-                  className="text-xs text-gray-400 hover:underline"
-                >
-                  Select none
-                </button>
+                <button type="button" onClick={() => setSelectedOrgIds(new Set(projectOrgs.map((o) => o.id)))} className="text-xs text-teal-600 hover:underline">All</button>
+                <button type="button" onClick={() => setSelectedOrgIds(new Set())} className="text-xs text-gray-400 hover:underline">None</button>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-1">
               {projectOrgs.map((org) => (
-                <label
-                  key={org.id}
-                  className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-gray-50"
-                >
+                <label key={org.id} className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-white">
                   <input
                     type="checkbox"
                     checked={selectedOrgIds.has(org.id)}
@@ -546,7 +648,7 @@ function ResourcePanel({ project }: { project: Project }) {
               ))}
             </div>
             <p className="text-xs text-gray-400 italic">
-              {allSelected || selectedOrgIds.size === 0
+              {selectedOrgIds.size === 0
                 ? "Visible to all organizations on this project"
                 : `Restricted to ${selectedOrgIds.size} org${selectedOrgIds.size !== 1 ? "s" : ""}`}
             </p>
@@ -555,38 +657,37 @@ function ResourcePanel({ project }: { project: Project }) {
 
         {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
       </form>
-
-      {loading ? (
-        <p className="text-xs text-gray-400">Loading…</p>
-      ) : resources.length === 0 ? (
-        <p className="text-xs text-gray-400 italic">No resources uploaded yet.</p>
-      ) : (
-        <div className="space-y-1">
-          {resources.map((r) => (
-            <div
-              key={r.id}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2"
-            >
-              <span className="flex-1 min-w-0 text-xs text-gray-800 truncate">
-                {r.filePath ? (
-                  <span className="text-gray-400">{r.filePath}/</span>
-                ) : null}
-                {r.fileName}
-              </span>
-              <span className="shrink-0 text-xs text-gray-400">
-                {describeScope(r.organizationIds)}
-              </span>
-              <button
-                onClick={() => handleDelete(r.id, r.fileName)}
-                className="shrink-0 text-xs text-red-500 hover:underline"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
+  );
+}
+
+function AdminFolderIcon() {
+  return (
+    <svg className="w-4 h-4 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+function AdminChevronIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function AdminFileIcon({ contentType }: { contentType: string | null }) {
+  const ct = contentType ?? "";
+  let color = "text-gray-400";
+  if (ct.includes("pdf")) color = "text-red-400";
+  else if (ct.includes("spreadsheet") || ct.includes("excel") || ct.includes("csv")) color = "text-green-500";
+  else if (ct.includes("word") || ct.includes("document")) color = "text-blue-400";
+  else if (ct.includes("image")) color = "text-purple-400";
+  return (
+    <svg className={`w-4 h-4 shrink-0 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
   );
 }
 
