@@ -6,11 +6,12 @@ import { app, InvocationContext, Timer } from "@azure/functions";
  * (the same dual-auth pattern as the retention job). All schedule evaluation and
  * email sending happens app-side; this function is just the clock.
  *
- * Runs at 07:00 UTC daily. The endpoint is idempotent (ScheduleNotification
- * ledger), so an occasional double-fire or catch-up run sends nothing extra.
+ * Runs at 08:30 America/New_York daily (WEBSITE_TIME_ZONE set in Bicep handles
+ * DST automatically). The endpoint is idempotent (ScheduleNotification ledger),
+ * so an occasional double-fire or catch-up run sends nothing extra.
  */
 app.timer("scheduleChecker", {
-  schedule: "0 0 7 * * *", // NCRONTAB: sec min hour day month day-of-week
+  schedule: "0 30 8 * * *", // NCRONTAB: sec min hour day month day-of-week
   handler: async (_timer: Timer, context: InvocationContext): Promise<void> => {
     const appUrl = process.env.APP_URL;
     const workerSecret = process.env.UPLOAD_WORKER_SECRET;
