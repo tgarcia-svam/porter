@@ -449,6 +449,10 @@ resource workerFunctionSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     // Shared secret authenticating this function to /api/upload/process
     UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
 
+    // Timezone for NCRONTAB expressions — makes schedule cron fire in local time
+    // rather than UTC, so DST transitions are handled automatically.
+    WEBSITE_TIME_ZONE: 'America/New_York'
+
     // Application Insights
     APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
     ApplicationInsightsAgent_EXTENSION_VERSION: '~3'
