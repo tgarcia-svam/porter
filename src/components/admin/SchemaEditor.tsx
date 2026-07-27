@@ -145,18 +145,23 @@ export default function SchemaEditor({
   }>({ sourceColumnName: "", operator: "LT", targetColumnName: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const showStickyBar = isDirty || !initialData;
 
   function toggleProject(id: string) {
+    setIsDirty(true);
     setProjectIds((prev) =>
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     );
   }
 
   function addColumn() {
+    setIsDirty(true);
     setColumns((prev) => [...prev, { name: "", dataType: "TEXT", required: true, classificationId: null }]);
   }
 
   function removeColumn(i: number) {
+    setIsDirty(true);
     const removedName = columns[i].name.trim();
     setColumns((prev) => prev.filter((_, idx) => idx !== i));
     if (removedName) {
@@ -169,6 +174,7 @@ export default function SchemaEditor({
   }
 
   function updateColumn(i: number, updates: Partial<ColumnDef>) {
+    setIsDirty(true);
     const oldCol = columns[i];
     setColumns((prev) =>
       prev.map((col, idx) => (idx === i ? { ...col, ...updates } : col))
@@ -210,16 +216,19 @@ export default function SchemaEditor({
         r.targetColumnName === targetColumnName
     );
     if (exists) return;
+    setIsDirty(true);
     setComparisons((prev) => [...prev, { sourceColumnName, operator, targetColumnName }]);
     setPendingComparison({ sourceColumnName: "", operator: "LT", targetColumnName: "" });
     setAddingComparison(false);
   }
 
   function removeComparison(i: number) {
+    setIsDirty(true);
     setComparisons((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   function addVisualization() {
+    setIsDirty(true);
     setVisualizations((prev) => [
       ...prev,
       { title: "", type: "INDICATOR", aggregate: "COUNT", valueColumn: "*", xColumn: null, granularity: null },
@@ -227,10 +236,12 @@ export default function SchemaEditor({
   }
 
   function removeVisualization(i: number) {
+    setIsDirty(true);
     setVisualizations((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   function updateVisualization(i: number, updates: Partial<VizDef>) {
+    setIsDirty(true);
     setVisualizations((prev) =>
       prev.map((v, idx) => {
         if (idx !== i) return v;
@@ -263,6 +274,7 @@ export default function SchemaEditor({
   }
 
   function moveVisualization(i: number, dir: -1 | 1) {
+    setIsDirty(true);
     setVisualizations((prev) => {
       const j = i + dir;
       if (j < 0 || j >= prev.length) return prev;
@@ -351,7 +363,7 @@ export default function SchemaEditor({
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); setIsDirty(true); }}
             required
             placeholder="e.g. Monthly Sales Report"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -364,7 +376,7 @@ export default function SchemaEditor({
           <input
             type="text"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { setDescription(e.target.value); setIsDirty(true); }}
             placeholder="Optional description"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
@@ -806,28 +818,43 @@ export default function SchemaEditor({
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {error}
+      {/* Spacer so content isn't hidden behind the sticky bar */}
+      {showStickyBar && <div className="h-20" aria-hidden="true" />}
+
+      {/* Sticky save bar */}
+      {showStickyBar && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-sm shadow-[0_-1px_8px_rgba(0,0,0,0.06)]">
+          <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              {isDirty && initialData && (
+                <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  Unsaved changes
+                </span>
+              )}
+              {error && (
+                <span className="text-sm text-red-600 truncate">{error}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/schemas")}
+                className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2"
+              >
+                {isDirty ? "Discard" : "Cancel"}
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+              >
+                {saving ? "Saving…" : initialData ? "Save changes" : "Create file format"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      <div className="flex gap-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
-        >
-          {saving ? "Saving…" : initialData ? "Save changes" : "Create file format"}
-        </button>
-        <button
-          type="button"
-          onClick={() => router.push("/admin/schemas")}
-          className="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
     </form>
   );
 }

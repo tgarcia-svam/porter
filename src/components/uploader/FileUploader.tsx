@@ -30,11 +30,24 @@ type Column = {
   classification: Classification | null;
 };
 
+type ComparisonOperator = "LT" | "LTE" | "GT" | "GTE";
+
+type Comparison = {
+  sourceColumnName: string;
+  operator: ComparisonOperator;
+  targetColumnName: string;
+};
+
+const COMPARISON_OPERATOR_LABELS: Record<ComparisonOperator, string> = {
+  LT: "<", LTE: "≤", GT: ">", GTE: "≥",
+};
+
 type Schema = {
   id: string;
   name: string;
   description: string | null;
   columns: Column[];
+  comparisons: Comparison[];
 };
 
 type Schedule = {
@@ -657,6 +670,25 @@ export default function FileUploader({
                   <p className="mt-1.5 text-xs text-gray-500">
                     <span className="text-red-500 font-bold">*</span> required
                   </p>
+                  {selectedSchema.comparisons.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Cross-column Rules
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedSchema.comparisons.map((r, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200"
+                          >
+                            <code className="font-mono">{r.sourceColumnName}</code>
+                            <span>{COMPARISON_OPERATOR_LABELS[r.operator]}</span>
+                            <code className="font-mono">{r.targetColumnName}</code>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
