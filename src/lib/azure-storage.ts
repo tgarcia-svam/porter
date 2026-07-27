@@ -39,7 +39,21 @@ export async function waitForMalwareScanResult(
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { tags } = await blockBlobClient.getTags();
+    let tags: Record<string, string>;
+    try {
+      ({ tags } = await blockBlobClient.getTags());
+    } catch (err: unknown) {
+      // GetBlobTags requires blobs/tags/read (Storage Blob Data Owner or the
+      // custom tag-reader role). If the identity lacks that permission, treat
+      // the scan as not configured rather than crashing the upload pipeline.
+      const code = (err as { code?: string; statusCode?: number })?.code ?? "";
+      const status = (err as { statusCode?: number })?.statusCode ?? 0;
+      if (code === "AuthorizationPermissionMismatch" || status === 403) {
+        console.warn("[azure-storage] blob tag read not authorized — malware scan skipped (missing blobs/tags/read permission)");
+        return "clean";
+      }
+      throw err;
+    }
     // Defender writes a blob index tag with the verdict. The exact key has
     // varied across Defender versions (currently "Malware Scanning scan
     // result"), so match by pattern rather than a brittle exact string —
