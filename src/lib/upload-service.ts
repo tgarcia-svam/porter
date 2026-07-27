@@ -20,7 +20,7 @@
  */
 
 import { prismaAdmin } from "./prisma-admin";
-import type { ValidationError, ClassificationConstraint } from "./validate";
+import type { ValidationError, ClassificationConstraint, ComparisonRule } from "./validate";
 
 const ROW_CHUNK_SIZE = 2_000;
 const ROW_CHUNK_CONCURRENCY = 4;
@@ -103,6 +103,17 @@ export async function resolveValidationColumns(
     ...c,
     classification: c.classificationId ? classMap.get(c.classificationId) ?? null : null,
   }));
+}
+
+/**
+ * Fetch all SchemaColumnComparison rules for a schema in the shape validateFile() expects.
+ */
+export async function resolveSchemaComparisons(schemaId: string): Promise<ComparisonRule[]> {
+  const rows = await prismaAdmin.schemaColumnComparison.findMany({
+    where: { schemaId },
+    select: { sourceColumnName: true, operator: true, targetColumnName: true },
+  });
+  return rows as ComparisonRule[];
 }
 
 // ── Blob-path construction ───────────────────────────────────────────────────
