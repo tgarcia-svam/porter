@@ -54,6 +54,13 @@ export default async function UploadPage() {
                       },
                     },
                   },
+                  comparisons: {
+                    select: {
+                      sourceColumnName: true,
+                      operator: true,
+                      targetColumnName: true,
+                    },
+                  },
                 },
               },
             },
@@ -105,6 +112,11 @@ export default async function UploadPage() {
                   : null,
               }
             : null,
+        })),
+        comparisons: sp.schema.comparisons.map((r) => ({
+          sourceColumnName: r.sourceColumnName,
+          operator: r.operator,
+          targetColumnName: r.targetColumnName,
         })),
       })),
     }))
