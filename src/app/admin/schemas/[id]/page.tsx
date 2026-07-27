@@ -16,6 +16,7 @@ export default async function EditSchemaPage({
         columns: { orderBy: { order: "asc" } },
         visualizations: { orderBy: { order: "asc" } },
         projects: { select: { projectId: true } },
+        comparisons: true,
       },
     }),
     prisma.project.findMany({
@@ -58,6 +59,12 @@ export default async function EditSchemaPage({
             valueColumn: v.aggregate === "COUNT" ? "*" : v.valueColumn,
             xColumn: v.xColumn ?? null,
             granularity: (v.granularity as "DAY" | "MONTH" | "YEAR" | null) ?? null,
+          })),
+          comparisons: schema.comparisons.map((r) => ({
+            id: r.id,
+            sourceColumnName: r.sourceColumnName,
+            operator: r.operator as "LT" | "LTE" | "GT" | "GTE",
+            targetColumnName: r.targetColumnName,
           })),
         }}
         allProjects={allProjects}

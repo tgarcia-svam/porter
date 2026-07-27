@@ -205,6 +205,7 @@ model Schema {
   columns        SchemaColumn[]
   uploads        FileUpload[]
   visualizations Visualization[]
+  comparisons    SchemaColumnComparison[]
 
   @@index([deletedAt])
 }
@@ -249,6 +250,19 @@ model SchemaColumn {
 
   schema           Schema          @relation(fields: [schemaId], references: [id], onDelete: Cascade)
   classification   Classification? @relation(fields: [classificationId], references: [id], onDelete: SetNull)
+}
+
+model SchemaColumnComparison {
+  id               String             @id @default(cuid())
+  schemaId         String
+  sourceColumnName String
+  operator         ComparisonOperator
+  targetColumnName String
+  createdAt        DateTime           @default(now())
+
+  schema           Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@index([schemaId])
 }
 
 model Classification {
@@ -446,6 +460,13 @@ enum AggregateFn {
   MIN
   MAX
   MEDIAN
+}
+
+enum ComparisonOperator {
+  LT
+  LTE
+  GT
+  GTE
 }
 
 enum Granularity {

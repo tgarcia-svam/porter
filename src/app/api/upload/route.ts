@@ -8,6 +8,7 @@ import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import { enqueueUploadJob, isServiceBusConfigured } from "@/lib/service-bus";
 import {
   resolveValidationColumns,
+  resolveSchemaComparisons,
   buildUploadBlobName,
   toMissingColumnErrors,
   createUploadWithResults,
@@ -165,7 +166,10 @@ export const POST = withHandler(async (req: NextRequest) => {
   // ── Inline fallback (no Service Bus — local dev) ───────────────────────────
   // Runs the full pipeline synchronously within this request.
 
-  const columnsForValidation = await resolveValidationColumns(schema.columns);
+  const [columnsForValidation, comparisons] = await Promise.all([
+    resolveValidationColumns(schema.columns),
+    resolveSchemaComparisons(schemaId),
+  ]);
 
   const { errors, errorsCapped, rowCount, missingColumns, rows } = await validateFile(
     buffer,
@@ -173,6 +177,7 @@ export const POST = withHandler(async (req: NextRequest) => {
     columnsForValidation,
     sheetName,
     file.name,
+    comparisons,
   );
 
   const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];

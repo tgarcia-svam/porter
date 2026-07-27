@@ -17,6 +17,12 @@ export type ValidationReport = {
   rows: Record<string, string>[];
 };
 
+export type ComparisonRule = {
+  sourceColumnName: string;
+  operator: "LT" | "LTE" | "GT" | "GTE";
+  targetColumnName: string;
+};
+
 export type ClassificationConstraint = {
   type: "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
   description?: string | null; // uploader-facing explanation, surfaced in REGEX errors
@@ -249,7 +255,8 @@ function validateRow(
   rowNumber: number,
   columns: PreparedColumn[],
   headerMap: Map<string, string>,
-  errors: ValidationError[]
+  errors: ValidationError[],
+  comparisons?: ComparisonRule[]
 ): boolean {
   if (errors.length >= MAX_ERRORS) return false; // caller checks errorsCapped
 
@@ -277,6 +284,44 @@ function validateRow(
     const clsError = checkClassification(value, col);
     if (clsError) {
       errors.push({ row: rowNumber, column: col.name, value, error: clsError });
+    }
+  }
+
+  if (comparisons?.length) {
+    const typeByLcName = new Map(columns.map((c) => [c.name.toLowerCase(), c.dataType]));
+    const LABEL: Record<ComparisonRule["operator"], string> = {
+      LT: "<", LTE: "≤", GT: ">", GTE: "≥",
+    };
+    for (const rule of comparisons) {
+      if (errors.length >= MAX_ERRORS) break;
+      const srcHeader = headerMap.get(rule.sourceColumnName.toLowerCase());
+      const tgtHeader = headerMap.get(rule.targetColumnName.toLowerCase());
+      if (!srcHeader || !tgtHeader) continue;
+      const srcRaw = String(row[srcHeader] ?? "").trim();
+      const tgtRaw = String(row[tgtHeader] ?? "").trim();
+      if (!srcRaw || !tgtRaw) continue;
+      const srcType = typeByLcName.get(rule.sourceColumnName.toLowerCase());
+      let sv: number, tv: number;
+      if (srcType === "DATE") {
+        const sd = parseDateStrict(srcRaw), td = parseDateStrict(tgtRaw);
+        if (!sd || !td) continue;
+        sv = sd.getTime(); tv = td.getTime();
+      } else {
+        sv = Number(srcRaw); tv = Number(tgtRaw);
+        if (isNaN(sv) || isNaN(tv)) continue;
+      }
+      const passed =
+        rule.operator === "LT"  ? sv < tv  :
+        rule.operator === "LTE" ? sv <= tv :
+        rule.operator === "GT"  ? sv > tv  : sv >= tv;
+      if (!passed) {
+        errors.push({
+          row: rowNumber,
+          column: rule.sourceColumnName,
+          value: srcRaw,
+          error: `'${rule.sourceColumnName}' must be ${LABEL[rule.operator]} '${rule.targetColumnName}'`,
+        });
+      }
     }
   }
 
@@ -310,7 +355,8 @@ async function parseCsvStreaming(
   buffer: Buffer,
   columns: PreparedColumn[],
   headerMap: Map<string, string>,
-  missingColumns: string[]
+  missingColumns: string[],
+  comparisons?: ComparisonRule[]
 ): Promise<Omit<ValidationReport, "missingColumns">> {
   return new Promise((resolve) => {
     const errors: ValidationError[] = [];
@@ -347,7 +393,7 @@ async function parseCsvStreaming(
         rowCount++;
         const rowNumber = rowCount + 1; // +1 for header row
 
-        const hadCapacity = validateRow(row, rowNumber, columns, headerMap, errors);
+        const hadCapacity = validateRow(row, rowNumber, columns, headerMap, errors, comparisons);
 
         // Only accumulate rows when under the error threshold (no errors yet)
         // — if validation has failed we won't store rows anyway
@@ -425,7 +471,8 @@ async function parseExcel(buffer: Buffer, sheetName?: string): Promise<Record<st
 async function validateExcel(
   buffer: Buffer,
   columns: PreparedColumn[],
-  sheetName?: string
+  sheetName?: string,
+  comparisons?: ComparisonRule[]
 ): Promise<Omit<ValidationReport, "missingColumns"> & { headerMap: Map<string, string>; missingColumns: string[] }> {
   let rawRows: Record<string, string>[];
   try {
@@ -471,7 +518,7 @@ async function validateExcel(
   const errors: ValidationError[] = [];
 
   for (let i = 0; i < rawRows.length; i++) {
-    validateRow(rawRows[i], i + 2, columns, headerMap, errors);
+    validateRow(rawRows[i], i + 2, columns, headerMap, errors, comparisons);
     if (errors.length >= MAX_ERRORS) break;
   }
 
@@ -493,6 +540,7 @@ export async function validateFile(
   columns: ColumnDef[],
   sheetName?: string,
   fileName?: string,
+  comparisons?: ComparisonRule[],
 ): Promise<ValidationReport> {
   const ext = fileName?.split(".").pop()?.toLowerCase();
   // Treat application/octet-stream as Excel only when the extension confirms it —
@@ -508,7 +556,7 @@ export async function validateFile(
   const prepared = prepareColumns(columns);
 
   if (isExcel) {
-    const { headerMap: _hm, ...result } = await validateExcel(buffer, prepared, sheetName);
+    const { headerMap: _hm, ...result } = await validateExcel(buffer, prepared, sheetName, comparisons);
     return result;
   }
 
@@ -516,7 +564,7 @@ export async function validateFile(
   const headerMap = new Map<string, string>();
   const missingColumns: string[] = [];
   try {
-    const result = await parseCsvStreaming(buffer, prepared, headerMap, missingColumns);
+    const result = await parseCsvStreaming(buffer, prepared, headerMap, missingColumns, comparisons);
     return { ...result, missingColumns };
   } catch {
     return {
