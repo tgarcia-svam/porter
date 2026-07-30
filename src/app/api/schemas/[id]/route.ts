@@ -14,12 +14,55 @@ const ColumnSchema = z.object({
   classificationId: z.string().nullable().optional(),
 });
 
+const ComparisonRuleSchema = z.object({
+  sourceColumnName: z.string().min(1),
+  operator: z.enum(["LT", "LTE", "GT", "GTE"]),
+  targetColumnName: z.string().min(1),
+});
+
+type ColumnRef = { name: string; dataType: string };
+
+function comparisonTypeGroup(dt: string): "numeric" | "date" | null {
+  if (dt === "NUMBER" || dt === "INTEGER") return "numeric";
+  if (dt === "DATE") return "date";
+  return null;
+}
+
+function validateComparisonRules(
+  columns: ColumnRef[],
+  rules: z.infer<typeof ComparisonRuleSchema>[]
+): string | null {
+  const typeByName = new Map(columns.map((c) => [c.name, c.dataType]));
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    if (rule.sourceColumnName === rule.targetColumnName) {
+      return `Comparison rule: source and target cannot be the same column ("${rule.sourceColumnName}").`;
+    }
+    const srcType = typeByName.get(rule.sourceColumnName);
+    const tgtType = typeByName.get(rule.targetColumnName);
+    if (srcType === undefined) return `Comparison rule references unknown column "${rule.sourceColumnName}".`;
+    if (tgtType === undefined) return `Comparison rule references unknown column "${rule.targetColumnName}".`;
+    const srcGroup = comparisonTypeGroup(srcType);
+    const tgtGroup = comparisonTypeGroup(tgtType);
+    if (!srcGroup) return `Column "${rule.sourceColumnName}" (${srcType}) cannot be used in comparisons.`;
+    if (!tgtGroup) return `Column "${rule.targetColumnName}" (${tgtType}) cannot be used in comparisons.`;
+    if (srcGroup !== tgtGroup) {
+      return `Columns "${rule.sourceColumnName}" and "${rule.targetColumnName}" are different type groups and cannot be compared.`;
+    }
+    const key = `${rule.sourceColumnName}|${rule.operator}|${rule.targetColumnName}`;
+    if (seen.has(key)) return `Duplicate comparison rule: "${rule.sourceColumnName}" ${rule.operator} "${rule.targetColumnName}".`;
+    seen.add(key);
+  }
+  return null;
+}
+
 const UpdateSchemaBody = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   projectIds: z.array(z.string()).optional(),
   columns: z.array(ColumnSchema).min(1).optional(),
   visualizations: z.array(VisualizationSchema).optional(),
+  comparisons: z.array(ComparisonRuleSchema).optional(),
 });
 
 export const GET = withHandler<{ params: Promise<{ id: string }> }>(
@@ -34,6 +77,7 @@ export const GET = withHandler<{ params: Promise<{ id: string }> }>(
         columns: { orderBy: { order: "asc" } },
         visualizations: { orderBy: { order: "asc" } },
         projects: { include: { project: { select: { id: true, name: true } } } },
+        comparisons: true,
       },
     });
 
@@ -56,17 +100,18 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
     const parsed = UpdateSchemaBody.safeParse(body);
     if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
-    const { name, description, projectIds, columns, visualizations } = parsed.data;
+    const { name, description, projectIds, columns, visualizations, comparisons } = parsed.data;
 
     if (columns) {
       const compatError = await checkColumnClassifications(columns);
       if (compatError) return apiBadRequest(compatError);
     }
 
-    // Validate visualizations against the columns that will be in effect: the
-    // incoming columns when provided, otherwise the schema's existing columns.
-    if (visualizations?.length) {
-      let effectiveColumns: { name: string; dataType: string }[];
+    // Validate visualizations + comparisons against the columns that will be in
+    // effect: the incoming columns when provided, otherwise the existing ones.
+    let effectiveColumns: ColumnRef[] | undefined;
+    const needsEffectiveColumns = (visualizations?.length ?? 0) > 0 || (comparisons !== undefined);
+    if (needsEffectiveColumns) {
       if (columns) {
         effectiveColumns = columns;
       } else {
@@ -75,8 +120,16 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
           select: { name: true, dataType: true },
         });
       }
+    }
+
+    if (visualizations?.length && effectiveColumns) {
       const vizError = validateVisualizations(effectiveColumns, visualizations);
       if (vizError) return apiBadRequest(vizError);
+    }
+
+    if (comparisons !== undefined && effectiveColumns) {
+      const compError = validateComparisonRules(effectiveColumns, comparisons);
+      if (compError) return apiBadRequest(compError);
     }
 
     // Replace columns, visualizations, and project assignments atomically
@@ -112,19 +165,33 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
           });
         }
       }
+      if (comparisons !== undefined) {
+        await tx.schemaColumnComparison.deleteMany({ where: { schemaId: id } });
+        if (comparisons.length > 0) {
+          await tx.schemaColumnComparison.createMany({
+            data: comparisons.map((r) => ({
+              schemaId: id,
+              sourceColumnName: r.sourceColumnName,
+              operator: r.operator,
+              targetColumnName: r.targetColumnName,
+            })),
+          });
+        }
+      }
       return tx.schema.update({
         where: { id },
         data: {
           ...(name && { name }),
           ...(description !== undefined && { description }),
-          // Bump version whenever columns change so FileUpload records can be
-          // interpreted against the exact schema definition that was in effect.
-          ...(columns && { version: { increment: 1 } }),
+          // Bump version whenever columns or comparison rules change — both affect
+          // validation semantics for FileUpload records.
+          ...((columns || comparisons !== undefined) && { version: { increment: 1 } }),
         },
         include: {
           columns: { orderBy: { order: "asc" } },
           visualizations: { orderBy: { order: "asc" } },
           projects: { include: { project: { select: { id: true, name: true } } } },
+          comparisons: true,
         },
       });
     });

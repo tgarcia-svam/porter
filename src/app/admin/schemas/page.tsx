@@ -1,44 +1,41 @@
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
-import Link from "next/link";
-import SchemaListClient from "@/components/admin/SchemaListClient";
+import SchemaPageTabs from "@/components/admin/SchemaPageTabs";
 
 export const dynamic = 'force-dynamic';
 
 export default async function SchemasPage() {
-  const schemas = await prisma.schema.findMany({
-    where: { deletedAt: null },
-    include: {
-      columns: {
-        orderBy: { order: "asc" },
-        include: { classification: { select: { name: true } } },
+  const [schemas, classificationsRaw] = await Promise.all([
+    prisma.schema.findMany({
+      where: { deletedAt: null },
+      include: {
+        columns: {
+          orderBy: { order: "asc" },
+          include: { classification: { select: { name: true } } },
+        },
+        projects: {
+          where: { project: { deletedAt: null } },
+          include: { project: { select: { id: true, name: true } } },
+        },
+        _count: { select: { uploads: true } },
       },
-      projects: {
-        where: { project: { deletedAt: null } },
-        include: { project: { select: { id: true, name: true } } },
-      },
-      _count: { select: { uploads: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.classification.findMany({
+      include: { _count: { select: { columns: true } } },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
+  const initialClassifications = classificationsRaw.map((c) => ({
+    ...c,
+    minDate: c.minDate ? c.minDate.toISOString() : null,
+    maxDate: c.maxDate ? c.maxDate.toISOString() : null,
+  }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">File Formats</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Define file format requirements for uploaders.
-          </p>
-        </div>
-        <Link
-          href="/admin/schemas/new"
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
-        >
-          New file format
-        </Link>
-      </div>
-
-      <SchemaListClient initialSchemas={schemas} />
-    </div>
+    <SchemaPageTabs
+      initialSchemas={schemas}
+      initialClassifications={initialClassifications}
+    />
   );
 }

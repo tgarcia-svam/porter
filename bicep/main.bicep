@@ -449,6 +449,10 @@ resource workerFunctionSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     // Shared secret authenticating this function to /api/upload/process
     UPLOAD_WORKER_SECRET: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=upload-worker-secret)'
 
+    // Timezone for NCRONTAB expressions — makes schedule cron fire in local time
+    // rather than UTC, so DST transitions are handled automatically.
+    WEBSITE_TIME_ZONE: 'America/New_York'
+
     // Application Insights
     APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.properties.ConnectionString
     ApplicationInsightsAgent_EXTENSION_VERSION: '~3'
@@ -857,14 +861,46 @@ resource storageDelegatorAssignment 'Microsoft.Authorization/roleAssignments@202
   }
 }
 
-// App Service — read/write/delete uploads storage. Storage Blob Data Contributor
-// covers create/read/write/delete (so no account key is needed for deletes) and
-// blobs/read covers GetBlobTags for Defender malware scan results.
+// App Service — read/write/delete uploads storage.
 resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, appServiceName, storageBlobDataContributorRoleId)
   scope: storageAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: appService.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// App Service — read blob index tags written by Defender for Storage.
+// GetBlobTags requires blobs/tags/read which is not in Storage Blob Data Contributor;
+// we add it as a separate minimal custom role rather than elevating to Data Owner.
+resource blobTagReaderRoleDef 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(storageAccount.id, 'blob-tag-reader')
+  scope: storageAccount
+  properties: {
+    roleName: 'Blob Tag Reader (${storageAccount.name})'
+    description: 'Read-only access to blob index tags — used to check Defender malware scan verdicts'
+    type: 'CustomRole'
+    assignableScopes: [storageAccount.id]
+    permissions: [
+      {
+        actions: []
+        notActions: []
+        dataActions: [
+          'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read'
+        ]
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource storageBlobTagReadAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, appServiceName, 'blob-tag-reader')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: blobTagReaderRoleDef.id
     principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
   }

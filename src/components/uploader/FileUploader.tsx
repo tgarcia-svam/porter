@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import ValidationResults from "./ValidationResults";
@@ -30,11 +30,24 @@ type Column = {
   classification: Classification | null;
 };
 
+type ComparisonOperator = "LT" | "LTE" | "GT" | "GTE";
+
+type Comparison = {
+  sourceColumnName: string;
+  operator: ComparisonOperator;
+  targetColumnName: string;
+};
+
+const COMPARISON_OPERATOR_LABELS: Record<ComparisonOperator, string> = {
+  LT: "<", LTE: "≤", GT: ">", GTE: "≥",
+};
+
 type Schema = {
   id: string;
   name: string;
   description: string | null;
   columns: Column[];
+  comparisons: Comparison[];
 };
 
 type Schedule = {
@@ -110,8 +123,17 @@ type UploadResult = {
 
 function DownloadIcon() {
   return (
-    <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
     </svg>
   );
 }
@@ -149,7 +171,7 @@ export default function FileUploader({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "dashboard">("upload");
+  const [activeTab, setActiveTab] = useState<"upload" | "entry" | "dashboard" | "files">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -172,7 +194,7 @@ export default function FileUploader({
     setUploadError(null);
   }
 
-  function handleTabChange(tab: "upload" | "entry" | "dashboard") {
+  function handleTabChange(tab: "upload" | "entry" | "dashboard" | "files") {
     setActiveTab(tab);
     if (tab !== "dashboard") clearFileState();
   }
@@ -480,10 +502,11 @@ export default function FileUploader({
     );
   }
 
-  const tabs: { key: "upload" | "entry" | "dashboard"; label: string }[] = [
-    { key: "upload", label: "File Upload" },
-    { key: "entry",  label: "Manual Entry" },
+  const tabs: { key: "upload" | "entry" | "dashboard" | "files"; label: string }[] = [
+    { key: "upload",    label: "File Upload" },
+    { key: "entry",     label: "Manual Entry" },
     { key: "dashboard", label: "Dashboard" },
+    { key: "files",     label: "Files" },
   ];
 
   return (
@@ -542,6 +565,7 @@ export default function FileUploader({
             </div>
           </div>
         )}
+
       </div>
 
       {/* ── Main panel ── */}
@@ -646,6 +670,25 @@ export default function FileUploader({
                   <p className="mt-1.5 text-xs text-gray-500">
                     <span className="text-red-500 font-bold">*</span> required
                   </p>
+                  {selectedSchema.comparisons.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                        Cross-column Rules
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedSchema.comparisons.map((r, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200"
+                          >
+                            <code className="font-mono">{r.sourceColumnName}</code>
+                            <span>{COMPARISON_OPERATOR_LABELS[r.operator]}</span>
+                            <code className="font-mono">{r.targetColumnName}</code>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -788,6 +831,16 @@ export default function FileUploader({
             )
         )}
 
+        {activeTab === "files" && (
+          selectedProjectId
+            ? <FilesPanel projectId={selectedProjectId} />
+            : (
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
+                Select a project to browse files.
+              </div>
+            )
+        )}
+
       </div>
     </div>
   );
@@ -878,5 +931,232 @@ function UploadIcon() {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
       </svg>
     </div>
+  );
+}
+
+type ProjectResource = {
+  id: string;
+  fileName: string;
+  filePath: string | null;
+  contentType: string | null;
+  organizationIds: string[];
+  createdAt: string;
+};
+
+function normalizePath(p: string | null | undefined): string {
+  return (p ?? "").replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "").trim();
+}
+
+function FilesPanel({ projectId }: { projectId: string }) {
+  const [resources, setResources] = useState<ProjectResource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPath, setCurrentPath] = useState("");
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setCurrentPath("");
+    fetch(`/api/projects/${projectId}/resources`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setResources)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  const { filesAtLevel, subfolders } = useMemo(() => {
+    const filesAtLevel: ProjectResource[] = [];
+    const subfolderSet = new Set<string>();
+
+    for (const r of resources) {
+      const rPath = normalizePath(r.filePath);
+      if (rPath === currentPath) {
+        filesAtLevel.push(r);
+      } else if (currentPath === "" && rPath !== "") {
+        subfolderSet.add(rPath.split("/")[0]);
+      } else if (currentPath !== "" && rPath.startsWith(currentPath + "/")) {
+        const remaining = rPath.slice(currentPath.length + 1);
+        subfolderSet.add(remaining.split("/")[0]);
+      }
+    }
+
+    return {
+      filesAtLevel,
+      subfolders: [...subfolderSet].sort((a, b) => a.localeCompare(b)),
+    };
+  }, [resources, currentPath]);
+
+  const breadcrumbs = useMemo(() => {
+    if (!currentPath) return [];
+    return currentPath.split("/");
+  }, [currentPath]);
+
+  async function handleFileAction(r: ProjectResource, disposition: "inline" | "attachment") {
+    setDownloading(r.id);
+    setDownloadError(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/resources/${r.id}/download?disposition=${disposition}`
+      );
+      if (!res.ok) {
+        setDownloadError("Action failed. Please try again.");
+        return;
+      }
+      const { downloadUrl } = await res.json();
+      if (disposition === "inline") {
+        window.open(downloadUrl, "_blank", "noopener,noreferrer");
+      } else {
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = r.fileName;
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  function navigateTo(path: string) {
+    setCurrentPath(path);
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+        Loading…
+      </div>
+    );
+  }
+
+  if (resources.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+        No files available for this project.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {downloadError && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50 border-b border-red-100 text-sm text-red-700">
+          <span>{downloadError}</span>
+          <button onClick={() => setDownloadError(null)} className="shrink-0 text-red-400 hover:text-red-600 leading-none">✕</button>
+        </div>
+      )}
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-4 py-3 border-b border-gray-100 text-sm bg-gray-50">
+        <button
+          onClick={() => navigateTo("")}
+          className={currentPath === "" ? "font-medium text-gray-700" : "text-brand-600 hover:underline"}
+        >
+          Files
+        </button>
+        {breadcrumbs.map((segment, i) => {
+          const path = breadcrumbs.slice(0, i + 1).join("/");
+          const isLast = i === breadcrumbs.length - 1;
+          return (
+            <span key={path} className="flex items-center gap-1">
+              <span className="text-gray-300">/</span>
+              {isLast ? (
+                <span className="font-medium text-gray-700">{segment}</span>
+              ) : (
+                <button onClick={() => navigateTo(path)} className="text-brand-600 hover:underline">
+                  {segment}
+                </button>
+              )}
+            </span>
+          );
+        })}
+      </div>
+
+      {/* Directory contents */}
+      <div className="divide-y divide-gray-100">
+        {subfolders.length === 0 && filesAtLevel.length === 0 && (
+          <div className="px-6 py-8 text-center text-sm text-gray-400">
+            This folder is empty.
+          </div>
+        )}
+
+        {/* Folders */}
+        {subfolders.map((folder) => {
+          const targetPath = currentPath ? `${currentPath}/${folder}` : folder;
+          return (
+            <button
+              key={folder}
+              onClick={() => navigateTo(targetPath)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-gray-50 transition-colors group"
+            >
+              <FolderIcon />
+              <span className="flex-1 text-gray-800 font-medium group-hover:text-brand-700">
+                {folder}
+              </span>
+              <ChevronIcon />
+            </button>
+          );
+        })}
+
+        {/* Files */}
+        {filesAtLevel.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50">
+            <FileDocIcon contentType={r.contentType} />
+            <span className="flex-1 text-gray-700 truncate">{r.fileName}</span>
+            {downloading === r.id ? (
+              <span className="shrink-0 text-xs text-gray-400">Loading…</span>
+            ) : (
+              <span className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => handleFileAction(r, "inline")}
+                  title="View in browser"
+                  className="p-1.5 rounded text-gray-400 hover:text-brand-600 hover:bg-gray-100 transition-colors"
+                >
+                  <EyeIcon />
+                </button>
+                <button
+                  onClick={() => handleFileAction(r, "attachment")}
+                  title="Download"
+                  className="p-1.5 rounded text-gray-400 hover:text-brand-600 hover:bg-gray-100 transition-colors"
+                >
+                  <DownloadIcon />
+                </button>
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg className="w-5 h-5 text-amber-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function FileDocIcon({ contentType }: { contentType: string | null }) {
+  const ct = contentType ?? "";
+  let color = "text-gray-400";
+  if (ct.includes("pdf")) color = "text-red-400";
+  else if (ct.includes("spreadsheet") || ct.includes("excel") || ct.includes("csv")) color = "text-green-500";
+  else if (ct.includes("word") || ct.includes("document")) color = "text-blue-400";
+  else if (ct.includes("image")) color = "text-purple-400";
+  return (
+    <svg className={`w-5 h-5 shrink-0 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
   );
 }

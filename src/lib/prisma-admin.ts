@@ -40,10 +40,13 @@ function extractId(result: unknown): string | undefined {
 }
 
 function makeAdminClient() {
-  const url = process.env.DATABASE_URL_ADMIN ?? process.env.DATABASE_URL;
+  // Use datasourceUrl (the Prisma 5+ single-string override) instead of the
+  // conditional datasources object — passing { db: { url } } | undefined as
+  // datasources confuses Prisma 6's TypeMap inference and strips all model
+  // types from the extended client, causing TS2339 on every model accessor.
   const base = new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    datasources: url ? { db: { url } } : undefined,
+    datasourceUrl: process.env.DATABASE_URL_ADMIN ?? process.env.DATABASE_URL,
   });
 
   return base.$extends({

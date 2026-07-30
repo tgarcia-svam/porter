@@ -23,6 +23,7 @@ import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
 import {
   resolveValidationColumns,
+  resolveSchemaComparisons,
   toMissingColumnErrors,
   finalizeUpload,
 } from "@/lib/upload-service";
@@ -118,7 +119,10 @@ export async function POST(req: NextRequest) {
     return apiNotFound("Schema not found");
   }
 
-  const columnsForValidation = await resolveValidationColumns(schema.columns);
+  const [columnsForValidation, comparisons] = await Promise.all([
+    resolveValidationColumns(schema.columns),
+    resolveSchemaComparisons(upload.schemaId),
+  ]);
 
   // ── Download blob ─────────────────────────────────────────────────────────
   const tDownload = Date.now();
@@ -146,6 +150,7 @@ export async function POST(req: NextRequest) {
     columnsForValidation,
     sheetName,
     blobName.split("/").pop(),
+    comparisons,
   );
   console.log(`[process] validation: rows=${rowCount} errors=${errors.length} duration=${Date.now() - tValidate}ms elapsed=${elapsed()}`);
 

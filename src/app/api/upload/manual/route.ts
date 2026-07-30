@@ -31,6 +31,7 @@ import { auditStore, clientIp } from "@/lib/audit-context";
 import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiBadGateway, withHandler } from "@/lib/api-error";
 import {
   resolveValidationColumns,
+  resolveSchemaComparisons,
   buildUploadBlobName,
   toMissingColumnErrors,
   createUploadWithResults,
@@ -150,11 +151,17 @@ export const POST = withHandler(async (req: NextRequest) => {
   });
   const buffer = Buffer.from(csv, "utf-8");
 
-  const columnsForValidation = await resolveValidationColumns(schema.columns);
+  const [columnsForValidation, comparisons] = await Promise.all([
+    resolveValidationColumns(schema.columns),
+    resolveSchemaComparisons(schemaId),
+  ]);
   const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } = await validateFile(
     buffer,
     "text/csv",
-    columnsForValidation
+    columnsForValidation,
+    undefined,
+    undefined,
+    comparisons,
   );
 
   const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
