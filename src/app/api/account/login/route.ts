@@ -75,7 +75,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const user = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" } },
   });
-  if (!user || user.authMethod !== "PASSWORD" || !user.passwordHash) return generic();
+  if (!user || user.deletedAt || user.authMethod !== "PASSWORD" || !user.passwordHash) return generic();
 
   // Always block a locked account before any credential/second-factor work.
   const lock = getLockState(user);

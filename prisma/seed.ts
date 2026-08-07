@@ -17,18 +17,21 @@ async function main() {
   }
   const adminEmail = raw.toLowerCase();
 
-  // Seed admin signs in via SSO (Google / Microsoft) — not a local password.
-  // Pin authMethod to SSO on both create AND update: the migration backfills
-  // existing rows to SSO, but a local `prisma db push` (which skips migration SQL)
-  // leaves them at the PASSWORD column default, which would block SSO sign-in.
-  // Forcing SSO here guarantees the bootstrap admin can always authenticate.
+  // SEED_ADMIN_AUTHMETHOD controls whether the bootstrap admin signs in via SSO
+  // or local password. Default is SSO for self-hosted deployments; set to PASSWORD
+  // when provisioned by porter-platform (SaaS) so the admin can set a password
+  // via the invite flow without needing a Google/Entra SSO app configured.
+  const authMethod = (process.env.SEED_ADMIN_AUTHMETHOD ?? "SSO") === "PASSWORD"
+    ? "PASSWORD"
+    : "SSO";
+
   const user = await prisma.user.upsert({
     where:  { email: adminEmail },
-    update: { role: "ADMIN", authMethod: "SSO" },
-    create: { email: adminEmail, name: "Admin", role: "ADMIN", authMethod: "SSO" },
+    update: { role: "ADMIN", authMethod },
+    create: { email: adminEmail, name: "Admin", role: "ADMIN", authMethod },
   });
 
-  console.log(`  ADMIN  ${user.email}  (SSO)`);
+  console.log(`  ADMIN  ${user.email}  (${authMethod})`);
 }
 
 main()

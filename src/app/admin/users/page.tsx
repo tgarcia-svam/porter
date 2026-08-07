@@ -4,6 +4,7 @@ import UserManager from "@/components/admin/UserManager";
 export default async function UsersPage() {
   const [users, organizations] = await Promise.all([
     prisma.user.findMany({
+      where: { deletedAt: null },
       include: {
         organization: { select: { id: true, name: true } },
         _count: { select: { passkeys: true } },

@@ -37,6 +37,31 @@ export default function UserManager({
 
   // ── Users ──────────────────────────────────────────────────────────────
   const [users, setUsers] = useState<User[]>(initialUsers);
+
+  // ── Filters ────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRole, setFilterRole] = useState<"all" | "ADMIN" | "UPLOADER">("all");
+  const [filterOrg, setFilterOrg] = useState<"all" | "unassigned" | string>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "locked" | "mfa_pending">("all");
+
+  const filteredUsers = users.filter((u) => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!u.email.toLowerCase().includes(q) && !(u.name ?? "").toLowerCase().includes(q)) return false;
+    }
+    if (filterRole !== "all" && u.role !== filterRole) return false;
+    if (filterOrg === "unassigned" && u.organization) return false;
+    if (filterOrg !== "all" && filterOrg !== "unassigned" && u.organization?.id !== filterOrg) return false;
+    if (filterStatus === "locked") {
+      const isLocked = (u.lockedUntil && new Date(u.lockedUntil) > new Date()) || u.lockedForReset;
+      if (!isLocked) return false;
+    }
+    if (filterStatus === "mfa_pending") {
+      if (!(u.authMethod === "PASSWORD" && !u.mfaEnabled && u.passkeyCount === 0)) return false;
+    }
+    return true;
+  });
+
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<"ADMIN" | "UPLOADER">("UPLOADER");
   const [newOrgId, setNewOrgId] = useState("");
@@ -376,10 +401,63 @@ export default function UserManager({
             </div>
           )}
 
+          {/* Filter bar */}
+          {users.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search name or email…"
+                  className="flex-1 min-w-[200px] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <select
+                  value={filterRole}
+                  onChange={(e) => setFilterRole(e.target.value as typeof filterRole)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="all">All roles</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="UPLOADER">Uploader</option>
+                </select>
+                <select
+                  value={filterOrg}
+                  onChange={(e) => setFilterOrg(e.target.value)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="all">All organizations</option>
+                  <option value="unassigned">Unassigned</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>{org.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="locked">Locked</option>
+                  <option value="mfa_pending">MFA pending</option>
+                </select>
+              </div>
+              {filteredUsers.length !== users.length && (
+                <p className="text-xs text-gray-500">
+                  Showing {filteredUsers.length} of {users.length} users
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {users.length === 0 ? (
               <p className="px-6 py-12 text-center text-sm text-gray-500">
                 No users yet. Add one above.
+              </p>
+            ) : filteredUsers.length === 0 ? (
+              <p className="px-6 py-12 text-center text-sm text-gray-500">
+                No users match the current filters.
               </p>
             ) : (
               <table className="w-full text-sm">
@@ -393,7 +471,7 @@ export default function UserManager({
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
+                  {filteredUsers.map((user) => (
                     <tr key={user.id} className="border-b border-gray-50 last:border-0">
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-2">
