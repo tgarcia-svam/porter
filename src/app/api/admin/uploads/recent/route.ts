@@ -50,8 +50,8 @@ export const GET = withHandler(async (req: NextRequest) => {
     fileName: u.fileName,
     date: u.createdAt.toISOString(),
     status: u.status,
-    user: u.user.name ?? u.user.email,
-    organization: u.user.organization?.name ?? null,
+    user: u.user ? (u.user.name ?? u.user.email) : null,
+    organization: u.user?.organization?.name ?? null,
   }));
 
   return NextResponse.json({

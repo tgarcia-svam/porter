@@ -188,10 +188,12 @@ export async function exportUploadToWarehouse(
     // uploader's org + the schema's projects the same way the upload routes do
     // (separate queries per the repo's nested-include convention). Sort project
     // names so the multi-project segment is stable across re-exports.
-    const uploader = await prismaAdmin.user.findUnique({
-      where: { id: upload.userId },
-      select: { organization: { select: { name: true } } },
-    });
+    const uploader = upload.userId
+      ? await prismaAdmin.user.findUnique({
+          where: { id: upload.userId },
+          select: { organization: { select: { name: true } } },
+        })
+      : null;
     const schemaProjects = await prismaAdmin.schemaProject.findMany({
       where: { schemaId: upload.schemaId },
       select: { project: { select: { name: true } } },

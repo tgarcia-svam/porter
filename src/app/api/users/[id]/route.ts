@@ -103,15 +103,16 @@ export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
 
     if (id === session.user.id) return apiForbidden("Cannot delete your own account");
 
-    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true, deletedAt: true } });
     if (!target) return apiNotFound();
+    if (target.deletedAt) return apiForbidden("User is already deactivated");
 
     if (target.role === "ADMIN") {
-      const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+      const adminCount = await prisma.user.count({ where: { role: "ADMIN", deletedAt: null } });
       if (adminCount <= 1) return apiForbidden("Cannot remove the last admin account");
     }
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
     return new NextResponse(null, { status: 204 });
   }
 );

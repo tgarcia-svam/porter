@@ -21,6 +21,7 @@ export const GET = withHandler(async (req: NextRequest) => {
 
   // Never expose passwordHash / mfaSecretEnc — select only client-safe fields.
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     select: {
       id: true,
       email: true,

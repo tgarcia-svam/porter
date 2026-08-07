@@ -38,7 +38,7 @@ const callbacks: NextAuthConfig["callbacks"] = {
       where: { email: { equals: email, mode: "insensitive" } },
     });
 
-    if (!dbUser) {
+    if (!dbUser || dbUser.deletedAt) {
       logAuthEvent({ action: "auth.login.failed", userEmail: email });
       return false;
     }
