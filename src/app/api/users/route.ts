@@ -53,9 +53,35 @@ export const POST = withHandler(async (req: NextRequest) => {
   const email = parsed.data.email.toLowerCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return apiConflict("User already exists");
+  if (existing && !existing.deletedAt) return apiConflict("User already exists");
 
-  const user = await prisma.user.create({ data: { ...parsed.data, email } });
+  let user;
+  if (existing && existing.deletedAt) {
+    // Reactivate a previously deactivated user: reset all auth state so they
+    // go through the full invite flow as if newly added.
+    user = await prisma.$transaction(async (tx) => {
+      await tx.passkey.deleteMany({ where: { userId: existing.id } });
+      await tx.authToken.deleteMany({ where: { userId: existing.id } });
+      return tx.user.update({
+        where: { id: existing.id },
+        data: {
+          name: parsed.data.name ?? existing.name,
+          role: parsed.data.role,
+          organizationId: parsed.data.organizationId ?? null,
+          authMethod: parsed.data.authMethod,
+          deletedAt: null,
+          passwordHash: null,
+          mfaEnabled: false,
+          mfaSecretEnc: null,
+          lockedUntil: null,
+          lockedForReset: false,
+          failedLoginAttempts: 0,
+        },
+      });
+    });
+  } else {
+    user = await prisma.user.create({ data: { ...parsed.data, email } });
+  }
 
   // For password users, email a single-use invite link to set their password and
   // enroll MFA. The admin never sees or handles a password.
