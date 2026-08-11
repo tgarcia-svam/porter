@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 
-const IDLE_MS = 30 * 60 * 1000;       // 30 minutes
-const WARN_MS = IDLE_MS - 2 * 60 * 1000; // warn 2 minutes before
+const IDLE_MS = 30 * 60 * 1000;
+const WARN_BEFORE_MS = 2 * 60 * 1000;
+// Poll every 10 s — avoids browser setTimeout throttling in background tabs.
+const CHECK_MS = 10_000;
 
 const ACTIVITY_EVENTS = [
   "mousemove",
@@ -16,44 +18,52 @@ const ACTIVITY_EVENTS = [
 ] as const;
 
 export default function IdleTimeout() {
-  const [warning, setWarning] = useState(false);
-  const idleTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const warnTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [msLeft, setMsLeft] = useState<number | null>(null);
+  const lastActivity = useRef<number>(Date.now());
 
   useEffect(() => {
-    function reset() {
-      setWarning(false);
+    function onActivity() {
+      lastActivity.current = Date.now();
+    }
 
-      if (idleTimer.current)  clearTimeout(idleTimer.current);
-      if (warnTimer.current)  clearTimeout(warnTimer.current);
+    for (const ev of ACTIVITY_EVENTS) {
+      window.addEventListener(ev, onActivity, { passive: true });
+    }
 
-      warnTimer.current = setTimeout(() => setWarning(true), WARN_MS);
-      idleTimer.current = setTimeout(() => {
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActivity.current;
+      const remaining = IDLE_MS - idle;
+
+      if (remaining <= 0) {
         signOut({ callbackUrl: "/login?reason=idle" });
-      }, IDLE_MS);
-    }
-
-    reset(); // start timers on mount
-
-    for (const event of ACTIVITY_EVENTS) {
-      window.addEventListener(event, reset, { passive: true });
-    }
+      } else if (remaining <= WARN_BEFORE_MS) {
+        setMsLeft(remaining);
+      } else {
+        setMsLeft(null);
+      }
+    }, CHECK_MS);
 
     return () => {
-      if (idleTimer.current) clearTimeout(idleTimer.current);
-      if (warnTimer.current) clearTimeout(warnTimer.current);
-      for (const event of ACTIVITY_EVENTS) {
-        window.removeEventListener(event, reset);
+      clearInterval(interval);
+      for (const ev of ACTIVITY_EVENTS) {
+        window.removeEventListener(ev, onActivity);
       }
     };
   }, []);
 
-  if (!warning) return null;
+  if (msLeft === null) return null;
+
+  const mins = Math.floor(msLeft / 60_000);
+  const secs = Math.ceil((msLeft % 60_000) / 1000);
+  const label =
+    mins > 0
+      ? `${mins} minute${mins !== 1 ? "s" : ""}`
+      : `${secs} second${secs !== 1 ? "s" : ""}`;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-lg">
       <p className="text-sm font-medium text-amber-800">
-        Your session will expire in 2 minutes due to inactivity.
+        Your session will expire in {label} due to inactivity.
       </p>
       <p className="mt-1 text-xs text-amber-600">
         Move your mouse or press any key to stay signed in.

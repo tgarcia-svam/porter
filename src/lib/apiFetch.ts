@@ -10,11 +10,11 @@ function getCsrfToken(): string {
   return match ? match.split("=")[1] : "";
 }
 
-// When any API call returns 401 or 403 outside the login page, the session has
-// expired, the session binding failed, or the CSRF cookie was cleared (e.g. by
-// a screen-lock policy). Redirect to login rather than showing a silent error.
+// 401 means the session has expired or the session binding check failed.
+// 403s are intentionally excluded: domain 403s ("cannot delete your own account",
+// "cannot remove last admin") must show their error message, not trigger a sign-out.
 function handleAuthError(res: Response): Response {
-  if ((res.status === 401 || res.status === 403) && window.location.pathname !== "/login") {
+  if (res.status === 401 && window.location.pathname !== "/login") {
     void signOut({ callbackUrl: "/login?reason=session_expired" });
   }
   return res;

@@ -12,6 +12,18 @@ import {
 } from "@/lib/auth-tokens";
 
 /**
+ * Validate a token without consuming it. Used by the set-password page on mount
+ * so that expired links show an error immediately instead of only after form submit.
+ */
+export const GET = withHandler(async (req: NextRequest) => {
+  const token = req.nextUrl.searchParams.get("token") ?? "";
+  if (!token) return NextResponse.json({ valid: false });
+  const valid =
+    (await findValidToken(token, "INVITE")) ?? (await findValidToken(token, "RESET"));
+  return NextResponse.json({ valid: !!valid });
+});
+
+/**
  * Set a password from an invite or reset link. Serves both INVITE (new user) and
  * RESET (existing user) tokens. On success it stores the bcrypt hash, clears all
  * lockout state (including the hard lockedForReset lock — a successful reset is the

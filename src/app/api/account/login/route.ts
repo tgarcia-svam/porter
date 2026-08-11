@@ -75,7 +75,11 @@ export const POST = withHandler(async (req: NextRequest) => {
   const user = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" } },
   });
-  if (!user || user.deletedAt || user.authMethod !== "PASSWORD" || !user.passwordHash) return generic();
+  if (!user || user.deletedAt || user.authMethod !== "PASSWORD") return generic();
+  // Invited but never completed setup — tell them to check their email rather than
+  // giving a confusing "wrong password" message.
+  if (!user.passwordHash)
+    return NextResponse.json({ ok: false, code: "invite_pending" }, { status: 401 });
 
   // Always block a locked account before any credential/second-factor work.
   const lock = getLockState(user);
