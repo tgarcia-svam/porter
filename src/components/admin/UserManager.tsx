@@ -83,7 +83,12 @@ export default function UserManager({
   // ── Refresh helpers ────────────────────────────────────────────────────
   async function refreshUsers() {
     const res = await fetch("/api/users");
-    if (res.ok) setUsers(await res.json());
+    if (!res.ok) return;
+    // The API returns _count.passkeys; map it to passkeyCount to match the User type
+    // (the server component does the same mapping on initial load).
+    const raw: Array<Omit<User, "passkeyCount"> & { _count: { passkeys: number } }> =
+      await res.json();
+    setUsers(raw.map((u) => ({ ...u, passkeyCount: u._count.passkeys })));
   }
 
   async function refreshOrgs() {

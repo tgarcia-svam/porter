@@ -20,7 +20,19 @@ function Rule({ ok, children }: { ok: boolean; children: React.ReactNode }) {
 function SetPasswordContent() {
   const token = useSearchParams().get("token") ?? "";
 
-  const [phase, setPhase] = useState<"password" | "mfa" | "done">("password");
+  const [phase, setPhase] = useState<"checking" | "password" | "mfa" | "done" | "expired">(
+    token ? "checking" : "password"
+  );
+
+  // Validate the token before rendering the form so expired links show an error
+  // immediately instead of only after the user fills out and submits the form.
+  useEffect(() => {
+    if (!token || phase !== "checking") return;
+    fetch(`/api/account/reset?token=${encodeURIComponent(token)}`)
+      .then((r) => r.json())
+      .then((d) => setPhase(d.valid ? "password" : "expired"))
+      .catch(() => setPhase("expired"));
+  }, [token, phase]);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -169,6 +181,20 @@ function SetPasswordContent() {
               <p className="text-sm text-gray-500">This link is missing its token. Request a new one.</p>
               <Link href="/account/forgot" className="text-sm text-brand-600 hover:underline">
                 Request a reset link
+              </Link>
+            </div>
+          ) : phase === "checking" ? (
+            <div className="flex justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
+            </div>
+          ) : phase === "expired" ? (
+            <div className="text-center space-y-3">
+              <h1 className="text-xl font-bold text-gray-900">Link expired</h1>
+              <p className="text-sm text-gray-500">
+                This link has already been used or has expired. Request a new one.
+              </p>
+              <Link href="/account/forgot" className="text-sm text-brand-600 hover:underline">
+                Request a new link
               </Link>
             </div>
           ) : phase === "password" ? (
