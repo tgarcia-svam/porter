@@ -42,6 +42,7 @@ function LoginContent() {
         const mins = Math.max(1, Math.ceil((retryAfterSec ?? 900) / 60));
         return `Too many attempts. Try again in about ${mins} minute${mins === 1 ? "" : "s"}.`;
       }
+      case "invite_pending":     return "You haven't set a password yet. Check your email for an invitation link.";
       case "locked_reset":       return "Account locked after too many failed attempts. Reset your password to unlock it.";
       case "mfa_setup_required": return "Finish setting up your account from the email link, or reset your password.";
       default:                   return "Sign-in failed. Please try again.";

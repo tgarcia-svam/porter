@@ -21,6 +21,7 @@ export const GET = withHandler(async (req: NextRequest) => {
 
   // Never expose passwordHash / mfaSecretEnc — select only client-safe fields.
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     select: {
       id: true,
       email: true,
@@ -52,19 +53,45 @@ export const POST = withHandler(async (req: NextRequest) => {
   const email = parsed.data.email.toLowerCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return apiConflict("User already exists");
+  if (existing && !existing.deletedAt) return apiConflict("User already exists");
 
-  const user = await prisma.user.create({ data: { ...parsed.data, email } });
+  let user;
+  if (existing && existing.deletedAt) {
+    // Reactivate a previously deactivated user: reset all auth state so they
+    // go through the full invite flow as if newly added.
+    user = await prisma.$transaction(async (tx) => {
+      await tx.passkey.deleteMany({ where: { userId: existing.id } });
+      await tx.authToken.deleteMany({ where: { userId: existing.id } });
+      return tx.user.update({
+        where: { id: existing.id },
+        data: {
+          name: parsed.data.name ?? existing.name,
+          role: parsed.data.role,
+          organizationId: parsed.data.organizationId ?? null,
+          authMethod: parsed.data.authMethod,
+          deletedAt: null,
+          passwordHash: null,
+          mfaEnabled: false,
+          mfaSecretEnc: null,
+          lockedUntil: null,
+          lockedForReset: false,
+          failedLoginAttempts: 0,
+        },
+      });
+    });
+  } else {
+    user = await prisma.user.create({ data: { ...parsed.data, email } });
+  }
 
   // For password users, email a single-use invite link to set their password and
   // enroll MFA. The admin never sees or handles a password.
   if (user.authMethod === "PASSWORD") {
     const { rawToken } = await createAuthToken({ userId: user.id, purpose: "INVITE" });
-    try {
-      await sendInviteEmail(user.email, rawToken);
-    } catch (err) {
-      console.error("[users] failed to send invite email:", err);
-    }
+    // Fire-and-forget: the token is already persisted, so this is safe to run
+    // after the response is sent. The admin doesn't need to wait for SMTP.
+    void sendInviteEmail(user.email, rawToken).catch((err) =>
+      console.error("[users] failed to send invite email:", err)
+    );
   }
 
   return NextResponse.json(

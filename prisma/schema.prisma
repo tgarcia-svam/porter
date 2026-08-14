@@ -142,6 +142,7 @@ model User {
 
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
+  deletedAt           DateTime?
 
   organization     Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   uploads          FileUpload[]
@@ -285,7 +286,7 @@ model Classification {
 
 model FileUpload {
   id            String       @id @default(cuid())
-  userId        String
+  userId        String?
   schemaId      String
   // The project the upload was submitted under. Captured at upload time from the
   // uploader's project selection (a schema can belong to several projects, so it
@@ -311,7 +312,7 @@ model FileUpload {
   exportError    String?
   exportAttempts Int          @default(0)
 
-  user    User               @relation(fields: [userId], references: [id])
+  user    User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   schema  Schema             @relation(fields: [schemaId], references: [id], onDelete: Cascade)
   project Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   results ValidationResult[]
@@ -360,12 +361,12 @@ model ProjectResource {
   fileName         String
   blobName         String
   contentType      String?
-  uploadedByUserId String
+  uploadedByUserId String?
   createdAt        DateTime  @default(now())
   deletedAt        DateTime?
 
   project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploadedBy User    @relation(fields: [uploadedByUserId], references: [id])
+  uploadedBy User?   @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
 
   @@index([projectId, deletedAt])
 }
