@@ -87,11 +87,11 @@ export const POST = withHandler(async (req: NextRequest) => {
   // enroll MFA. The admin never sees or handles a password.
   if (user.authMethod === "PASSWORD") {
     const { rawToken } = await createAuthToken({ userId: user.id, purpose: "INVITE" });
-    try {
-      await sendInviteEmail(user.email, rawToken);
-    } catch (err) {
-      console.error("[users] failed to send invite email:", err);
-    }
+    // Fire-and-forget: the token is already persisted, so this is safe to run
+    // after the response is sent. The admin doesn't need to wait for SMTP.
+    void sendInviteEmail(user.email, rawToken).catch((err) =>
+      console.error("[users] failed to send invite email:", err)
+    );
   }
 
   return NextResponse.json(
