@@ -1,16 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import { describeSchedule } from "@/lib/upload-schedule";
 
-type OrgRef = { id: string; name: string };
-type SchemaRef = { id: string; name: string };
+export type OrgRef = { id: string; name: string };
+export type SchemaRef = { id: string; name: string };
 
-type ScheduleFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+export type ScheduleFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
 
-type Schedule = {
+export type Schedule = {
   id: string;
   projectId: string;
   frequency: ScheduleFrequency;
@@ -23,7 +24,7 @@ type Schedule = {
   overdueEnabled: boolean;
 };
 
-type Project = {
+export type Project = {
   id: string;
   name: string;
   description: string | null;
@@ -35,12 +36,8 @@ type Project = {
 
 export default function ProjectManager({
   initialProjects,
-  allOrganizations,
-  allSchemas,
 }: {
   initialProjects: Project[];
-  allOrganizations: OrgRef[];
-  allSchemas: SchemaRef[];
 }) {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>(initialProjects);
@@ -48,10 +45,6 @@ export default function ProjectManager({
   const [newDesc, setNewDesc] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const [expandedOrgId, setExpandedOrgId] = useState<string | null>(null);
-  const [expandedSchemaId, setExpandedSchemaId] = useState<string | null>(null);
-  const [expandedScheduleId, setExpandedScheduleId] = useState<string | null>(null);
-  const [expandedResourceId, setExpandedResourceId] = useState<string | null>(null);
 
   async function refresh() {
     const res = await fetch("/api/projects");
@@ -88,36 +81,6 @@ export default function ProjectManager({
     await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
     await refresh();
     router.refresh();
-  }
-
-  async function toggleOrg(projectId: string, orgId: string, assigned: boolean) {
-    if (assigned) {
-      await apiFetch(`/api/projects/${projectId}/organizations?organizationId=${orgId}`, {
-        method: "DELETE",
-      });
-    } else {
-      await apiFetch(`/api/projects/${projectId}/organizations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organizationId: orgId }),
-      });
-    }
-    await refresh();
-  }
-
-  async function toggleSchema(projectId: string, schemaId: string, assigned: boolean) {
-    if (assigned) {
-      await apiFetch(`/api/projects/${projectId}/schemas?schemaId=${schemaId}`, {
-        method: "DELETE",
-      });
-    } else {
-      await apiFetch(`/api/projects/${projectId}/schemas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schemaId }),
-      });
-    }
-    await refresh();
   }
 
   return (
@@ -162,13 +125,6 @@ export default function ProjectManager({
       ) : (
         <div className="space-y-3">
           {projects.map((project) => {
-            const assignedOrgIds = new Set(project.organizations.map((o) => o.organization.id));
-            const assignedSchemaIds = new Set(project.schemas.map((s) => s.schema.id));
-            const isOrgExpanded = expandedOrgId === project.id;
-            const isSchemaExpanded = expandedSchemaId === project.id;
-            const isScheduleExpanded = expandedScheduleId === project.id;
-            const isResourceExpanded = expandedResourceId === project.id;
-
             return (
               <div key={project.id} className="bg-white rounded-xl border border-gray-200">
                 {/* Project header */}
@@ -230,54 +186,12 @@ export default function ProjectManager({
                   </div>
 
                   <div className="shrink-0 flex items-center gap-3">
-                    {allSchemas.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setExpandedSchemaId(isSchemaExpanded ? null : project.id);
-                          setExpandedOrgId(null);
-                          setExpandedScheduleId(null);
-                          setExpandedResourceId(null);
-                        }}
-                        className="text-xs text-purple-600 hover:underline font-medium"
-                      >
-                        {isSchemaExpanded ? "Done" : "Assign file formats"}
-                      </button>
-                    )}
-                    {allOrganizations.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setExpandedOrgId(isOrgExpanded ? null : project.id);
-                          setExpandedSchemaId(null);
-                          setExpandedScheduleId(null);
-                          setExpandedResourceId(null);
-                        }}
-                        className="text-xs text-brand-600 hover:underline font-medium"
-                      >
-                        {isOrgExpanded ? "Done" : "Assign orgs"}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setExpandedScheduleId(isScheduleExpanded ? null : project.id);
-                        setExpandedOrgId(null);
-                        setExpandedSchemaId(null);
-                        setExpandedResourceId(null);
-                      }}
-                      className="text-xs text-amber-600 hover:underline font-medium"
+                    <Link
+                      href={`/admin/projects/${project.id}`}
+                      className="text-xs text-brand-600 hover:underline font-medium"
                     >
-                      {isScheduleExpanded ? "Done" : "Schedule"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setExpandedResourceId(isResourceExpanded ? null : project.id);
-                        setExpandedOrgId(null);
-                        setExpandedSchemaId(null);
-                        setExpandedScheduleId(null);
-                      }}
-                      className="text-xs text-teal-600 hover:underline font-medium"
-                    >
-                      {isResourceExpanded ? "Done" : "Files"}
-                    </button>
+                      Edit
+                    </Link>
                     <button
                       onClick={() => handleDelete(project.id, project.name)}
                       className="text-xs text-red-500 hover:underline font-medium"
@@ -286,86 +200,6 @@ export default function ProjectManager({
                     </button>
                   </div>
                 </div>
-
-                {/* Schema assignment panel */}
-                {isSchemaExpanded && (
-                  <div className="border-t border-gray-100 px-5 py-4">
-                    <p className="text-xs font-medium text-gray-500 mb-3">
-                      File formats in this project
-                    </p>
-                    {allSchemas.length === 0 ? (
-                      <p className="text-xs text-gray-500">No file formats defined yet.</p>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {allSchemas.map((schema) => {
-                          const assigned = assignedSchemaIds.has(schema.id);
-                          return (
-                            <label
-                              key={schema.id}
-                              className="flex items-center gap-2 cursor-pointer rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50 transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={assigned}
-                                onChange={() => toggleSchema(project.id, schema.id, assigned)}
-                                className="h-3.5 w-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                              />
-                              <span className="text-xs text-gray-700 truncate">{schema.name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Org assignment panel */}
-                {isOrgExpanded && (
-                  <div className="border-t border-gray-100 px-5 py-4">
-                    <p className="text-xs font-medium text-gray-500 mb-3">
-                      Organizations in this project
-                    </p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {allOrganizations.map((org) => {
-                        const assigned = assignedOrgIds.has(org.id);
-                        return (
-                          <label
-                            key={org.id}
-                            className="flex items-center gap-2 cursor-pointer rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-50 transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={assigned}
-                              onChange={() => toggleOrg(project.id, org.id, assigned)}
-                              className="h-3.5 w-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                            />
-                            <span className="text-xs text-gray-700 truncate">{org.name}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Schedule panel */}
-                {isScheduleExpanded && (
-                  <div className="border-t border-gray-100 px-5 py-4">
-                    <ScheduleEditor
-                      project={project}
-                      onSaved={async () => {
-                        await refresh();
-                        router.refresh();
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* Resources panel */}
-                {isResourceExpanded && (
-                  <div className="border-t border-gray-100 px-5 py-4">
-                    <ResourcePanel project={project} />
-                  </div>
-                )}
               </div>
             );
           })}
@@ -388,7 +222,7 @@ function normalizeResPath(p: string | null | undefined): string {
   return (p ?? "").replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "").trim();
 }
 
-function ResourcePanel({ project }: { project: Project }) {
+export function ResourcePanel({ project }: { project: Project }) {
   const [resources, setResources] = useState<ResourceRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPath, setCurrentPath] = useState("");
@@ -695,7 +529,7 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 
-function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () => Promise<void> }) {
+export function ScheduleEditor({ project, onSaved }: { project: Project; onSaved: () => Promise<void> }) {
   const s = project.schedule;
   const [frequency, setFrequency] = useState<ScheduleFrequency>(s?.frequency ?? "MONTHLY");
   const [weekday, setWeekday] = useState<number>(s?.weekday ?? 0);

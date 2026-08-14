@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import SchemaEditor from "@/components/admin/SchemaEditor";
@@ -35,7 +36,13 @@ export default async function EditSchemaPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Edit File Format</h1>
+        <Link
+          href="/admin/schemas"
+          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+        >
+          <span aria-hidden>←</span> Back to File Formats
+        </Link>
+        <h1 className="mt-2 text-2xl font-bold text-gray-900">Edit File Format</h1>
         <p className="mt-1 text-sm text-gray-500">
           Modify column definitions. Changes apply to all future uploads.
         </p>
