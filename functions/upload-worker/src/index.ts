@@ -10,12 +10,14 @@ interface UploadJobMessage {
   sheetName?: string;
 }
 
+const sanitize = (v: unknown) => String(v ?? "").replace(/[\r\n\t]/g, " ");
+
 app.serviceBusQueue("uploadWorker", {
   queueName: process.env.AZURE_SERVICE_BUS_QUEUE_NAME ?? "porter-uploads",
   connection: "ServiceBusConnection",
   handler: async (message: unknown, context: InvocationContext): Promise<void> => {
     const job = message as UploadJobMessage;
-    context.log(`Processing upload job: uploadId=${job.uploadId} blob=${job.blobName}`);
+    context.log(`Processing upload job: uploadId=${sanitize(job.uploadId)} blob=${sanitize(job.blobName)}`);
 
     const appUrl = process.env.APP_URL;
     const workerSecret = process.env.UPLOAD_WORKER_SECRET;
@@ -44,6 +46,6 @@ app.serviceBusQueue("uploadWorker", {
     }
 
     const result = await res.json();
-    context.log(`Upload job complete: uploadId=${job.uploadId} status=${result.status} rows=${result.rowCount}`);
+    context.log(`Upload job complete: uploadId=${sanitize(job.uploadId)} status=${sanitize(result.status)} rows=${sanitize(result.rowCount)}`);
   },
 });

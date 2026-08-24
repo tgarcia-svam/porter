@@ -5,7 +5,8 @@ import * as path from "path";
 const ADMIN_FILE = ".auth/admin.json";
 const UPLOADER_FILE = ".auth/uploader.json";
 
-const TEST_SECRET = process.env.PLAYWRIGHT_TEST_SECRET ?? "playwright-dev-secret";
+const TEST_SECRET = process.env.PLAYWRIGHT_TEST_SECRET;
+if (!TEST_SECRET) throw new Error("PLAYWRIGHT_TEST_SECRET env var is required for tests");
 
 setup.beforeAll(() => {
   fs.mkdirSync(path.join(process.cwd(), ".auth"), { recursive: true });

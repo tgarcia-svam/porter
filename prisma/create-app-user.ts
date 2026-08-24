@@ -80,8 +80,9 @@ async function main() {
       `postgresql://${APP_USER}:${encodeURIComponent(password)}@`
     );
 
+    const maskedAppDbUrl = appDbUrl.replace(/:([^:@]+)@/, ":****@");
     console.log("\nDone. App user DATABASE_URL:");
-    console.log(appDbUrl);
+    console.log(maskedAppDbUrl);
     console.log(
       "\nAdd this as DATABASE_URL in .env (or Key Vault) for application runtime."
     );
