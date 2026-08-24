@@ -73,11 +73,19 @@ export function middleware(req: NextRequest) {
   // http, which would otherwise leak into the redirect (e.g. porterdata.com:3000).
   const hostname = (req.headers.get("host") ?? "").split(":")[0];
   if (hostname.startsWith("www.")) {
-    const url = req.nextUrl.clone();
-    url.protocol = "https:";
-    url.hostname = hostname.slice(4); // strip "www."
-    url.port = ""; // drop the internal :3000
-    return NextResponse.redirect(url, 308);
+    // Only redirect to the apex if it matches the configured NEXTAUTH_URL host.
+    // Without this check, a spoofed Host header could redirect to an arbitrary domain.
+    const apexHost = process.env.NEXTAUTH_URL
+      ? new URL(process.env.NEXTAUTH_URL).hostname
+      : null;
+    const target = hostname.slice(4); // strip "www."
+    if (apexHost && target === apexHost) {
+      const url = req.nextUrl.clone();
+      url.protocol = "https:";
+      url.hostname = target;
+      url.port = ""; // drop the internal :3000
+      return NextResponse.redirect(url, 308);
+    }
   }
 
   // Use the last hop in X-Forwarded-For: Azure App Service appends the real
