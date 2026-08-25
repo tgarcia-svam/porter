@@ -82,7 +82,7 @@ export function middleware(req: NextRequest) {
     if (apexHost && target === apexHost) {
       const url = req.nextUrl.clone();
       url.protocol = "https:";
-      url.hostname = target;
+      url.hostname = apexHost;
       url.port = ""; // drop the internal :3000
       return NextResponse.redirect(url, 308);
     }
