@@ -3,13 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const functions_1 = require("@azure/functions");
 // Registers the daily upload-schedule notification timer (side-effect import).
 require("./schedule-timer");
-const sanitize = (v) => String(v ?? "").replace(/[\r\n\t]/g, " ");
 functions_1.app.serviceBusQueue("uploadWorker", {
     queueName: process.env.AZURE_SERVICE_BUS_QUEUE_NAME ?? "porter-uploads",
     connection: "ServiceBusConnection",
     handler: async (message, context) => {
         const job = message;
-        context.log(`Processing upload job: uploadId=${sanitize(job.uploadId)} blob=${sanitize(job.blobName)}`);
+        context.log(`Processing upload job: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} blob=${encodeURIComponent(String(job.blobName ?? ""))}`);
         const appUrl = process.env.APP_URL;
         const workerSecret = process.env.UPLOAD_WORKER_SECRET;
         if (!appUrl || !workerSecret) {
@@ -32,6 +31,6 @@ functions_1.app.serviceBusQueue("uploadWorker", {
             throw new Error(`/api/upload/process responded ${res.status}: ${body}`);
         }
         const result = await res.json();
-        context.log(`Upload job complete: uploadId=${sanitize(job.uploadId)} status=${sanitize(result.status)} rows=${sanitize(result.rowCount)}`);
+        context.log(`Upload job complete: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} status=${encodeURIComponent(String(result.status ?? ""))} rows=${encodeURIComponent(String(result.rowCount ?? ""))}`);
     },
 });

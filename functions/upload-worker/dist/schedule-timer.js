@@ -28,8 +28,7 @@ functions_1.app.timer("scheduleChecker", {
             const body = await res.text().catch(() => "(no body)");
             throw new Error(`/api/admin/schedules/run responded ${res.status}: ${body}`);
         }
-        const sanitize = (v) => String(v ?? "").replace(/[\r\n\t]/g, " ");
         const result = await res.json().catch(() => ({}));
-        context.log(`Schedule run complete: checked=${sanitize(result.schedulesChecked)} reminders=${sanitize(result.remindersSent)} overdue=${sanitize(result.overdueSent)}`);
+        context.log(`Schedule run complete: checked=${encodeURIComponent(String(result.schedulesChecked ?? ""))} reminders=${encodeURIComponent(String(result.remindersSent ?? ""))} overdue=${encodeURIComponent(String(result.overdueSent ?? ""))}`);
     },
 });
