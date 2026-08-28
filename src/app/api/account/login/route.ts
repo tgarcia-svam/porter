@@ -69,6 +69,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined;
   const email = parsed.data.email.toLowerCase();
   const { password, pendingTicket, totp } = parsed.data;
 
@@ -118,7 +119,7 @@ export const POST = withHandler(async (req: NextRequest) => {
       if (state.locked) return lockResponse(state);
       return NextResponse.json({ ok: false, code: "mfa_invalid" }, { status: 401 });
     }
-    await recordSuccess(user);
+    await recordSuccess(user, ip);
     return success(email);
   }
 
@@ -149,7 +150,7 @@ export const POST = withHandler(async (req: NextRequest) => {
       where: { id: cred.id },
       data: { counter: newCounter, lastUsedAt: new Date() },
     });
-    await recordSuccess(user);
+    await recordSuccess(user, ip);
     return success(email);
   }
 
