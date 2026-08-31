@@ -2,11 +2,13 @@ import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
+import crypto from "crypto";
 // Authentication runs before any user/org context exists, so it must bypass RLS.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
 import { verifyLoginTicket } from "@/lib/login-ticket";
+import { createSession, validateAndTouchSession, revokeSession } from "@/lib/session-registry";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
 declare module "next-auth" {
@@ -14,7 +16,13 @@ declare module "next-auth" {
     user: {
       id: string;
       role: "ADMIN" | "UPLOADER";
-      uaHash?: string; // session binding — UA hash captured at sign-in
+      uaHash?: string;        // session binding — UA hash captured at sign-in
+      prevLoginAt?: string | null;
+      prevLoginIp?: string | null;
+      prevFailedAttempts?: number;
+      passwordExpired?: boolean;
+      sessionNonce?: string;
+      sessionRevoked?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -72,19 +80,20 @@ const callbacks: NextAuthConfig["callbacks"] = {
       return false;
     }
 
-    // Successful sign-in — reset failed attempt counter
-    if (dbUser.failedLoginAttempts > 0 || dbUser.lockedUntil) {
-      await prisma.user.update({
-        where: { id: dbUser.id },
-        data: { failedLoginAttempts: 0, lockedUntil: null },
-      });
-    }
-
-    // Backfill name from OAuth profile on first sign-in
-    const name = profile?.name ?? user?.name;
-    if (!dbUser.name && name) {
-      await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
-    }
+    // Successful sign-in — reset failure state, stamp login metadata
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        failedLoginAttempts:          0,
+        lockedUntil:                  null,
+        prevLoginAt:                  dbUser.lastLoginAt,
+        prevLoginIp:                  dbUser.lastLoginIp,
+        lastLoginAt:                  new Date(),
+        lastLoginIp:                  null, // IP not available in OAuth callback
+        failedAttemptsSinceLastLogin: dbUser.failedLoginAttempts,
+        ...((!dbUser.name && (profile?.name ?? user?.name)) ? { name: profile?.name ?? user?.name } : {}),
+      },
+    });
 
     logAuthEvent({ action: "auth.login.success", userEmail: email, userId: dbUser.id });
     return true;
@@ -100,28 +109,75 @@ const callbacks: NextAuthConfig["callbacks"] = {
       if (email) {
         const dbUser = await prisma.user.findFirst({
           where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
-          select: { id: true, role: true },
+          select: {
+            id: true,
+            role: true,
+            prevLoginAt: true,
+            prevLoginIp: true,
+            failedAttemptsSinceLastLogin: true,
+            passwordChangedAt: true,
+            authMethod: true,
+          },
         });
         if (dbUser) {
-          token["id"] = dbUser.id;
+          token["id"]   = dbUser.id;
           token["role"] = dbUser.role;
+
+          // Feature 1 — previous login info for banner
+          token["prevLoginAt"]        = dbUser.prevLoginAt?.toISOString() ?? null;
+          token["prevLoginIp"]        = dbUser.prevLoginIp ?? null;
+          token["prevFailedAttempts"] = dbUser.failedAttemptsSinceLastLogin;
+
+          // Feature 2 — password expiry
+          let passwordExpired = false;
+          if (dbUser.authMethod === "PASSWORD") {
+            const expirySetting = await prisma.appSetting.findUnique({
+              where: { key: "PASSWORD_EXPIRY_DAYS" },
+            });
+            const expiryDays = parseInt(expirySetting?.value ?? "0");
+            if (expiryDays > 0 && dbUser.passwordChangedAt) {
+              const daysSince = (Date.now() - dbUser.passwordChangedAt.getTime()) / 86_400_000;
+              passwordExpired = daysSince >= expiryDays;
+            }
+          }
+          token["passwordExpired"] = passwordExpired;
+
+          // Feature 3 — concurrent session limiting
+          const sessionNonce = crypto.randomUUID();
+          const sessionSetting = await prisma.appSetting.findUnique({
+            where: { key: "MAX_CONCURRENT_SESSIONS" },
+          });
+          const maxSessions = parseInt(sessionSetting?.value ?? "0");
+          // IP/UA are not reliably accessible from the jwt callback
+          await createSession(dbUser.id, sessionNonce, maxSessions);
+          token["sessionNonce"] = sessionNonce;
         }
       }
       // Bind the token to the User-Agent of the browser that signed in.
-      // requestStore is populated by the auth handler wrappers below.
       const uaHash = requestStore.getStore()?.uaHash;
       if (uaHash) token["uaHash"] = uaHash;
+    } else {
+      // Feature 3 — validate session on every subsequent request (updateAge: 0)
+      const nonce = token["sessionNonce"] as string | undefined;
+      if (nonce) {
+        const valid = await validateAndTouchSession(nonce);
+        if (!valid) token["sessionRevoked"] = true;
+      }
     }
     return token;
   },
 
   async session({ session, token }) {
     if (session.user) {
-      session.user.id = (token["id"] as string) ?? "";
-      session.user.role = ((token["role"] as string) ?? "UPLOADER") as
-        | "ADMIN"
-        | "UPLOADER";
-      session.user.uaHash = (token["uaHash"] as string | undefined);
+      session.user.id             = (token["id"] as string) ?? "";
+      session.user.role           = ((token["role"] as string) ?? "UPLOADER") as "ADMIN" | "UPLOADER";
+      session.user.uaHash         = token["uaHash"] as string | undefined;
+      session.user.prevLoginAt    = token["prevLoginAt"] as string | null | undefined;
+      session.user.prevLoginIp    = token["prevLoginIp"] as string | null | undefined;
+      session.user.prevFailedAttempts = token["prevFailedAttempts"] as number | undefined;
+      session.user.passwordExpired    = token["passwordExpired"] as boolean | undefined;
+      session.user.sessionNonce       = token["sessionNonce"] as string | undefined;
+      session.user.sessionRevoked     = token["sessionRevoked"] as boolean | undefined;
     }
     return session;
   },
@@ -172,6 +228,8 @@ async function buildInstance(): Promise<AuthInstance> {
         });
         if (!dbUser || dbUser.authMethod !== "PASSWORD") return null;
 
+        // The jwt callback re-fetches the user by email to get snapshot fields, so
+        // returning minimal fields here is sufficient.
         return { id: dbUser.id, email: dbUser.email, name: dbUser.name ?? undefined };
       },
     })
@@ -226,6 +284,8 @@ async function buildInstance(): Promise<AuthInstance> {
     events: {
       async signOut(message) {
         const token = "token" in message ? message.token : null;
+        const nonce = token?.["sessionNonce"] as string | undefined;
+        if (nonce) await revokeSession(nonce);
         logAuthEvent({
           action: "auth.logout",
           userId: token?.["id"] as string | undefined,

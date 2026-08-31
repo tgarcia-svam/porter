@@ -264,6 +264,16 @@ async function main() {
   await dropPolicy("OverdueDismissal", "overduedismissal_delete");
   console.log("  OverdueDismissal  admin-only (no porterapp access)");
 
+  // ── UserSession: admin-only ────────────────────────────────────────────────
+  // Session registry for concurrent-session limiting (T429). All reads/writes
+  // go through prismaAdmin in auth callbacks; porterapp role gets no access.
+  await enableRls("UserSession");
+  await dropPolicy("UserSession", "usersession_select");
+  await dropPolicy("UserSession", "usersession_insert");
+  await dropPolicy("UserSession", "usersession_update");
+  await dropPolicy("UserSession", "usersession_delete");
+  console.log("  UserSession  admin-only (no porterapp access)");
+
   console.log("\nAll RLS policies applied.");
 }
 
