@@ -10,6 +10,8 @@ import {
   createAuthToken,
   invalidateUserTokens,
 } from "@/lib/auth-tokens";
+import { getPasswordPolicySettings } from "@/lib/password-policy-settings";
+import { isPasswordInHistory, recordPasswordHistory } from "@/lib/password-history";
 
 /**
  * Validate a token without consuming it. Used by the set-password page on mount
@@ -58,7 +60,7 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   const user = await prisma.user.findUnique({
     where: { id: valid.userId },
-    select: { id: true, email: true, mfaEnabled: true },
+    select: { id: true, email: true, mfaEnabled: true, passwordHash: true },
   });
   if (!user) return apiBadRequest("Account no longer exists.");
 
@@ -66,13 +68,26 @@ export const POST = withHandler(async (req: NextRequest) => {
   const passkeyCount = await prisma.passkey.count({ where: { userId: user.id } });
   const mfaReady = user.mfaEnabled || passkeyCount > 0;
 
-  const check = validatePassword(password, user.email);
+  const policy = await getPasswordPolicySettings();
+
+  const check = validatePassword(password, user.email, policy);
   if (!check.ok) return NextResponse.json({ error: check.errors }, { status: 422 });
 
+  // Password history: check against current hash + stored history.
+  const inHistory = await isPasswordInHistory(user.id, password, policy.historyCount, user.passwordHash);
+  if (inHistory) {
+    return NextResponse.json(
+      { error: ["This password has been used recently. Please choose a different one."] },
+      { status: 422 }
+    );
+  }
+
+  const newHash = await hashPassword(password);
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date() },
+    data: { passwordHash: newHash, passwordChangedAt: new Date() },
   });
+  await recordPasswordHistory(user.id, newHash);
   await clearLockoutForReset(user.id);
   await consumeAuthToken(valid.id);
   // Any other outstanding invite/reset links for this user are now stale.

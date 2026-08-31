@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
-import { checkPassword, MIN_PASSWORD_LENGTH, MIN_CHARACTER_CLASSES } from "@/lib/password-policy";
+import { checkPassword, MIN_PASSWORD_LENGTH, MIN_CHARACTER_CLASSES, type PolicyOverrides } from "@/lib/password-policy";
 
 function Rule({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
@@ -25,7 +25,17 @@ function ChangePasswordForm() {
   const [errors, setErrors]       = useState<string[]>([]);
   const [success, setSuccess]     = useState(false);
 
-  const checks = checkPassword(password);
+  const [policy, setPolicy] = useState<PolicyOverrides>({
+    minLength: MIN_PASSWORD_LENGTH, minClasses: MIN_CHARACTER_CLASSES,
+  });
+  useEffect(() => {
+    fetch("/api/account/password-policy")
+      .then((r) => r.json())
+      .then((d) => setPolicy(d))
+      .catch(() => {});
+  }, []);
+
+  const checks = checkPassword(password, undefined, policy);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -104,8 +114,8 @@ function ChangePasswordForm() {
         />
         {password && (
           <ul className="mt-2 space-y-1 text-sm">
-            <Rule ok={checks.length}>At least {MIN_PASSWORD_LENGTH} characters</Rule>
-            <Rule ok={checks.classes}>At least {MIN_CHARACTER_CLASSES} of 4 character classes (upper, lower, digit, special)</Rule>
+            <Rule ok={checks.length}>At least {policy.minLength ?? MIN_PASSWORD_LENGTH} characters</Rule>
+            <Rule ok={checks.classes}>At least {policy.minClasses ?? MIN_CHARACTER_CLASSES} of 4 character classes (upper, lower, digit, special)</Rule>
             <Rule ok={checks.notCommon}>Not a common password</Rule>
             <Rule ok={checks.notUsername}>Does not contain your username</Rule>
           </ul>
