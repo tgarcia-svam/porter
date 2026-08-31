@@ -151,12 +151,33 @@ const callbacks: NextAuthConfig["callbacks"] = {
           // IP/UA are not reliably accessible from the jwt callback
           await createSession(dbUser.id, sessionNonce, maxSessions);
           token["sessionNonce"] = sessionNonce;
+
+          // Absolute session timeout — bake the expiry timestamp into the JWT so
+          // the check on each refresh never requires a DB read.
+          const absoluteSetting = await prisma.appSetting.findUnique({
+            where: { key: "ABSOLUTE_SESSION_TIMEOUT_HOURS" },
+          });
+          const absoluteHours = parseInt(absoluteSetting?.value ?? "8");
+          if (absoluteHours > 0) {
+            token["absoluteExpiry"] = Date.now() + absoluteHours * 60 * 60 * 1000;
+          }
         }
       }
       // Bind the token to the User-Agent of the browser that signed in.
       const uaHash = requestStore.getStore()?.uaHash;
       if (uaHash) token["uaHash"] = uaHash;
     } else {
+      // Absolute session timeout — check before any other validation so an
+      // expired session is always revoked, even if still active in the registry.
+      const absoluteExpiry = token["absoluteExpiry"] as number | undefined;
+      if (absoluteExpiry && Date.now() > absoluteExpiry) {
+        const expiredNonce = token["sessionNonce"] as string | undefined;
+        if (expiredNonce) await revokeSession(expiredNonce).catch(() => {});
+        logAuthEvent({ action: "auth.session.expired", userId: token["id"] as string | undefined });
+        token["sessionRevoked"] = true;
+        return token;
+      }
+
       // Feature 3 — validate session on every subsequent request (updateAge: 0)
       const nonce = token["sessionNonce"] as string | undefined;
       if (nonce) {

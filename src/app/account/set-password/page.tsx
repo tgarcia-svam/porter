@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
-import { checkPassword, MIN_PASSWORD_LENGTH, MIN_CHARACTER_CLASSES } from "@/lib/password-policy";
+import { checkPassword, MIN_PASSWORD_LENGTH, MIN_CHARACTER_CLASSES, type PolicyOverrides } from "@/lib/password-policy";
 
 type MfaMethod = "choose" | "passkey" | "totp";
 
@@ -47,7 +47,17 @@ function SetPasswordContent() {
   const [secret, setSecret] = useState("");
   const [code, setCode] = useState("");
 
-  const checks = checkPassword(password);
+  const [policy, setPolicy] = useState<PolicyOverrides>({
+    minLength: MIN_PASSWORD_LENGTH, minClasses: MIN_CHARACTER_CLASSES,
+  });
+  useEffect(() => {
+    fetch("/api/account/password-policy")
+      .then((r) => r.json())
+      .then((d) => setPolicy(d))
+      .catch(() => {});
+  }, []);
+
+  const checks = checkPassword(password, undefined, policy);
   const matches = password.length > 0 && password === confirm;
   const canSubmit = checks.length && checks.classes && checks.notCommon && matches && !busy;
 
@@ -230,9 +240,9 @@ function SetPasswordContent() {
                   />
                 </div>
                 <ul className="text-xs space-y-1">
-                  <Rule ok={checks.length}>At least {MIN_PASSWORD_LENGTH} characters</Rule>
+                  <Rule ok={checks.length}>At least {policy.minLength ?? MIN_PASSWORD_LENGTH} characters</Rule>
                   <Rule ok={checks.classes}>
-                    At least {MIN_CHARACTER_CLASSES} of: uppercase, lowercase, number, special character
+                    At least {policy.minClasses ?? MIN_CHARACTER_CLASSES} of: uppercase, lowercase, number, special character
                   </Rule>
                   <Rule ok={checks.notCommon}>Not a common or easily-guessed password</Rule>
                   <Rule ok={matches}>Passwords match</Rule>

@@ -152,12 +152,28 @@ model User {
   updatedAt           DateTime      @updatedAt
   deletedAt           DateTime?
 
-  organization     Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  uploads          FileUpload[]
-  authTokens       AuthToken[]
-  passkeys         Passkey[]
+  organization      Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  uploads           FileUpload[]
+  authTokens        AuthToken[]
+  passkeys          Passkey[]
   uploadedResources ProjectResource[]
-  sessions         UserSession[]
+  sessions          UserSession[]
+  passwordHistory   PasswordHistory[]
+}
+
+// Previous password hashes retained for history enforcement. The admin configures
+// how many previous passwords cannot be reused (PASSWORD_HISTORY_COUNT); up to 24
+// are stored regardless so history is available if the policy is later tightened.
+// Admin-only via RLS — the porterapp role must never read raw password hashes.
+model PasswordHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 // One row per active JWT session. tokenHash = SHA-256(nonce); the raw nonce lives
