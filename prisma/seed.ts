@@ -32,6 +32,27 @@ async function main() {
   });
 
   console.log(`  ADMIN  ${user.email}  (${authMethod})`);
+
+  // Default security-policy AppSettings — only insert when absent so existing
+  // admin-configured values are preserved.
+  for (const [key, value] of [
+    ["PASSWORD_EXPIRY_DAYS",    "0"],  // 0 = disabled
+    ["MAX_CONCURRENT_SESSIONS", "0"],  // 0 = unlimited
+  ] as [string, string][]) {
+    await prisma.appSetting.upsert({
+      where:  { key },
+      update: {},  // never overwrite an existing admin-set value
+      create: { key, value },
+    });
+    console.log(`  SETTING  ${key} = ${value}`);
+  }
+
+  // Back-fill passwordChangedAt for existing PASSWORD users who lack it (grace period).
+  const { count } = await prisma.user.updateMany({
+    where: { passwordChangedAt: null, authMethod: "PASSWORD" },
+    data:  { passwordChangedAt: new Date() },
+  });
+  if (count > 0) console.log(`  BACKFILL  passwordChangedAt set for ${count} PASSWORD user(s)`);
 }
 
 main()

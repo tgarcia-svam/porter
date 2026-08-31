@@ -71,7 +71,7 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash: await hashPassword(password) },
+    data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date() },
   });
   await clearLockoutForReset(user.id);
   await consumeAuthToken(valid.id);

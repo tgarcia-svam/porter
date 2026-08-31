@@ -394,6 +394,96 @@ function WarehouseExportSection() {
   );
 }
 
+// ── Security policy section ───────────────────────────────────────────────────
+
+type SecuritySettings = { passwordExpiryDays: number; maxConcurrentSessions: number };
+
+function SecuritySection() {
+  const [settings, setSettings] = useState<SecuritySettings | null>(null);
+  const [draft, setDraft]       = useState<SecuritySettings | null>(null);
+  const [saving, setSaving]     = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/security")
+      .then((r) => r.json())
+      .then((data: SecuritySettings) => { setSettings(data); setDraft(data); });
+  }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const res = await apiFetch("/api/admin/security", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const updated = await res.json();
+      if (!res.ok) {
+        setFeedback({ ok: false, message: typeof updated.error === "string" ? updated.error : "Failed to save settings." });
+        return;
+      }
+      setSettings(updated);
+      setDraft(updated);
+      setFeedback({ ok: true, message: "Security settings saved." });
+    } catch {
+      setFeedback({ ok: false, message: "An error occurred while saving." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const setNum = (k: keyof SecuritySettings) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!draft) return;
+    const n = parseInt(e.target.value, 10);
+    setDraft({ ...draft, [k]: isNaN(n) || n < 0 ? 0 : n });
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+      <SectionHeader
+        title="Security Policy"
+        description="Password expiry and concurrent session limits. All settings default to disabled (0). Changes take effect on the next sign-in."
+      />
+      <form onSubmit={handleSave} className="px-6 py-5 space-y-5">
+        <Field
+          label="Password expiry (days)"
+          hint="Force PASSWORD-method users to change their password after this many days. 0 = never expire."
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft?.passwordExpiryDays ?? 0}
+            onChange={setNum("passwordExpiryDays")}
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Max concurrent sessions per user"
+          hint="When a new login would exceed this limit, the oldest session is invalidated. 0 = unlimited."
+        >
+          <input
+            type="number"
+            min={0}
+            value={draft?.maxConcurrentSessions ?? 0}
+            onChange={setNum("maxConcurrentSessions")}
+            className={inputCls}
+          />
+        </Field>
+        <Feedback value={feedback} />
+        <div>
+          <button type="submit" disabled={saving || !draft} className={saveBtnCls}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ── Upload schedules section ──────────────────────────────────────────────────
 
 type ScheduleRunResult = {
@@ -470,6 +560,7 @@ export default function SettingsPage() {
           Configure application integrations.
         </p>
       </div>
+      <SecuritySection />
       <WarehouseExportSection />
       <RetentionSection />
       <UploadSchedulesSection />

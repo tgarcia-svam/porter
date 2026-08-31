@@ -135,10 +135,18 @@ model User {
   // Two-tier: failedLoginAttempts within a 15-min window (tracked by
   // lastFailedLoginAt) drives a temporary cooldown (lockedUntil); enough failures
   // trip lockedForReset, a hard lock cleared only by a successful password reset.
-  failedLoginAttempts Int           @default(0)
-  lastFailedLoginAt   DateTime?
-  lockedUntil         DateTime?
-  lockedForReset      Boolean       @default(false)
+  failedLoginAttempts          Int           @default(0)
+  lastFailedLoginAt            DateTime?
+  lockedUntil                  DateTime?
+  lockedForReset               Boolean       @default(false)
+
+  // ── Login tracking (SDElements T427/T428/T80/T2270/T429) ──────────────────
+  lastLoginAt                  DateTime?     // timestamp of the current (most-recent) successful login
+  lastLoginIp                  String?       // IP of the current (most-recent) successful login
+  prevLoginAt                  DateTime?     // timestamp of the prior (second-to-last) login — shown in UI banner
+  prevLoginIp                  String?       // IP of the prior (second-to-last) login
+  failedAttemptsSinceLastLogin Int           @default(0) // failures between the two most-recent logins
+  passwordChangedAt            DateTime?     // when password was last set (null = never / grace period)
 
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
@@ -149,6 +157,26 @@ model User {
   authTokens       AuthToken[]
   passkeys         Passkey[]
   uploadedResources ProjectResource[]
+  sessions         UserSession[]
+}
+
+// One row per active JWT session. tokenHash = SHA-256(nonce); the raw nonce lives
+// only in the JWT. Concurrent-session eviction (T429) deletes the oldest row(s)
+// when a new login would exceed MAX_CONCURRENT_SESSIONS. Sessions are also deleted
+// on explicit sign-out.
+model UserSession {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  ipAddress  String?
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastSeenAt])
 }
 
 // WebAuthn/passkey credential — an alternative MFA second factor to TOTP for
