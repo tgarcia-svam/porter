@@ -274,6 +274,16 @@ async function main() {
   await dropPolicy("UserSession", "usersession_delete");
   console.log("  UserSession  admin-only (no porterapp access)");
 
+  // ── PasswordHistory: admin-only ────────────────────────────────────────────
+  // Previous password hashes stored for history enforcement (P408). Contains
+  // bcrypt hashes — never exposed to the porterapp runtime role.
+  await enableRls("PasswordHistory");
+  await dropPolicy("PasswordHistory", "passwordhistory_select");
+  await dropPolicy("PasswordHistory", "passwordhistory_insert");
+  await dropPolicy("PasswordHistory", "passwordhistory_update");
+  await dropPolicy("PasswordHistory", "passwordhistory_delete");
+  console.log("  PasswordHistory  admin-only (no porterapp access)");
+
   console.log("\nAll RLS policies applied.");
 }
 

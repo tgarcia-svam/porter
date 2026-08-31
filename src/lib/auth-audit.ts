@@ -6,7 +6,8 @@ export type AuthEventAction =
   | "auth.login.blocked"
   | "auth.logout"
   | "auth.access.forbidden"
-  | "auth.session.invalid"; // UA binding mismatch — possible token theft
+  | "auth.session.invalid"   // UA binding mismatch — possible token theft
+  | "auth.session.expired";  // absolute session timeout reached
 
 /**
  * Write an authentication event directly to the audit log.
