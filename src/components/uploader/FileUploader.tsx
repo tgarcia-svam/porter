@@ -79,7 +79,7 @@ function isAzureBlobUrl(url: string): boolean {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
 function ordinal(n: number) {
   const v = n % 100;
@@ -463,15 +463,14 @@ export default function FileUploader({
       }
 
       if (data.status === "PENDING") {
-        isAsyncPath = true;
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-
         const uploadId = data.uploadId!;
-        if (!UUID_RE.test(uploadId)) {
+        if (!ID_RE.test(uploadId)) {
           setUploadError("An unexpected error occurred. Please try again.");
           return;
         }
+        isAsyncPath = true;
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
         pollingRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`/api/upload/${uploadId}/status`);
