@@ -124,6 +124,23 @@ jobs:
             --name $APP_SERVICE_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }}
 
+      - name: Wait for App Service to be ready
+        run: |
+          APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          APP_URL="https://${APP_SERVICE_NAME}.azurewebsites.net"
+          echo "Polling ${APP_URL}/api/health until ready (max 3 min)..."
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${APP_URL}/api/health" || echo "000")
+            echo "  attempt ${i}/18: HTTP ${STATUS}"
+            if [ "$STATUS" = "200" ]; then
+              echo "App is warm and healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "WARNING: app did not return 200 within 3 minutes — deployment may be slow for the first user."
+          exit 0
+
       - name: Build and deploy upload-worker Function App
         run: |
           WORKER_NAME=$(az deployment group show \

@@ -70,6 +70,17 @@ const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 const QUARTER_MONTHS = ["first","second","third"];
 
+function isAzureBlobUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && hostname.endsWith(".blob.core.windows.net");
+  } catch {
+    return false;
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function ordinal(n: number) {
   const v = n % 100;
   return n + (["th","st","nd","rd"][(v - 20) % 10] ?? ["th","st","nd","rd"][v] ?? "th");
@@ -389,7 +400,10 @@ export default function FileUploader({
         const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
 
         // Step 2 — PUT directly to blob storage
-        console.log("[upload] PUT to blob storage, sasUrl prefix:", sasUrl.slice(0, 80));
+        if (!isAzureBlobUrl(sasUrl)) {
+          setUploadError("Upload initialisation failed. Please try again.");
+          return;
+        }
         let putRes: Response;
         try {
           putRes = await fetch(sasUrl, {
@@ -400,20 +414,15 @@ export default function FileUploader({
             },
             body: selectedFile,
           });
-        } catch (putErr) {
+        } catch {
           // Network error — almost always CORS blocking the preflight
-          console.error("[upload] PUT network error (likely CORS):", putErr);
-          setUploadError(`File could not be sent to storage (network error — check browser console for CORS details).`);
+          setUploadError(`File could not be sent to storage (network error). Please try again or contact an administrator.`);
           return;
         }
-        console.log("[upload] PUT response status:", putRes.status);
         if (!putRes.ok) {
-          const body = await putRes.text().catch(() => "");
-          console.error("[upload] PUT failed:", putRes.status, body);
           setUploadError(`File upload to storage failed (HTTP ${putRes.status}). Please try again.`);
           return;
         }
-        console.log("[upload] PUT succeeded, calling confirm...");
 
         // Step 3 — confirm: create record + enqueue job
         const confirmRes = await apiFetch("/api/upload/confirm", {
@@ -459,6 +468,10 @@ export default function FileUploader({
         if (fileInputRef.current) fileInputRef.current.value = "";
 
         const uploadId = data.uploadId!;
+        if (!UUID_RE.test(uploadId)) {
+          setUploadError("An unexpected error occurred. Please try again.");
+          return;
+        }
         pollingRef.current = setInterval(async () => {
           try {
             const pollRes = await fetch(`/api/upload/${uploadId}/status`);
@@ -481,9 +494,8 @@ export default function FileUploader({
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
-    } catch (err) {
+    } catch {
       // Never fail silently — surface something the user can act on.
-      console.error("[upload] unexpected error:", err);
       setUploadError("An unexpected error occurred. Please try again.");
     } finally {
       if (!isAsyncPath) setUploading(false);

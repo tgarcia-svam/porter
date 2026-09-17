@@ -32,7 +32,8 @@ async function sendMail(opts: {
 
   if (!connectionString || !sender) {
     // Dev / unconfigured: don't fail the flow — log so the content is recoverable.
-    console.warn(
+    const { logger } = await import("@/lib/logger");
+    logger.warn(
       `[email] ACS not configured — would send to ${toList.join(", ")}` +
         (ccList.length ? ` (cc ${ccList.join(", ")})` : "") +
         `: ${opts.subject}\n${opts.text}`

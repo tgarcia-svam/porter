@@ -3,6 +3,7 @@ import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiNotFound, withHandler } from "@/lib/api-error";
 import { deleteBlobByName } from "@/lib/azure-storage";
+import { logger } from "@/lib/logger";
 
 type RouteContext = { params: Promise<{ id: string; resourceId: string }> };
 
@@ -25,7 +26,7 @@ export const DELETE = withHandler<RouteContext>(async (req, { params }) => {
   try {
     await deleteBlobByName(resource.blobName);
   } catch (err) {
-    console.error("[resources] blob delete failed (non-fatal):", err);
+    logger.error("[resources] blob delete failed (non-fatal)", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
   }
 
   return new NextResponse(null, { status: 204 });

@@ -162,7 +162,8 @@ export async function runScheduleNotifications(
             });
             remindersSent++;
           } catch (err) {
-            console.error(`[schedules] reminder email failed for org ${org.id}:`, err);
+            const { logger } = await import("@/lib/logger");
+            logger.error(`[schedules] reminder email failed for org ${org.id}`, err instanceof Error ? err : undefined, err instanceof Error ? undefined : { detail: String(err) });
           }
         }
       }
@@ -179,7 +180,8 @@ export async function runScheduleNotifications(
             });
             overdueSent++;
           } catch (err) {
-            console.error(`[schedules] overdue email failed for org ${org.id}:`, err);
+            const { logger } = await import("@/lib/logger");
+            logger.error(`[schedules] overdue email failed for org ${org.id}`, err instanceof Error ? err : undefined, err instanceof Error ? undefined : { detail: String(err) });
           }
         }
       }
@@ -255,7 +257,8 @@ export async function sendProjectScheduleRemindersNow(
       });
       sent++;
     } catch (err) {
-      console.error(`[schedules] manual reminder failed for org ${org.id}:`, err);
+      const { logger } = await import("@/lib/logger");
+      logger.error(`[schedules] manual reminder failed for org ${org.id}`, err instanceof Error ? err : undefined, err instanceof Error ? undefined : { detail: String(err) });
     }
   }
 

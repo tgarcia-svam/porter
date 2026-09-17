@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiConflict, withHandler } from "@/lib/api-error";
 import { createAuthToken } from "@/lib/auth-tokens";
 import { sendInviteEmail } from "@/lib/email";
+import { logger } from "@/lib/logger";
 
 const CreateUserBody = z.object({
   email: z.string().email(),
@@ -90,7 +91,7 @@ export const POST = withHandler(async (req: NextRequest) => {
     // Fire-and-forget: the token is already persisted, so this is safe to run
     // after the response is sent. The admin doesn't need to wait for SMTP.
     void sendInviteEmail(user.email, rawToken).catch((err) =>
-      console.error("[users] failed to send invite email:", err)
+      logger.error("[users] failed to send invite email", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) })
     );
   }
 

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiUnauthorized, withHandler } from "@/lib/api-error";
 import { sendProjectScheduleRemindersNow } from "@/lib/upload-schedule-service";
+import { logger } from "@/lib/logger";
 
 export const POST = withHandler(
   async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -22,9 +23,7 @@ export const POST = withHandler(
     const { id } = await params;
     const result = await sendProjectScheduleRemindersNow(id);
 
-    console.log(
-      `[schedules] manual reminder for project ${id} — sent=${result.sent} skipped=${result.skipped}`
-    );
+    logger.info("[schedules] manual reminder sent", { projectId: id, sent: result.sent, skipped: result.skipped });
 
     return NextResponse.json(result);
   }
