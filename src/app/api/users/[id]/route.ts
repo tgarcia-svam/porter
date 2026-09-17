@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, apiNotFound, withHandler } from "@/lib/api-error";
 import { createAuthToken, invalidateUserTokens } from "@/lib/auth-tokens";
 import { sendInviteEmail, sendResetEmail } from "@/lib/email";
+import { logger } from "@/lib/logger";
 
 const UpdateUserBody = z.object({
   role: z.enum(["ADMIN", "UPLOADER"]).optional(),
@@ -75,7 +76,7 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
       try {
         await sendInviteEmail(user.email, rawToken);
       } catch (err) {
-        console.error("[users] failed to send invite email:", err);
+        logger.error("[users] failed to send invite email", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
       }
     } else if (resetMfa && user.authMethod === "PASSWORD") {
       // No in-login enrollment path, so recovery is via a reset link: the user
@@ -85,7 +86,7 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
       try {
         await sendResetEmail(user.email, rawToken);
       } catch (err) {
-        console.error("[users] failed to send MFA-reset email:", err);
+        logger.error("[users] failed to send MFA-reset email", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
       }
     }
 

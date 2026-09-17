@@ -26,6 +26,8 @@ const REQUIRED_SECRETS: Record<string, string> = {
 export async function loadSecretsFromKeyVault(): Promise<void> {
   const vaultUrl = process.env.KEY_VAULT_URL;
   if (!vaultUrl) {
+    // logger not available yet at this point (App Insights not yet initialized),
+    // so this one startup warning goes to console intentionally.
     console.warn("[secrets] KEY_VAULT_URL not set — skipping Key Vault secret load");
     return;
   }

@@ -25,6 +25,7 @@ import { withOrgContext } from "@/lib/with-org-context";
 import { validateFile } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
 import { exportUploadToWarehouse } from "@/lib/warehouse-export";
+import { logger } from "@/lib/logger";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { auditStore, clientIp } from "@/lib/audit-context";
@@ -182,7 +183,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   try {
     blobUrl = await uploadToBlob(buffer, blobName, "text/csv");
   } catch (err) {
-    console.error("Azure upload failed:", err);
+    logger.error("[upload/manual] Azure upload failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiBadGateway("Failed to upload to storage. Please try again or contact an administrator.");
   }
 

@@ -27,6 +27,7 @@ import { prismaAdmin } from "./prisma-admin";
 import { buildUploadBlobName } from "./upload-service";
 import { isManagedIdentityConfigured, uploadParquetToWarehouse } from "./warehouse-storage";
 import { getWarehouseExportConfig } from "./warehouse-export-service";
+import { logger } from "./logger";
 
 // Read rows from the DB in bounded pages to keep memory flat for large uploads.
 const ROW_PAGE_SIZE = 5_000;
@@ -229,11 +230,11 @@ export async function exportUploadToWarehouse(
       },
     });
 
-    console.log(`[warehouse-export] uploadId=${uploadId} exported bytes=${buffer.byteLength} path=${blobName}`);
+    logger.info(`[warehouse-export] exported`, { uploadId, bytes: buffer.byteLength, path: blobName });
     return { status: "exported", path: blobName };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[warehouse-export] uploadId=${uploadId} FAILED:`, err);
+    logger.error(`[warehouse-export] export FAILED`, err instanceof Error ? err : undefined, { uploadId, detail: err instanceof Error ? undefined : String(err) });
     try {
       await prismaAdmin.fileUpload.update({
         where: { id: uploadId },
@@ -244,7 +245,7 @@ export async function exportUploadToWarehouse(
         },
       });
     } catch (updateErr) {
-      console.error(`[warehouse-export] uploadId=${uploadId} could not record failure:`, updateErr);
+      logger.error(`[warehouse-export] could not record failure`, updateErr instanceof Error ? updateErr : undefined, { uploadId, detail: updateErr instanceof Error ? undefined : String(updateErr) });
     }
     return { status: "failed", reason: message };
   }

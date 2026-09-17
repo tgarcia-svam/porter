@@ -21,6 +21,7 @@ import { waitForMalwareScanResult, deleteBlobByName, downloadBlobByName, isMalwa
 import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import type { UploadJobMessage } from "@/lib/service-bus";
 import { apiUnauthorized, apiBadRequest, apiNotFound } from "@/lib/api-error";
+import { logger } from "@/lib/logger";
 import {
   resolveValidationColumns,
   resolveSchemaComparisons,
@@ -67,13 +68,13 @@ export async function POST(req: NextRequest) {
   }
 
   const t0 = Date.now();
-  const elapsed = () => `${Date.now() - t0}ms`;
-  console.log(`[process] uploadId=${uploadId} blob=${blobName} — started`);
+  const elapsed = () => Date.now() - t0;
+  logger.info("[process] started", { uploadId, blobName });
 
   // ── Malware scan ──────────────────────────────────────────────────────────
   const tScan = Date.now();
   const scanResult = await waitForMalwareScanResult(blobName);
-  console.log(`[process] malware scan: result=${scanResult} duration=${Date.now() - tScan}ms elapsed=${elapsed()}`);
+  logger.info("[process] malware scan complete", { uploadId, scanResult, durationMs: Date.now() - tScan, elapsedMs: elapsed() });
 
   if (scanResult === "malicious") {
     await deleteBlobByName(blobName);
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
   // (up to maxDeliveryCount, then dead-letters). Each retry re-scans, giving
   // Defender more wall-clock time; an unscannable file is never marked VALID.
   if (scanResult === "pending" && isMalwareScanFailClosed()) {
-    console.warn(`[process] scan still pending after timeout — holding for retry (uploadId=${uploadId})`);
+    logger.warn("[process] scan still pending after timeout — holding for retry", { uploadId });
     return NextResponse.json(
       { ok: false, reason: "scan_pending" },
       { status: 503 }
@@ -129,9 +130,9 @@ export async function POST(req: NextRequest) {
   let buffer: Buffer;
   try {
     buffer = await downloadBlobByName(blobName);
-    console.log(`[process] blob download: size=${buffer.byteLength}B duration=${Date.now() - tDownload}ms elapsed=${elapsed()}`);
+    logger.info("[process] blob download complete", { uploadId, sizeBytes: buffer.byteLength, durationMs: Date.now() - tDownload, elapsedMs: elapsed() });
   } catch (err) {
-    console.error(`[process] blob download failed after ${Date.now() - tDownload}ms:`, err);
+    logger.error("[process] blob download failed", err instanceof Error ? err : undefined, { uploadId, durationMs: Date.now() - tDownload });
     await prisma.fileUpload.update({
       where: { id: uploadId },
       data: { status: "INVALID", errorCount: 1 },
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
     blobName.split("/").pop(),
     comparisons,
   );
-  console.log(`[process] validation: rows=${rowCount} errors=${errors.length} duration=${Date.now() - tValidate}ms elapsed=${elapsed()}`);
+  logger.info("[process] validation complete", { uploadId, rowCount, errorCount: errors.length, durationMs: Date.now() - tValidate, elapsedMs: elapsed() });
 
   const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
 
@@ -165,15 +166,15 @@ export async function POST(req: NextRequest) {
     errors: allErrors,
     rows,
   });
-  console.log(`[process] db writes: duration=${Date.now() - tDb}ms elapsed=${elapsed()}`);
-  console.log(`[process] uploadId=${uploadId} complete: status=${status} rows=${rowCount} total=${elapsed()}`);
+  logger.info("[process] db writes complete", { uploadId, durationMs: Date.now() - tDb, elapsedMs: elapsed() });
+  logger.info("[process] complete", { uploadId, status, rowCount, totalMs: elapsed() });
 
   // ── Data-warehouse export ───────────────────────────────────────────────────
   // Best-effort: never throws, records its own outcome on the FileUpload record.
   if (status === "VALID") {
     const tExport = Date.now();
     const exportResult = await exportUploadToWarehouse(uploadId);
-    console.log(`[process] warehouse export: ${exportResult.status}${exportResult.reason ? ` (${exportResult.reason})` : ""} duration=${Date.now() - tExport}ms`);
+    logger.info("[process] warehouse export", { uploadId, exportStatus: exportResult.status, reason: exportResult.reason ?? null, durationMs: Date.now() - tExport });
   }
 
   return NextResponse.json({

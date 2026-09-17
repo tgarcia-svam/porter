@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { logger } from "@/lib/logger";
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
@@ -52,10 +53,10 @@ export function withHandler<Ctx = any>(
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError) {
         if (err.code === "P2025") return apiNotFound();
-        console.error("[api] prisma error:", err.code, err.message);
+        logger.error("[api] prisma error", undefined, { code: err.code, message: err.message });
         return apiInternalError();
       }
-      console.error("[api] unhandled error:", err);
+      logger.error("[api] unhandled error", err instanceof Error ? err : undefined, err instanceof Error ? undefined : { detail: String(err) });
       return apiInternalError();
     }
   };

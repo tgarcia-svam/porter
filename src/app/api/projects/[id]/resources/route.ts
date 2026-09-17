@@ -11,6 +11,7 @@ import {
   withHandler,
 } from "@/lib/api-error";
 import { uploadToBlob } from "@/lib/azure-storage";
+import { logger } from "@/lib/logger";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -150,7 +151,7 @@ export const POST = withHandler<RouteContext>(async (req, { params }) => {
   try {
     await uploadToBlob(buffer, blobName, contentType);
   } catch (err) {
-    console.error("[resources] blob upload failed:", err);
+    logger.error("[resources] blob upload failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiInternalError("File upload failed. Please try again.");
   }
 

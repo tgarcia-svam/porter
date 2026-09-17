@@ -28,6 +28,7 @@ function SetPasswordContent() {
   // immediately instead of only after the user fills out and submits the form.
   useEffect(() => {
     if (!token || phase !== "checking") return;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) { setPhase("expired"); return; }
     fetch(`/api/account/reset?token=${encodeURIComponent(token)}`)
       .then((r) => r.json())
       .then((d) => setPhase(d.valid ? "password" : "expired"))

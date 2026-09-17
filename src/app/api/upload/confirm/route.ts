@@ -8,14 +8,18 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 import { auth } from "@/lib/auth";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { enqueueUploadJob } from "@/lib/service-bus";
 import { verifySessionBinding } from "@/lib/session-binding";
 import { apiUnauthorized, apiForbidden, apiBadRequest, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
 
+const BLOB_NAME_RE =
+  /^[^/\\?#%\x00-\x1f]{1,500}\/[^/\\?#%\x00-\x1f]{1,200}\/[^/\\?#%\x00-\x1f]{1,200}\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\/[^/\\?#%\x00-\x1f]{1,255}$/;
+
 const ConfirmBody = z.object({
-  blobName:  z.string().min(1),
+  blobName:  z.string().regex(BLOB_NAME_RE),
   schemaId:  z.string().min(1),
   fileName:  z.string().min(1).max(255),
   mimeType:  z.string().min(1),
@@ -65,14 +69,14 @@ export const POST = withHandler(async (req: NextRequest) => {
       data: { userId, schemaId, projectId, schemaVersion: schema.version, fileName, blobUrl, status: "PENDING" },
     });
   } catch (err) {
-    console.error("[upload/confirm] DB create failed:", err);
+    logger.error("[upload/confirm] DB create failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiInternalError("Failed to create upload record.");
   }
 
   try {
     await enqueueUploadJob({ uploadId: record.id, blobName, mimeType, sheetName });
   } catch (err) {
-    console.error("[upload/confirm] enqueueUploadJob failed:", err);
+    logger.error("[upload/confirm] enqueueUploadJob failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiInternalError(
       `Failed to queue processing job: ${err instanceof Error ? err.message : String(err)}`
     );
