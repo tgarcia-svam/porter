@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
-import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/api-auth";
 import {
   apiForbidden,
-  apiUnauthorized,
   apiNotFound,
   apiBadRequest,
   apiInternalError,
@@ -43,54 +41,6 @@ function serializeResource(r: {
     createdAt: r.createdAt.toISOString(),
   };
 }
-
-export const GET = withHandler<RouteContext>(async (req, { params }) => {
-  const { id: projectId } = await params;
-  const session = await auth();
-  if (!session?.user?.id) return apiUnauthorized();
-
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, deletedAt: null },
-  });
-  if (!project) return apiNotFound("Project not found");
-
-  const isAdmin = session.user.role === "ADMIN";
-
-  let resources;
-  if (isAdmin) {
-    resources = await prisma.projectResource.findMany({
-      where: { projectId, deletedAt: null },
-      orderBy: [{ filePath: "asc" }, { fileName: "asc" }],
-    });
-  } else {
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { organizationId: true },
-    });
-    if (!user?.organizationId) {
-      return apiForbidden("You must belong to an organization");
-    }
-
-    const access = await prisma.projectOrganization.findFirst({
-      where: { projectId, organizationId: user.organizationId },
-    });
-    if (!access) return apiForbidden("Project not accessible to your organization");
-
-    resources = await prisma.projectResource.findMany({
-      where: {
-        projectId,
-        deletedAt: null,
-        OR: [
-          { organizationIds: { isEmpty: true } },
-          { organizationIds: { has: user.organizationId } },
-        ],
-      },
-      orderBy: [{ filePath: "asc" }, { fileName: "asc" }],
-    });
-  }
-
-  return NextResponse.json(resources.map(serializeResource));
-});
 
 export const POST = withHandler<RouteContext>(async (req, { params }) => {
   const session = await requireAdmin(req);
