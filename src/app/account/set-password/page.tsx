@@ -297,7 +297,7 @@ function SetPasswordContent() {
               {method === "totp" && (
                 <>
                   <div className="flex flex-col items-center gap-3">
-                    {qr ? (
+                    {qr && qr.startsWith("data:image/") ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={qr} alt="Authenticator QR code" className="rounded-lg border border-gray-200" />
                     ) : (

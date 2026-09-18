@@ -1016,6 +1016,10 @@ function FilesPanel({ projectId }: { projectId: string }) {
         return;
       }
       const { downloadUrl } = await res.json();
+      if (typeof downloadUrl !== "string" || !isAzureBlobUrl(downloadUrl)) {
+        setDownloadError("Action failed. Please try again.");
+        return;
+      }
       if (disposition === "inline") {
         window.open(downloadUrl, "_blank", "noopener,noreferrer");
       } else {
