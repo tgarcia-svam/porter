@@ -27,14 +27,18 @@ function handleAuthError(res: Response): Response {
  */
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
+  // Decompose via URL to prevent any embedded host override, then reconstruct from safe parts only.
+  const parsed = new URL(path, "https://placeholder.invalid");
+  if (parsed.host !== "placeholder.invalid") throw new Error("apiFetch: host override detected");
+  const safePath = parsed.pathname + parsed.search + parsed.hash;
 
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
-  if (!mutating) return fetch(path, init).then(handleAuthError);
+  if (!mutating) return fetch(safePath, init).then(handleAuthError);
 
   const headers = new Headers(init?.headers);
   headers.set(CSRF_HEADER, getCsrfToken());
 
-  return fetch(path, { ...init, headers }).then(handleAuthError);
+  return fetch(safePath, { ...init, headers }).then(handleAuthError);
 }

@@ -797,7 +797,11 @@ export default function FileUploader({
                       <tr key={u.id} className="border-b border-gray-50 last:border-0">
                         <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
                           {u.blobUrl && isAzureBlobUrl(u.blobUrl) ? (
-                            <a href={u.blobUrl} className="text-brand-600 hover:underline" target="_blank" rel="noreferrer">
+                            <a
+                              href="#"
+                              className="text-brand-600 hover:underline"
+                              onClick={(e) => { e.preventDefault(); window.open(u.blobUrl!, "_blank", "noopener,noreferrer"); }}
+                            >
                               {u.fileName}
                             </a>
                           ) : u.fileName}
@@ -1023,13 +1027,7 @@ function FilesPanel({ projectId }: { projectId: string }) {
       if (disposition === "inline") {
         window.open(downloadUrl, "_blank", "noopener,noreferrer");
       } else {
-        const a = document.createElement("a");
-        a.href = downloadUrl;
-        a.download = r.fileName;
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        window.open(downloadUrl, "_blank", "noopener,noreferrer");
       }
     } finally {
       setDownloading(null);
