@@ -39,7 +39,7 @@ async function main() {
     },
   });
 
-  console.log(`\nDev user ready: ${email}. Use Admin → Users → Resend Invite to get the set-password link (shown in the Next.js server log when ACS email is not configured).\n`);
+  console.log("\nDev user created. Use Admin → Users → Resend Invite to get the set-password link (shown in the Next.js server log when ACS email is not configured).\n");
 }
 
 main()
