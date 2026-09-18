@@ -48,7 +48,7 @@ async function main() {
     await prisma.$executeRawUnsafe(
       `GRANT CONNECT ON DATABASE "${dbName}" TO ${APP_USER}`
     );
-    console.log(`[2/6] GRANT CONNECT ON DATABASE "${dbName}".`);
+    console.log("[2/6] GRANT CONNECT done.");
 
     await prisma.$executeRawUnsafe(
       `GRANT USAGE ON SCHEMA public TO ${APP_USER}`

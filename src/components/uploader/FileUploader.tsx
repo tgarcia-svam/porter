@@ -796,7 +796,7 @@ export default function FileUploader({
                     {uploads.map((u) => (
                       <tr key={u.id} className="border-b border-gray-50 last:border-0">
                         <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
-                          {u.blobUrl ? (
+                          {u.blobUrl && isAzureBlobUrl(u.blobUrl) ? (
                             <a href={u.blobUrl} className="text-brand-600 hover:underline" target="_blank" rel="noreferrer">
                               {u.fileName}
                             </a>
@@ -1004,6 +1004,7 @@ function FilesPanel({ projectId }: { projectId: string }) {
   }, [currentPath]);
 
   async function handleFileAction(r: ProjectResource, disposition: "inline" | "attachment") {
+    if (!ID_RE.test(r.id) || !ID_RE.test(projectId)) return;
     setDownloading(r.id);
     setDownloadError(null);
     try {

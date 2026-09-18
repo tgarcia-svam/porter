@@ -14,7 +14,10 @@ export default function DashboardPanel({ schemaId, projectId }: { schemaId: stri
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+
   useEffect(() => {
+    if (!ID_RE.test(schemaId) || !ID_RE.test(projectId)) return;
     setLoading(true);
     setData(null);
     fetch(`/api/dashboard?schemaId=${schemaId}&projectId=${projectId}`)
