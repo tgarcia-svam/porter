@@ -36,6 +36,7 @@ export default function RecentUploadsReport() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
+    if (!Number.isInteger(page) || page < 1) return;
     let cancelled = false;
     setLoading(true);
     fetch(`/api/admin/uploads/recent?page=${page}&pageSize=20`)
