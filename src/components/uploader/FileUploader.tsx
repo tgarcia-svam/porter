@@ -478,9 +478,7 @@ export default function FileUploader({
         if (fileInputRef.current) fileInputRef.current.value = "";
         pollingRef.current = setInterval(async () => {
           try {
-            const _pollUrl = new URL(`/api/upload/${uploadId}/status`, "https://same-origin.invalid");
-            if (_pollUrl.host !== "same-origin.invalid") return;
-            const pollRes = await fetch(_pollUrl.pathname + _pollUrl.search);
+            const pollRes = await fetch(`/api/upload/status?${new URLSearchParams({ uploadId })}`);
             if (!pollRes.ok) return;
             const pollData = await pollRes.json();
             if (pollData.status !== "PENDING") {
@@ -980,9 +978,7 @@ function FilesPanel({ projectId }: { projectId: string }) {
     if (!ID_RE.test(projectId)) return;
     setLoading(true);
     setCurrentPath("");
-    const _resUrl = new URL(`/api/projects/${projectId}/resources`, "https://same-origin.invalid");
-    if (_resUrl.host !== "same-origin.invalid") return;
-    fetch(_resUrl.pathname + _resUrl.search)
+    fetch(`/api/projects/resources?${new URLSearchParams({ projectId })}`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setResources)
       .catch(() => {})
@@ -1021,13 +1017,9 @@ function FilesPanel({ projectId }: { projectId: string }) {
     setDownloading(r.id);
     setDownloadError(null);
     try {
-      const _dlParams = new URLSearchParams({ disposition });
-      const _dlUrl = new URL(
-        `/api/projects/${projectId}/resources/${r.id}/download`,
-        "https://same-origin.invalid"
+      const res = await fetch(
+        `/api/projects/resources/download?${new URLSearchParams({ projectId, resourceId: r.id, disposition })}`
       );
-      if (_dlUrl.host !== "same-origin.invalid") return;
-      const res = await fetch(`${_dlUrl.pathname}?${_dlParams}`);
       if (!res.ok) {
         setDownloadError("Action failed. Please try again.");
         return;

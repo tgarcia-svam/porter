@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { auth } from "@/lib/auth";
-import { apiForbidden, apiUnauthorized, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
+import {
+  apiForbidden,
+  apiUnauthorized,
+  apiNotFound,
+  apiBadRequest,
+  apiInternalError,
+  withHandler,
+} from "@/lib/api-error";
 import { generateDownloadSasUrl } from "@/lib/azure-storage";
 import { logger } from "@/lib/logger";
 
-type RouteContext = { params: Promise<{ id: string; resourceId: string }> };
+const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
-export const GET = withHandler<RouteContext>(async (req, { params }) => {
-  const { id: projectId, resourceId } = await params;
+export const GET = withHandler(async (req: NextRequest) => {
+  const projectId = req.nextUrl.searchParams.get("projectId") ?? "";
+  const resourceId = req.nextUrl.searchParams.get("resourceId") ?? "";
+  const disposition = req.nextUrl.searchParams.get("disposition") ?? "inline";
+
+  if (!projectId || !resourceId || !ID_RE.test(projectId) || !ID_RE.test(resourceId))
+    return apiBadRequest("projectId and resourceId required");
+
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
@@ -24,7 +37,6 @@ export const GET = withHandler<RouteContext>(async (req, { params }) => {
     });
     if (!user?.organizationId) return apiForbidden("You must belong to an organization");
 
-    // Non-empty array = restricted to specific orgs
     if (
       resource.organizationIds.length > 0 &&
       !resource.organizationIds.includes(user.organizationId)
@@ -38,7 +50,6 @@ export const GET = withHandler<RouteContext>(async (req, { params }) => {
     if (!access) return apiForbidden("Project not accessible to your organization");
   }
 
-  const disposition = new URL(req.url).searchParams.get("disposition") ?? "inline";
   const contentDisposition =
     disposition === "attachment"
       ? `attachment; filename="${resource.fileName.replace(/"/g, '\\"')}"`
