@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { checkPassword, MIN_PASSWORD_LENGTH, MIN_CHARACTER_CLASSES, type PolicyOverrides } from "@/lib/password-policy";
 
@@ -44,7 +44,8 @@ function SetPasswordContent() {
   const [mfaError, setMfaError] = useState<string | null>(null);
 
   // TOTP enrollment
-  const [qr, setQr] = useState<string | null>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [qrReady, setQrReady] = useState(false);
   const [secret, setSecret] = useState("");
   const [code, setCode] = useState("");
 
@@ -132,7 +133,7 @@ function SetPasswordContent() {
 
   // ── TOTP enrollment: fetch secret + render QR when the method is picked ──────
   useEffect(() => {
-    if (method !== "totp" || !enrollToken || qr) return;
+    if (method !== "totp" || !enrollToken || qrReady) return;
     let cancelled = false;
     (async () => {
       try {
@@ -147,17 +148,17 @@ function SetPasswordContent() {
           return;
         }
         const QRCode = (await import("qrcode")).default;
-        const dataUrl = await QRCode.toDataURL(data.otpauthUrl, { margin: 1, width: 200 });
-        if (!cancelled) {
+        if (qrCanvasRef.current && !cancelled) {
+          await QRCode.toCanvas(qrCanvasRef.current, data.otpauthUrl, { margin: 1, width: 200 });
           setSecret(data.secret);
-          setQr(dataUrl);
+          setQrReady(true);
         }
       } catch {
         if (!cancelled) setMfaError("Could not start authenticator setup.");
       }
     })();
     return () => { cancelled = true; };
-  }, [method, enrollToken, qr]);
+  }, [method, enrollToken, qrReady]);
 
   async function submitCode(e: React.FormEvent) {
     e.preventDefault();
@@ -297,12 +298,11 @@ function SetPasswordContent() {
               {method === "totp" && (
                 <>
                   <div className="flex flex-col items-center gap-3">
-                    {qr && qr.startsWith("data:image/") ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={qr} alt="Authenticator QR code" className="rounded-lg border border-gray-200" />
-                    ) : (
-                      <div className="h-[200px] w-[200px] animate-pulse rounded-lg bg-gray-100" />
-                    )}
+                    <canvas
+                      ref={qrCanvasRef}
+                      className="rounded-lg border border-gray-200"
+                      aria-label="Authenticator QR code"
+                    />
                     {secret && (
                       <p className="text-xs text-gray-500 text-center">
                         Can&apos;t scan? Enter this key manually:<br />
@@ -318,14 +318,14 @@ function SetPasswordContent() {
                       placeholder="000000"
                     />
                     <button
-                      type="submit" disabled={busy || !qr}
+                      type="submit" disabled={busy || !qrReady}
                       className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
                     >
                       {busy ? "Verifying…" : "Verify & finish"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setMethod("choose"); setMfaError(null); setQr(null); setSecret(""); setCode(""); }}
+                      onClick={() => { setMethod("choose"); setMfaError(null); setQrReady(false); setSecret(""); setCode(""); }}
                       className="w-full text-xs text-gray-500 hover:underline"
                     >
                       Choose a different method
