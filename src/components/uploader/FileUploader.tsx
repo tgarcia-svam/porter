@@ -404,9 +404,14 @@ export default function FileUploader({
           setUploadError("Upload initialisation failed. Please try again.");
           return;
         }
+        const _safeUrl = new URL(sasUrl);
+        if (_safeUrl.protocol !== "https:" || !_safeUrl.hostname.endsWith(".blob.core.windows.net")) {
+          setUploadError("Upload initialisation failed. Please try again.");
+          return;
+        }
         let putRes: Response;
         try {
-          putRes = await fetch(sasUrl, {
+          putRes = await fetch(_safeUrl.href, {
             method: "PUT",
             headers: {
               "Content-Type": selectedFile.type || "application/octet-stream",
@@ -473,7 +478,9 @@ export default function FileUploader({
         if (fileInputRef.current) fileInputRef.current.value = "";
         pollingRef.current = setInterval(async () => {
           try {
-            const pollRes = await fetch(`/api/upload/${uploadId}/status`);
+            const _pollUrl = new URL(`/api/upload/${uploadId}/status`, "https://same-origin.invalid");
+            if (_pollUrl.host !== "same-origin.invalid") return;
+            const pollRes = await fetch(_pollUrl.pathname + _pollUrl.search);
             if (!pollRes.ok) return;
             const pollData = await pollRes.json();
             if (pollData.status !== "PENDING") {
@@ -973,7 +980,9 @@ function FilesPanel({ projectId }: { projectId: string }) {
     if (!ID_RE.test(projectId)) return;
     setLoading(true);
     setCurrentPath("");
-    fetch(`/api/projects/${projectId}/resources`)
+    const _resUrl = new URL(`/api/projects/${projectId}/resources`, "https://same-origin.invalid");
+    if (_resUrl.host !== "same-origin.invalid") return;
+    fetch(_resUrl.pathname + _resUrl.search)
       .then((r) => (r.ok ? r.json() : []))
       .then(setResources)
       .catch(() => {})
@@ -1012,9 +1021,13 @@ function FilesPanel({ projectId }: { projectId: string }) {
     setDownloading(r.id);
     setDownloadError(null);
     try {
-      const res = await fetch(
-        `/api/projects/${projectId}/resources/${r.id}/download?disposition=${disposition}`
+      const _dlParams = new URLSearchParams({ disposition });
+      const _dlUrl = new URL(
+        `/api/projects/${projectId}/resources/${r.id}/download`,
+        "https://same-origin.invalid"
       );
+      if (_dlUrl.host !== "same-origin.invalid") return;
+      const res = await fetch(`${_dlUrl.pathname}?${_dlParams}`);
       if (!res.ok) {
         setDownloadError("Action failed. Please try again.");
         return;
