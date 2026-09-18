@@ -966,6 +966,7 @@ function FilesPanel({ projectId }: { projectId: string }) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!ID_RE.test(projectId)) return;
     setLoading(true);
     setCurrentPath("");
     fetch(`/api/projects/${projectId}/resources`)

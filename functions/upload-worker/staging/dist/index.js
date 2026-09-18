@@ -6,7 +6,7 @@ functions_1.app.serviceBusQueue("uploadWorker", {
     connection: "ServiceBusConnection",
     handler: async (message, context) => {
         const job = message;
-        context.log(`Processing upload job: uploadId=${job.uploadId} blob=${job.blobName}`);
+        context.log(`Processing upload job: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} blob=${encodeURIComponent(String(job.blobName ?? ""))}`);
         const appUrl = process.env.APP_URL;
         const workerSecret = process.env.UPLOAD_WORKER_SECRET;
         if (!appUrl || !workerSecret) {
@@ -29,6 +29,6 @@ functions_1.app.serviceBusQueue("uploadWorker", {
             throw new Error(`/api/upload/process responded ${res.status}: ${body}`);
         }
         const result = await res.json();
-        context.log(`Upload job complete: uploadId=${job.uploadId} status=${result.status} rows=${result.rowCount}`);
+        context.log(`Upload job complete: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} status=${encodeURIComponent(String(result.status ?? ""))} rows=${encodeURIComponent(String(result.rowCount ?? ""))}`);
     },
 });

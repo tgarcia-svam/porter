@@ -25,14 +25,16 @@ function handleAuthError(res: Response): Response {
  * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
  * to the login page on 401 (expired session / UA mismatch).
  */
-export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
+
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
-  if (!mutating) return fetch(input, init).then(handleAuthError);
+  if (!mutating) return fetch(path, init).then(handleAuthError);
 
   const headers = new Headers(init?.headers);
   headers.set(CSRF_HEADER, getCsrfToken());
 
-  return fetch(input, { ...init, headers }).then(handleAuthError);
+  return fetch(path, { ...init, headers }).then(handleAuthError);
 }

@@ -74,18 +74,7 @@ async function main() {
     );
     console.log("[6/6] ALTER DEFAULT PRIVILEGES set for future tables.");
 
-    // Derive the app-user DATABASE_URL from the admin URL
-    const appDbUrl = dbUrl.replace(
-      /^postgresql:\/\/[^:]+:[^@]+@/,
-      `postgresql://${APP_USER}:${encodeURIComponent(password)}@`
-    );
-
-    const maskedAppDbUrl = appDbUrl.replace(/:([^:@]+)@/, ":****@");
-    console.log("\nDone. App user DATABASE_URL:");
-    console.log(maskedAppDbUrl);
-    console.log(
-      "\nAdd this as DATABASE_URL in .env (or Key Vault) for application runtime."
-    );
+    console.log(`\nDone. Set DATABASE_URL in .env (or Key Vault) for user "${APP_USER}" using the password you supplied.`);
   } finally {
     await prisma.$disconnect();
   }

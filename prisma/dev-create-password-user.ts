@@ -23,8 +23,6 @@ async function main() {
     console.error("Usage: npx tsx prisma/dev-create-password-user.ts <email>");
     process.exit(1);
   }
-  const base = (process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/$/, "");
-
   const user = await prisma.user.upsert({
     where: { email },
     update: { authMethod: "PASSWORD" },
@@ -41,8 +39,7 @@ async function main() {
     },
   });
 
-  console.log(`\nUser ready: ${email} (ADMIN, PASSWORD)`);
-  console.log(`Set-password link (expires 72h):\n${base}/account/set-password?token=${encodeURIComponent(raw)}\n`);
+  console.log(`\nDev user ready: ${email}. Use Admin → Users → Resend Invite to get the set-password link (shown in the Next.js server log when ACS email is not configured).\n`);
 }
 
 main()
