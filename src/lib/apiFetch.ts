@@ -27,9 +27,10 @@ function handleAuthError(res: Response): Response {
  */
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
-  // Decompose via URL to prevent any embedded host override, then reconstruct from safe parts only.
-  const parsed = new URL(path, "https://placeholder.invalid");
-  if (parsed.host !== "placeholder.invalid") throw new Error("apiFetch: host override detected");
+  // Parse against the actual deployed origin and assert the result stays on that origin.
+  // Any embedded host override (e.g. /@evil.com/x) resolves to a different origin and throws.
+  const parsed = new URL(path, window.location.origin);
+  if (parsed.origin !== window.location.origin) throw new Error("apiFetch: host override detected");
   const safePath = parsed.pathname + parsed.search + parsed.hash;
 
   const method = (init?.method ?? "GET").toUpperCase();
