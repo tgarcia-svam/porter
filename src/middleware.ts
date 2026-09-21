@@ -56,6 +56,14 @@ const CSRF_EXEMPT = [
   "/api/admin/retention/run",    // same pattern — worker secret auth, no cookie
 ];
 
+// Computed once at module load from the trusted NEXTAUTH_URL env var.
+// Using the full origin (scheme + host) lets us make a single .origin comparison
+// rather than reassembling it from parts on every request.
+const APEX_ORIGIN = (() => {
+  try { return process.env.NEXTAUTH_URL ? new URL(process.env.NEXTAUTH_URL).origin : null; }
+  catch { return null; }
+})();
+
 // ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {
   // ── Canonical host ─────────────────────────────────────────────────────────
@@ -72,19 +80,21 @@ export function middleware(req: NextRequest) {
   // App Service the request URL carries the container's internal port (3000) and
   // http, which would otherwise leak into the redirect (e.g. porterdata.com:3000).
   const hostname = (req.headers.get("host") ?? "").split(":")[0];
-  if (hostname.startsWith("www.")) {
-    // Only redirect to the apex if it matches the configured NEXTAUTH_URL host.
-    // Without this check, a spoofed Host header could redirect to an arbitrary domain.
-    const apexHost = process.env.NEXTAUTH_URL
-      ? new URL(process.env.NEXTAUTH_URL).hostname
-      : null;
-    const target = hostname.slice(4); // strip "www."
-    if (apexHost && target === apexHost) {
-      const url = req.nextUrl.clone();
-      url.protocol = "https:";
-      url.hostname = apexHost;
-      url.port = ""; // drop the internal :3000
-      return NextResponse.redirect(url, 308);
+  if (hostname.startsWith("www.") && APEX_ORIGIN) {
+    // Only redirect when the stripped Host matches the configured apex hostname.
+    // A spoofed Host that doesn't match simply falls through without redirecting.
+    const apexHost = new URL(APEX_ORIGIN).hostname;
+    if (hostname.slice(4) === apexHost) {
+      // Build the redirect URL from scratch using the trusted APEX_ORIGIN as base.
+      // Avoids cloning the request URL (which carries user-controlled path/search).
+      const safe = new URL(
+        req.nextUrl.pathname + req.nextUrl.search + req.nextUrl.hash,
+        APEX_ORIGIN
+      );
+      // Belt-and-suspenders: assert the constructed URL stays within our origin.
+      if (safe.origin === APEX_ORIGIN) {
+        return NextResponse.redirect(safe.href, 308);
+      }
     }
   }
 

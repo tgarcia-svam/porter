@@ -405,10 +405,6 @@ export default function FileUploader({
           return;
         }
         const _safeUrl = new URL(sasUrl);
-        if (_safeUrl.protocol !== "https:" || !_safeUrl.hostname.endsWith(".blob.core.windows.net")) {
-          setUploadError("Upload initialisation failed. Please try again.");
-          return;
-        }
         let putRes: Response;
         try {
           putRes = await fetch(_safeUrl.href, {
