@@ -25,14 +25,21 @@ function handleAuthError(res: Response): Response {
  * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
  * to the login page on 401 (expired session / UA mismatch).
  */
-export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
+  // Parse against the actual deployed origin and assert the result stays on that origin.
+  // Any embedded host override (e.g. /@evil.com/x) resolves to a different origin and throws.
+  const parsed = new URL(path, window.location.origin);
+  if (parsed.origin !== window.location.origin) throw new Error("apiFetch: host override detected");
+  const safePath = parsed.pathname + parsed.search + parsed.hash;
+
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
-  if (!mutating) return fetch(input, init).then(handleAuthError);
+  if (!mutating) return fetch(safePath, init).then(handleAuthError);
 
   const headers = new Headers(init?.headers);
   headers.set(CSRF_HEADER, getCsrfToken());
 
-  return fetch(input, { ...init, headers }).then(handleAuthError);
+  return fetch(safePath, { ...init, headers }).then(handleAuthError);
 }

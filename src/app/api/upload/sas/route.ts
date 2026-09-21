@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 // TODO(RLS): refactor to withOrgContext once the upload pipeline is split.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { generateUploadSasUrl } from "@/lib/azure-storage";
@@ -81,7 +82,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   try {
     sasUrl = await generateUploadSasUrl(blobName);
   } catch (err) {
-    console.error("[upload/sas] failed to generate SAS URL:", err);
+    logger.error("[upload/sas] failed to generate SAS URL", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiInternalError("Could not generate upload URL. Please try again or contact an administrator.");
   }
 

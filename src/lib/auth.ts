@@ -8,6 +8,7 @@ import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
 import { verifyLoginTicket } from "@/lib/login-ticket";
+import { logger } from "@/lib/logger";
 import { createSession, validateAndTouchSession, revokeSession } from "@/lib/session-registry";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
@@ -289,16 +290,13 @@ async function buildInstance(): Promise<AuthInstance> {
     logger: {
       // Surface the real cause behind generic Auth.js errors. InvalidCheck
       // ("pkceCodeVerifier value could not be parsed") hides whether the cookie
-      // was MISSING or failed to DECRYPT inside error.cause — log it so prod
-      // failures are diagnosable via App Insights (console is auto-collected).
+      // was MISSING or failed to DECRYPT inside error.cause — log it here so
+      // prod failures are diagnosable via App Insights.
       error(error: Error & { cause?: unknown }) {
-        console.error(
-          "[auth][error]",
-          error?.name,
-          "|",
-          error?.message,
-          "| cause:",
-          error?.cause ?? "(none)"
+        logger.error(
+          `[auth][error] ${error?.name} | ${error?.message}`,
+          error,
+          { cause: String(error?.cause ?? "(none)") }
         );
       },
     },
@@ -320,6 +318,13 @@ async function buildInstance(): Promise<AuthInstance> {
 function getInstance(): Promise<AuthInstance> {
   if (!_promise) _promise = buildInstance();
   return _promise;
+}
+
+// ── Warm-up ───────────────────────────────────────────────────────────────────
+// Called from instrumentation.ts after secrets are loaded so the singleton is
+// built at startup rather than on the first real request.
+export function preWarmAuth(): Promise<AuthInstance> {
+  return getInstance();
 }
 
 // ── Proxy exports ─────────────────────────────────────────────────────────────

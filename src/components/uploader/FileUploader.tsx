@@ -70,6 +70,17 @@ const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 const QUARTER_MONTHS = ["first","second","third"];
 
+function isAzureBlobUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && hostname.endsWith(".blob.core.windows.net");
+  } catch {
+    return false;
+  }
+}
+
+const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+
 function ordinal(n: number) {
   const v = n % 100;
   return n + (["th","st","nd","rd"][(v - 20) % 10] ?? ["th","st","nd","rd"][v] ?? "th");
@@ -389,10 +400,14 @@ export default function FileUploader({
         const { sasUrl, blobName } = sasData as { sasUrl: string; blobName: string };
 
         // Step 2 — PUT directly to blob storage
-        console.log("[upload] PUT to blob storage, sasUrl prefix:", sasUrl.slice(0, 80));
+        if (!isAzureBlobUrl(sasUrl)) {
+          setUploadError("Upload initialisation failed. Please try again.");
+          return;
+        }
+        const _safeUrl = new URL(sasUrl);
         let putRes: Response;
         try {
-          putRes = await fetch(sasUrl, {
+          putRes = await fetch(_safeUrl.href, {
             method: "PUT",
             headers: {
               "Content-Type": selectedFile.type || "application/octet-stream",
@@ -400,20 +415,15 @@ export default function FileUploader({
             },
             body: selectedFile,
           });
-        } catch (putErr) {
+        } catch {
           // Network error — almost always CORS blocking the preflight
-          console.error("[upload] PUT network error (likely CORS):", putErr);
-          setUploadError(`File could not be sent to storage (network error — check browser console for CORS details).`);
+          setUploadError(`File could not be sent to storage (network error). Please try again or contact an administrator.`);
           return;
         }
-        console.log("[upload] PUT response status:", putRes.status);
         if (!putRes.ok) {
-          const body = await putRes.text().catch(() => "");
-          console.error("[upload] PUT failed:", putRes.status, body);
           setUploadError(`File upload to storage failed (HTTP ${putRes.status}). Please try again.`);
           return;
         }
-        console.log("[upload] PUT succeeded, calling confirm...");
 
         // Step 3 — confirm: create record + enqueue job
         const confirmRes = await apiFetch("/api/upload/confirm", {
@@ -454,14 +464,17 @@ export default function FileUploader({
       }
 
       if (data.status === "PENDING") {
+        const uploadId = data.uploadId!;
+        if (!ID_RE.test(uploadId)) {
+          setUploadError("An unexpected error occurred. Please try again.");
+          return;
+        }
         isAsyncPath = true;
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
-
-        const uploadId = data.uploadId!;
         pollingRef.current = setInterval(async () => {
           try {
-            const pollRes = await fetch(`/api/upload/${uploadId}/status`);
+            const pollRes = await fetch(`/api/upload/status?${new URLSearchParams({ uploadId })}`);
             if (!pollRes.ok) return;
             const pollData = await pollRes.json();
             if (pollData.status !== "PENDING") {
@@ -481,9 +494,8 @@ export default function FileUploader({
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await refreshHistory();
-    } catch (err) {
+    } catch {
       // Never fail silently — surface something the user can act on.
-      console.error("[upload] unexpected error:", err);
       setUploadError("An unexpected error occurred. Please try again.");
     } finally {
       if (!isAsyncPath) setUploading(false);
@@ -785,8 +797,12 @@ export default function FileUploader({
                     {uploads.map((u) => (
                       <tr key={u.id} className="border-b border-gray-50 last:border-0">
                         <td className="px-6 py-3 text-gray-900 font-medium max-w-[200px] truncate">
-                          {u.blobUrl ? (
-                            <a href={u.blobUrl} className="text-brand-600 hover:underline" target="_blank" rel="noreferrer">
+                          {u.blobUrl && isAzureBlobUrl(u.blobUrl) ? (
+                            <a
+                              href="#"
+                              className="text-brand-600 hover:underline"
+                              onClick={(e) => { e.preventDefault(); window.open(u.blobUrl!, "_blank", "noopener,noreferrer"); }}
+                            >
                               {u.fileName}
                             </a>
                           ) : u.fileName}
@@ -955,9 +971,10 @@ function FilesPanel({ projectId }: { projectId: string }) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!ID_RE.test(projectId)) return;
     setLoading(true);
     setCurrentPath("");
-    fetch(`/api/projects/${projectId}/resources`)
+    fetch(`/api/projects/resources?${new URLSearchParams({ projectId })}`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setResources)
       .catch(() => {})
@@ -992,27 +1009,26 @@ function FilesPanel({ projectId }: { projectId: string }) {
   }, [currentPath]);
 
   async function handleFileAction(r: ProjectResource, disposition: "inline" | "attachment") {
+    if (!ID_RE.test(r.id) || !ID_RE.test(projectId)) return;
     setDownloading(r.id);
     setDownloadError(null);
     try {
       const res = await fetch(
-        `/api/projects/${projectId}/resources/${r.id}/download?disposition=${disposition}`
+        `/api/projects/resources/download?${new URLSearchParams({ projectId, resourceId: r.id, disposition })}`
       );
       if (!res.ok) {
         setDownloadError("Action failed. Please try again.");
         return;
       }
       const { downloadUrl } = await res.json();
+      if (typeof downloadUrl !== "string" || !isAzureBlobUrl(downloadUrl)) {
+        setDownloadError("Action failed. Please try again.");
+        return;
+      }
       if (disposition === "inline") {
         window.open(downloadUrl, "_blank", "noopener,noreferrer");
       } else {
-        const a = document.createElement("a");
-        a.href = downloadUrl;
-        a.download = r.fileName;
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        window.open(downloadUrl, "_blank", "noopener,noreferrer");
       }
     } finally {
       setDownloading(null);
