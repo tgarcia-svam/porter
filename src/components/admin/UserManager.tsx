@@ -546,7 +546,7 @@ export default function UserManager({
                                 user.mfaEnabled ? "authenticator" : null,
                                 user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
                               ].filter(Boolean);
-                              if (user.mfaExempt) return <span className="text-[11px] text-amber-700">No MFA (exempt)</span>;
+                              if (user.mfaExempt) return <span className="text-[11px] text-gray-400">No MFA</span>;
                               return factors.length > 0 ? (
                                 <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
                               ) : (
@@ -585,15 +585,20 @@ export default function UserManager({
                             </button>
                           )}
                           {user.authMethod === "PASSWORD" && (
-                            <button
-                              onClick={() => handleToggleMfaExempt(user)}
-                              title={user.mfaExempt ? "MFA bypassed — click to re-enable" : "Allow login without MFA (scanner/service accounts)"}
-                              className={user.mfaExempt
-                                ? "text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"
-                                : "text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"}
+                            <label
+                              className="flex items-center gap-1.5 cursor-pointer select-none"
+                              title={!user.mfaExempt ? "Disable MFA for this user (scanner/service accounts)" : "Re-enable MFA for this user"}
                             >
-                              {user.mfaExempt ? "MFA off" : "No MFA"}
-                            </button>
+                              <div
+                                onClick={() => handleToggleMfaExempt(user)}
+                                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${!user.mfaExempt ? "bg-green-500" : "bg-gray-300"}`}
+                              >
+                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${!user.mfaExempt ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                              </div>
+                              <span className={`text-xs font-medium ${!user.mfaExempt ? "text-green-700" : "text-gray-400"}`}>
+                                {!user.mfaExempt ? "MFA On" : "No MFA"}
+                              </span>
+                            </label>
                           )}
                           <button
                             onClick={() => handleDeleteUser(user.id, user.email)}
