@@ -539,18 +539,31 @@ export default function UserManager({
                       </td>
                       <td className="px-6 py-3">
                         {user.authMethod === "PASSWORD" ? (
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-1">
                             <span className="text-xs font-medium text-gray-700">Password</span>
-                            {(() => {
+                            <label
+                              className="flex items-center gap-1.5 cursor-pointer select-none w-fit"
+                              title={!user.mfaExempt ? "Click to disable MFA (scanner/service accounts)" : "Click to re-enable MFA"}
+                            >
+                              <div
+                                onClick={() => handleToggleMfaExempt(user)}
+                                className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${!user.mfaExempt ? "bg-green-500" : "bg-gray-300"}`}
+                              >
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${!user.mfaExempt ? "translate-x-[14px]" : "translate-x-0.5"}`} />
+                              </div>
+                              <span className={`text-[11px] font-medium ${!user.mfaExempt ? "text-green-700" : "text-gray-400"}`}>
+                                {!user.mfaExempt ? "MFA On" : "No MFA"}
+                              </span>
+                            </label>
+                            {!user.mfaExempt && (() => {
                               const factors = [
                                 user.mfaEnabled ? "authenticator" : null,
                                 user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
                               ].filter(Boolean);
-                              if (user.mfaExempt) return <span className="text-[11px] text-gray-400">No MFA</span>;
                               return factors.length > 0 ? (
-                                <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
+                                <span className="text-[11px] text-green-600">{factors.join(" + ")}</span>
                               ) : (
-                                <span className="text-[11px] text-amber-600">MFA pending</span>
+                                <span className="text-[11px] text-amber-600">setup pending</span>
                               );
                             })()}
                           </div>
@@ -583,22 +596,6 @@ export default function UserManager({
                             >
                               Reset MFA
                             </button>
-                          )}
-                          {user.authMethod === "PASSWORD" && (
-                            <label
-                              className="flex items-center gap-1.5 cursor-pointer select-none"
-                              title={!user.mfaExempt ? "Disable MFA for this user (scanner/service accounts)" : "Re-enable MFA for this user"}
-                            >
-                              <div
-                                onClick={() => handleToggleMfaExempt(user)}
-                                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${!user.mfaExempt ? "bg-green-500" : "bg-gray-300"}`}
-                              >
-                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${!user.mfaExempt ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-                              </div>
-                              <span className={`text-xs font-medium ${!user.mfaExempt ? "text-green-700" : "text-gray-400"}`}>
-                                {!user.mfaExempt ? "MFA On" : "No MFA"}
-                              </span>
-                            </label>
                           )}
                           <button
                             onClick={() => handleDeleteUser(user.id, user.email)}
