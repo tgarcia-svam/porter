@@ -120,9 +120,13 @@ jobs:
       - name: Restart App Service
         run: |
           APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
-          az webapp restart \
-            --name $APP_SERVICE_NAME \
-            --resource-group ${{ env.RESOURCE_GROUP }}
+          for attempt in 1 2 3; do
+            az webapp restart \
+              --name $APP_SERVICE_NAME \
+              --resource-group ${{ env.RESOURCE_GROUP }} && break
+            echo "Attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
 
       - name: Wait for App Service to be ready
         run: |
