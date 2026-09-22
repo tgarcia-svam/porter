@@ -16,6 +16,7 @@ const UpdateUserBody = z.object({
   unlock: z.boolean().optional(),       // clear lockout (incl. hard lockedForReset)
   resetMfa: z.boolean().optional(),     // clear MFA + email a reset/re-enroll link
   resendInvite: z.boolean().optional(), // re-send the set-password invite link
+  mfaExempt: z.boolean().optional(),   // scanner/service accounts: bypass MFA requirement
 });
 
 export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
@@ -33,9 +34,10 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
     });
     if (!current) return apiNotFound();
 
-    const { unlock, resetMfa, resendInvite, authMethod, ...rest } = parsed.data;
+    const { unlock, resetMfa, resendInvite, authMethod, mfaExempt, ...rest } = parsed.data;
 
     const data: Prisma.UserUncheckedUpdateInput = { ...rest };
+    if (mfaExempt !== undefined) data.mfaExempt = mfaExempt;
 
     if (unlock) {
       data.failedLoginAttempts = 0;
