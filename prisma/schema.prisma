@@ -130,6 +130,7 @@ model User {
   passwordHash        String?       // bcrypt hash — never the plaintext password
   mfaEnabled          Boolean       @default(false)
   mfaSecretEnc        String?       // AES-256-GCM encrypted TOTP secret (base64)
+  mfaExempt           Boolean       @default(false) // scanner/service accounts: skip MFA requirement
 
   // ── Lockout ──────────────────────────────────────────────────────────────────
   // Two-tier: failedLoginAttempts within a 15-min window (tracked by

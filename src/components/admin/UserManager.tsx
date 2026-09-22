@@ -16,6 +16,7 @@ type User = {
   organization: OrgRef | null;
   authMethod: AuthMethod;
   mfaEnabled: boolean;
+  mfaExempt: boolean;
   passkeyCount: number;
   lockedUntil: string | null;
   lockedForReset: boolean;
@@ -184,6 +185,21 @@ export default function UserManager({
       return;
     }
     alert(`Invite re-sent to ${email}.`);
+  }
+
+  async function handleToggleMfaExempt(user: User) {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${user.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfaExempt: !user.mfaExempt }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to update MFA exemption");
+      return;
+    }
+    await refreshUsers();
   }
 
   async function handleUnlock(id: string) {
@@ -530,6 +546,7 @@ export default function UserManager({
                                 user.mfaEnabled ? "authenticator" : null,
                                 user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
                               ].filter(Boolean);
+                              if (user.mfaExempt) return <span className="text-[11px] text-amber-700">No MFA (exempt)</span>;
                               return factors.length > 0 ? (
                                 <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
                               ) : (
@@ -565,6 +582,17 @@ export default function UserManager({
                               className="text-xs text-amber-600 hover:underline"
                             >
                               Reset MFA
+                            </button>
+                          )}
+                          {user.authMethod === "PASSWORD" && (
+                            <button
+                              onClick={() => handleToggleMfaExempt(user)}
+                              title={user.mfaExempt ? "MFA bypassed — click to re-enable" : "Allow login without MFA (scanner/service accounts)"}
+                              className={user.mfaExempt
+                                ? "text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"
+                                : "text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"}
+                            >
+                              {user.mfaExempt ? "MFA off" : "No MFA"}
                             </button>
                           )}
                           <button

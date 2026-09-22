@@ -97,6 +97,11 @@ export const POST = withHandler(async (req: NextRequest) => {
       if (state.locked) return lockResponse(state);
       return generic();
     }
+    // MFA-exempt accounts (e.g. scanner service accounts) skip all second-factor checks.
+    if (user.mfaExempt) {
+      await recordSuccess(user, ip);
+      return success(email);
+    }
     if (!hasTotp && !hasPasskey) {
       return NextResponse.json({ ok: false, code: "mfa_setup_required" }, { status: 403 });
     }
