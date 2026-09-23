@@ -31,6 +31,7 @@ export const GET = withHandler(async (req: NextRequest) => {
       createdAt: true,
       authMethod: true,
       mfaEnabled: true,
+      mfaExempt: true,
       lockedUntil: true,
       lockedForReset: true,
       failedLoginAttempts: true,

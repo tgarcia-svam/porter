@@ -16,6 +16,7 @@ type User = {
   organization: OrgRef | null;
   authMethod: AuthMethod;
   mfaEnabled: boolean;
+  mfaExempt: boolean;
   passkeyCount: number;
   lockedUntil: string | null;
   lockedForReset: boolean;
@@ -184,6 +185,21 @@ export default function UserManager({
       return;
     }
     alert(`Invite re-sent to ${email}.`);
+  }
+
+  async function handleToggleMfaExempt(user: User) {
+    setActionError(null);
+    const res = await apiFetch(`/api/users/${user.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfaExempt: !user.mfaExempt }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error ?? "Failed to update MFA exemption");
+      return;
+    }
+    await refreshUsers();
   }
 
   async function handleUnlock(id: string) {
@@ -523,17 +539,31 @@ export default function UserManager({
                       </td>
                       <td className="px-6 py-3">
                         {user.authMethod === "PASSWORD" ? (
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-1">
                             <span className="text-xs font-medium text-gray-700">Password</span>
-                            {(() => {
+                            <label
+                              className="flex items-center gap-1.5 cursor-pointer select-none w-fit"
+                              title={!user.mfaExempt ? "Click to disable MFA (scanner/service accounts)" : "Click to re-enable MFA"}
+                            >
+                              <div
+                                onClick={() => handleToggleMfaExempt(user)}
+                                className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${!user.mfaExempt ? "bg-green-500" : "bg-gray-300"}`}
+                              >
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${!user.mfaExempt ? "translate-x-[14px]" : "translate-x-0.5"}`} />
+                              </div>
+                              <span className={`text-[11px] font-medium ${!user.mfaExempt ? "text-green-700" : "text-gray-400"}`}>
+                                {!user.mfaExempt ? "MFA On" : "No MFA"}
+                              </span>
+                            </label>
+                            {!user.mfaExempt && (() => {
                               const factors = [
                                 user.mfaEnabled ? "authenticator" : null,
                                 user.passkeyCount > 0 ? `passkey${user.passkeyCount > 1 ? `×${user.passkeyCount}` : ""}` : null,
                               ].filter(Boolean);
                               return factors.length > 0 ? (
-                                <span className="text-[11px] text-green-600">MFA: {factors.join(" + ")}</span>
+                                <span className="text-[11px] text-green-600">{factors.join(" + ")}</span>
                               ) : (
-                                <span className="text-[11px] text-amber-600">MFA pending</span>
+                                <span className="text-[11px] text-amber-600">setup pending</span>
                               );
                             })()}
                           </div>
