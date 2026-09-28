@@ -333,6 +333,21 @@ export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GET: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
+    // Log OAuth errors returned by the provider in the callback redirect URL
+    // (e.g. invalid_client from an expired/mismatched Entra client secret).
+    // These never reach NextAuth's own logger because NextAuth detects the
+    // error query param and redirects to the error page without throwing.
+    try {
+      const url = new URL(req.url ?? "", "https://placeholder");
+      if (url.pathname.includes("/api/auth/callback/") && url.searchParams.has("error")) {
+        const provider = url.pathname.split("/").pop() ?? "unknown";
+        logger.error(
+          `[auth][provider-error] OAuth callback error from provider "${provider}"`,
+          new Error(url.searchParams.get("error") ?? "unknown"),
+          { error_description: url.searchParams.get("error_description") ?? undefined }
+        );
+      }
+    } catch { /* URL parse failure — not actionable */ }
     return (await getInstance()).handlers.GET(req);
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
