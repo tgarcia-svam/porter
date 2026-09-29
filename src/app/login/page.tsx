@@ -31,6 +31,8 @@ function LoginContent() {
   const oauthError =
     error === "AccessDenied"
       ? "Your account is not authorized. Contact an administrator."
+      : error === "OAuthCallbackError"
+      ? "Sign-in failed. The identity provider returned an error — if this persists, contact an administrator."
       : error
       ? "Sign-in failed. Please try again."
       : null;
