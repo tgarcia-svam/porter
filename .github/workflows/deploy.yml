@@ -94,6 +94,7 @@ jobs:
           DATABASE_URL="$ADMIN_URL" npm run db:rls
           DATABASE_URL="$ADMIN_URL" \
             SEED_ADMIN_EMAIL="${{ vars.SEED_ADMIN_EMAIL }}" \
+            SEED_ADMIN_PASSWORD="${{ secrets.SEED_ADMIN_PASSWORD }}" \
             npm run db:seed
 
       - name: Close Postgres firewall
