@@ -17,6 +17,7 @@ import {
   CHALLENGE_COOKIE,
   type AuthenticationResponse,
 } from "@/lib/webauthn";
+import { CSRF_COOKIE } from "@/lib/csrf";
 
 /**
  * Local sign-in. Two-step, single endpoint:
@@ -62,6 +63,9 @@ const success = (email: string) => {
   const res = NextResponse.json({ ok: true, ticket: issueLoginTicket(email) });
   // Challenge is single-use — drop it once consumed.
   res.cookies.set(CHALLENGE_COOKIE, "", { path: "/", maxAge: 0 });
+  // Rotate the CSRF token at every authentication boundary (session fixation prevention).
+  // Middleware will issue a fresh token on the next request since the cookie is absent.
+  res.cookies.set(CSRF_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 };
 

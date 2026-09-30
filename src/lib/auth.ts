@@ -287,6 +287,16 @@ async function buildInstance(): Promise<AuthInstance> {
     pages: { signIn: "/login", error: "/login" },
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60, updateAge: 0 }, // 30-min idle: rolls on every request
+    cookies: {
+      sessionToken: {
+        options: {
+          httpOnly: true,
+          sameSite: "strict", // hardened from Auth.js default "lax"
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+    },
     logger: {
       // Surface the real cause behind generic Auth.js errors. InvalidCheck
       // ("pkceCodeVerifier value could not be parsed") hides whether the cookie
@@ -333,6 +343,21 @@ export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GET: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
+    // Log OAuth errors returned by the provider in the callback redirect URL
+    // (e.g. invalid_client from an expired/mismatched Entra client secret).
+    // These never reach NextAuth's own logger because NextAuth detects the
+    // error query param and redirects to the error page without throwing.
+    try {
+      const url = new URL(req.url ?? "", "https://placeholder");
+      if (url.pathname.includes("/api/auth/callback/") && url.searchParams.has("error")) {
+        const provider = url.pathname.split("/").pop() ?? "unknown";
+        logger.error(
+          `[auth][provider-error] OAuth callback error from provider "${provider}"`,
+          new Error(url.searchParams.get("error") ?? "unknown"),
+          { error_description: url.searchParams.get("error_description") ?? undefined }
+        );
+      }
+    } catch { /* URL parse failure — not actionable */ }
     return (await getInstance()).handlers.GET(req);
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
