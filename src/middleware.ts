@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/csrf";
 
 // ── Rate limit config ────────────────────────────────────────────────────────
@@ -138,7 +137,7 @@ export function middleware(req: NextRequest) {
   // Generate a per-request nonce so Next.js can apply it to the inline <script>
   // tags it generates for hydration and routing. Setting it as x-nonce on the
   // forwarded request headers is the signal Next.js App Router uses.
-  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const nonce = btoa(crypto.randomUUID());
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
 
