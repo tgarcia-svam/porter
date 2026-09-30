@@ -16,7 +16,8 @@ export const GET = withHandler(async (req: NextRequest) => {
   const { searchParams } = req.nextUrl;
   const PAGE_SIZE_DEFAULT = 20;
   const PAGE_SIZE_MAX = 100;
-  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const MAX_PAGE = 10_000;
+  const page = Math.min(MAX_PAGE, Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1));
   const pageSize = Math.min(
     PAGE_SIZE_MAX,
     Math.max(1, parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
