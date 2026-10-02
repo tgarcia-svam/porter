@@ -46,14 +46,8 @@ async function main() {
         where: { email: adminEmail },
         data:  { passwordHash, passwordChangedAt: new Date() },
       });
-      console.log(`  PASSWORD set for ${adminEmail} from SEED_ADMIN_PASSWORD`);
-    } else if (!existing?.passwordHash && !seedPassword) {
-      console.warn(`  WARNING: ${adminEmail} has authMethod=PASSWORD but no passwordHash and SEED_ADMIN_PASSWORD is not set.`);
-      console.warn(`  Use the admin UI "Resend invite" to send a set-password email, or set SEED_ADMIN_PASSWORD.`);
     }
   }
-
-  console.log(`  ADMIN  ${user.email}  (${authMethod})`);
 
   // Default security-policy AppSettings — only insert when absent so existing
   // admin-configured values are preserved.
