@@ -25,7 +25,7 @@ async function main() {
     ? "PASSWORD"
     : "SSO";
 
-  const user = await prisma.user.upsert({
+  await prisma.user.upsert({
     where:  { email: adminEmail },
     update: { role: "ADMIN", authMethod },
     create: { email: adminEmail, name: "Admin", role: "ADMIN", authMethod },
@@ -46,14 +46,8 @@ async function main() {
         where: { email: adminEmail },
         data:  { passwordHash, passwordChangedAt: new Date() },
       });
-      console.log(`  PASSWORD set for ${adminEmail} from SEED_ADMIN_PASSWORD`);
-    } else if (!existing?.passwordHash && !seedPassword) {
-      console.warn(`  WARNING: ${adminEmail} has authMethod=PASSWORD but no passwordHash and SEED_ADMIN_PASSWORD is not set.`);
-      console.warn(`  Use the admin UI "Resend invite" to send a set-password email, or set SEED_ADMIN_PASSWORD.`);
     }
   }
-
-  console.log(`  ADMIN  ${user.email}  (${authMethod})`);
 
   // Default security-policy AppSettings — only insert when absent so existing
   // admin-configured values are preserved.
@@ -66,15 +60,13 @@ async function main() {
       update: {},  // never overwrite an existing admin-set value
       create: { key, value },
     });
-    console.log(`  SETTING  ${key} = ${value}`);
   }
 
   // Back-fill passwordChangedAt for existing PASSWORD users who lack it (grace period).
-  const { count } = await prisma.user.updateMany({
+  await prisma.user.updateMany({
     where: { passwordChangedAt: null, authMethod: "PASSWORD" },
     data:  { passwordChangedAt: new Date() },
   });
-  if (count > 0) console.log(`  BACKFILL  passwordChangedAt set for ${count} PASSWORD user(s)`);
 }
 
 main()

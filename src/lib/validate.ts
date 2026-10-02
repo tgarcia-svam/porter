@@ -531,6 +531,53 @@ async function validateExcel(
 }
 
 // ---------------------------------------------------------------------------
+// Pre-parsed row validation — skips the serialise → parse round-trip
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate an already-parsed array of row objects against the column definitions.
+ * Produces the same ValidationReport as validateFile() on a CSV but avoids the
+ * Papa.unparse → Buffer → parseCsvStreaming cycle that the manual entry path
+ * would otherwise require. Synchronous — no I/O.
+ */
+export function validateRows(
+  rows: Record<string, string>[],
+  columns: ColumnDef[],
+  comparisons?: ComparisonRule[],
+): ValidationReport {
+  if (rows.length === 0) {
+    return { errors: [], errorsCapped: false, rowCount: 0, missingColumns: [], rows: [] };
+  }
+
+  const prepared = prepareColumns(columns);
+
+  // Build a case-insensitive header map from the first row's keys, matching
+  // what parseCsvStreaming builds from the first CSV data row.
+  const headerMap = new Map<string, string>();
+  for (const h of Object.keys(rows[0])) {
+    headerMap.set(h.toLowerCase(), h);
+  }
+
+  const missingColumns = prepared
+    .filter((col) => col.required && !headerMap.has(col.name.toLowerCase()))
+    .map((col) => col.name);
+
+  const errors: ValidationError[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    if (errors.length >= MAX_ERRORS) break;
+    // Row numbers are 1-based with row 1 as header, so first data row = 2.
+    validateRow(rows[i], i + 2, prepared, headerMap, errors, comparisons);
+  }
+
+  const errorsCapped = errors.length >= MAX_ERRORS;
+  const normalizedRows =
+    errors.length === 0 ? rows.map((r) => normalizeDates(r, prepared, headerMap)) : [];
+
+  return { errors, errorsCapped, rowCount: rows.length, missingColumns, rows: normalizedRows };
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
