@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/apiFetch";
 import { describeSchedule } from "@/lib/upload-schedule";
@@ -34,6 +34,47 @@ export type Project = {
   schedule: Schedule | null;
 };
 
+function BulkDeleteModal({
+  count,
+  deleting,
+  onConfirm,
+  onCancel,
+}: {
+  count: number;
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-6 max-w-sm w-full mx-4">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Delete {count} {count === 1 ? "project" : "projects"}?
+        </h3>
+        <p className="text-sm text-gray-600 mb-5">
+          This will permanently remove the selected {count === 1 ? "project" : `${count} projects`} and unassign any linked file formats. Upload history will be preserved. This action cannot be undone.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            disabled={deleting}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+          >
+            {deleting ? "Deleting…" : `Delete ${count === 1 ? "project" : `${count} projects`}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectManager({
   initialProjects,
 }: {
@@ -45,6 +86,38 @@ export default function ProjectManager({
   const [newDesc, setNewDesc] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const allSelected = projects.length > 0 && selectedIds.size === projects.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < projects.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
+
+  const toggleOne = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(projects.map((p) => p.id)));
+    }
+  }
 
   async function refresh() {
     const res = await fetch("/api/projects");
@@ -79,12 +152,37 @@ export default function ProjectManager({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete project "${name}"? Schemas in this project will be unassigned.`)) return;
     await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
+    setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     await refresh();
     router.refresh();
   }
 
+  async function handleBulkDelete() {
+    setBulkDeleting(true);
+    try {
+      await Promise.allSettled(
+        [...selectedIds].map((id) => apiFetch(`/api/projects/${id}`, { method: "DELETE" }))
+      );
+      setSelectedIds(new Set());
+      setShowBulkModal(false);
+      await refresh();
+      router.refresh();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {showBulkModal && (
+        <BulkDeleteModal
+          count={selectedIds.size}
+          deleting={bulkDeleting}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowBulkModal(false)}
+        />
+      )}
+
       {/* Add form */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h2 className="text-sm font-semibold text-gray-900 mb-3">Add project</h2>
@@ -124,11 +222,43 @@ export default function ProjectManager({
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Bulk-action toolbar */}
+          <div className="flex items-center gap-3 px-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+              />
+              <span className="text-xs text-gray-600 font-medium">Select all</span>
+            </label>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => setShowBulkModal(true)}
+                className="ml-auto rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                Delete selected ({selectedIds.size})
+              </button>
+            )}
+          </div>
+
           {projects.map((project) => {
+            const isChecked = selectedIds.has(project.id);
             return (
-              <div key={project.id} className="bg-white rounded-xl border border-gray-200">
+              <div
+                key={project.id}
+                className={`bg-white rounded-xl border transition-colors ${isChecked ? "border-brand-400 ring-1 ring-brand-300" : "border-gray-200"}`}
+              >
                 {/* Project header */}
                 <div className="flex items-start gap-3 px-5 py-4">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleOne(project.id)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 shrink-0"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-gray-900 text-sm">{project.name}</span>
