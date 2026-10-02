@@ -22,7 +22,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prismaAdmin } from "@/lib/prisma-admin";
 import { withOrgContext } from "@/lib/with-org-context";
-import { validateFile } from "@/lib/validate";
+import { validateRows } from "@/lib/validate";
 import { uploadToBlob } from "@/lib/azure-storage";
 import { exportUploadToWarehouse } from "@/lib/warehouse-export";
 import { logger } from "@/lib/logger";
@@ -144,26 +144,18 @@ export const POST = withHandler(async (req: NextRequest) => {
     return apiBadRequest("Merged dataset would be empty — refusing to save");
   }
 
-  // ── Convert to CSV → validate → write new upload ──────────────────────────
+  // ── Validate → write new upload ───────────────────────────────────────────
+  // validateRows() works on the in-memory row objects directly — no need to
+  // unparse to CSV and re-parse it just to run the same checks.
   const columnNames = schema.columns.map((c) => c.name);
-  const csv = Papa.unparse({
-    fields: columnNames,
-    data: mergedRows.map((row) => columnNames.map((name) => row[name] ?? "")),
-  });
-  const buffer = Buffer.from(csv, "utf-8");
 
   const [columnsForValidation, comparisons] = await Promise.all([
     resolveValidationColumns(schema.columns),
     resolveSchemaComparisons(schemaId),
   ]);
-  const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } = await validateFile(
-    buffer,
-    "text/csv",
-    columnsForValidation,
-    undefined,
-    undefined,
-    comparisons,
-  );
+
+  const { errors, errorsCapped, rowCount, missingColumns, rows: validatedRows } =
+    validateRows(mergedRows, columnsForValidation, comparisons);
 
   const allErrors = [...toMissingColumnErrors(missingColumns), ...errors];
   const isValid = allErrors.length === 0;
@@ -179,31 +171,40 @@ export const POST = withHandler(async (req: NextRequest) => {
     datetime,
   });
 
-  let blobUrl: string;
-  try {
-    blobUrl = await uploadToBlob(buffer, blobName, "text/csv");
-  } catch (err) {
-    logger.error("[upload/manual] Azure upload failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
-    return apiBadGateway("Failed to upload to storage. Please try again or contact an administrator.");
-  }
-
+  // Persist the upload record now (blobUrl populated in the background).
   const upload = await createUploadWithResults({
     userId,
     schemaId,
     projectId,
     schemaVersion: schema.version,
     fileName,
-    blobUrl,
+    blobUrl: null,
     rowCount,
     errorsCapped,
     errors: allErrors,
     rows: validatedRows,
   });
 
-  // Best-effort warehouse export (never throws).
-  if (upload.status === "VALID") {
-    await exportUploadToWarehouse(upload.id);
-  }
+  // Background: serialise → blob upload → DB patch → warehouse export.
+  // The blob is an audit artifact; the validated rows are already in the DB.
+  // Runs after the response is sent so the client is not blocked.
+  void (async () => {
+    try {
+      const csv = Papa.unparse({
+        fields: columnNames,
+        data: mergedRows.map((row) => columnNames.map((name) => row[name] ?? "")),
+      });
+      const blobUrl = await uploadToBlob(Buffer.from(csv, "utf-8"), blobName, "text/csv");
+      await prismaAdmin.fileUpload.update({ where: { id: upload.id }, data: { blobUrl } });
+      if (upload.status === "VALID") await exportUploadToWarehouse(upload.id);
+    } catch (err) {
+      logger.error(
+        "[upload/manual] Background blob/export failed",
+        err instanceof Error ? err : undefined,
+        { uploadId: upload.id, detail: err instanceof Error ? undefined : String(err) },
+      );
+    }
+  })();
 
   return NextResponse.json({
     uploadId: upload.id,

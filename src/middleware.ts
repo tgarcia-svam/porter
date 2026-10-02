@@ -133,6 +133,14 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  // ── CSP nonce ────────────────────────────────────────────────────────────────
+  // Generate a per-request nonce so Next.js can apply it to the inline <script>
+  // tags it generates for hydration and routing. Setting it as x-nonce on the
+  // forwarded request headers is the signal Next.js App Router uses.
+  const nonce = btoa(crypto.randomUUID());
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+
   // ── Ensure CSRF cookie is set ──────────────────────────────────────────────
   // Seed the cookie on page navigations (and non-auth API requests) so it's
   // present in the browser before any client-side mutation. The client reads
@@ -146,7 +154,7 @@ export function middleware(req: NextRequest) {
   // in a production standalone build. A dropped pkce cookie surfaces at the
   // callback as "pkceCodeVerifier value could not be parsed". The isAuthRoute
   // guard below is belt-and-suspenders in case the matcher is ever loosened.
-  const res = NextResponse.next();
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
   const isAuthRoute = path.startsWith("/api/auth");
   if (!isAuthRoute && !req.cookies.get(CSRF_COOKIE)) {
     res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
@@ -157,6 +165,27 @@ export function middleware(req: NextRequest) {
       maxAge: 8 * 60 * 60, // 8 hours — persistent so it survives screen lock
     });
   }
+
+  // Set Content-Security-Policy with the per-request nonce. script-src uses
+  // the nonce instead of 'unsafe-inline' so only Next.js's own tagged scripts
+  // (and any <Script nonce={nonce}> components) are allowed to execute inline.
+  // style-src keeps 'unsafe-inline' because Tailwind and Next.js inject inline
+  // styles that cannot practically be nonce- or hash-gated without a full rewrite.
+  const csp = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "font-src 'self'",
+    "connect-src 'self' https://login.microsoftonline.com https://accounts.google.com https://*.applicationinsights.azure.com https://dc.services.visualstudio.com https://*.blob.core.windows.net",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self' https://login.microsoftonline.com https://accounts.google.com",
+  ].join("; ");
+  res.headers.set("Content-Security-Policy", csp);
+
   return res;
 }
 

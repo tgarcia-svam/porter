@@ -25,7 +25,7 @@ async function main() {
     ? "PASSWORD"
     : "SSO";
 
-  const user = await prisma.user.upsert({
+  await prisma.user.upsert({
     where:  { email: adminEmail },
     update: { role: "ADMIN", authMethod },
     create: { email: adminEmail, name: "Admin", role: "ADMIN", authMethod },
@@ -66,15 +66,13 @@ async function main() {
       update: {},  // never overwrite an existing admin-set value
       create: { key, value },
     });
-    console.log(`  SETTING  ${key} = ${value}`);
   }
 
   // Back-fill passwordChangedAt for existing PASSWORD users who lack it (grace period).
-  const { count } = await prisma.user.updateMany({
+  await prisma.user.updateMany({
     where: { passwordChangedAt: null, authMethod: "PASSWORD" },
     data:  { passwordChangedAt: new Date() },
   });
-  if (count > 0) console.log(`  BACKFILL  passwordChangedAt set for ${count} PASSWORD user(s)`);
 }
 
 main()

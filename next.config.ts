@@ -1,31 +1,12 @@
 import type { NextConfig } from "next";
 
-const csp = [
-  "default-src 'self'",
-  // Next.js requires unsafe-inline for its runtime scripts and hydration chunks
-  "script-src 'self' 'unsafe-inline'",
-  // Tailwind and Next.js inject inline styles
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https:",
-  "font-src 'self'",
-  // OAuth redirects + Application Insights telemetry + direct-to-blob upload
-  "connect-src 'self' https://login.microsoftonline.com https://accounts.google.com https://*.applicationinsights.azure.com https://dc.services.visualstudio.com https://*.blob.core.windows.net",
-  "frame-src 'none'",
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self' https://login.microsoftonline.com https://accounts.google.com",
-].join("; ");
-
 const securityHeaders = [
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
   },
-  {
-    key: "Content-Security-Policy",
-    value: csp,
-  },
+  // Content-Security-Policy is set per-request in middleware (src/middleware.ts)
+  // with a unique nonce so 'unsafe-inline' is not needed in script-src.
   {
     key: "X-Frame-Options",
     value: "DENY",
@@ -55,6 +36,10 @@ const securityHeaders = [
   {
     key: "Cross-Origin-Resource-Policy",
     value: "same-origin",
+  },
+  {
+    key: "Cross-Origin-Embedder-Policy",
+    value: "require-corp",
   },
   {
     key: "X-Permitted-Cross-Domain-Policies",

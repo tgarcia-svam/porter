@@ -697,11 +697,13 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
+    clientAffinityEnabled: false    // removes ARRAffinity/ARRAffinitySameSite cookies (JWT auth is stateless)
     siteConfig: {
       linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
       acrUseManagedIdentityCreds: true
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'
+      http20Enabled: true           // enable HTTP/2
     }
   }
 }
