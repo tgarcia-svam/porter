@@ -33,7 +33,7 @@ app.timer("scheduleChecker", {
 
     const result = await res.json().catch(() => ({}));
     context.log(
-      `Schedule run complete: checked=${result.schedulesChecked} reminders=${result.remindersSent} overdue=${result.overdueSent}`
+      `Schedule run complete: checked=${encodeURIComponent(String(result.schedulesChecked ?? ""))} reminders=${encodeURIComponent(String(result.remindersSent ?? ""))} overdue=${encodeURIComponent(String(result.overdueSent ?? ""))}`
     );
   },
 });

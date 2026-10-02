@@ -2,11 +2,14 @@ import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
+import crypto from "crypto";
 // Authentication runs before any user/org context exists, so it must bypass RLS.
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { logAuthEvent } from "@/lib/auth-audit";
 import { requestStore, hashUa } from "@/lib/session-binding";
 import { verifyLoginTicket } from "@/lib/login-ticket";
+import { logger } from "@/lib/logger";
+import { createSession, validateAndTouchSession, revokeSession } from "@/lib/session-registry";
 
 // ── Type augmentation ────────────────────────────────────────────────────────
 declare module "next-auth" {
@@ -14,7 +17,13 @@ declare module "next-auth" {
     user: {
       id: string;
       role: "ADMIN" | "UPLOADER";
-      uaHash?: string; // session binding — UA hash captured at sign-in
+      uaHash?: string;        // session binding — UA hash captured at sign-in
+      prevLoginAt?: string | null;
+      prevLoginIp?: string | null;
+      prevFailedAttempts?: number;
+      passwordExpired?: boolean;
+      sessionNonce?: string;
+      sessionRevoked?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -72,19 +81,20 @@ const callbacks: NextAuthConfig["callbacks"] = {
       return false;
     }
 
-    // Successful sign-in — reset failed attempt counter
-    if (dbUser.failedLoginAttempts > 0 || dbUser.lockedUntil) {
-      await prisma.user.update({
-        where: { id: dbUser.id },
-        data: { failedLoginAttempts: 0, lockedUntil: null },
-      });
-    }
-
-    // Backfill name from OAuth profile on first sign-in
-    const name = profile?.name ?? user?.name;
-    if (!dbUser.name && name) {
-      await prisma.user.update({ where: { id: dbUser.id }, data: { name } });
-    }
+    // Successful sign-in — reset failure state, stamp login metadata
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        failedLoginAttempts:          0,
+        lockedUntil:                  null,
+        prevLoginAt:                  dbUser.lastLoginAt,
+        prevLoginIp:                  dbUser.lastLoginIp,
+        lastLoginAt:                  new Date(),
+        lastLoginIp:                  null, // IP not available in OAuth callback
+        failedAttemptsSinceLastLogin: dbUser.failedLoginAttempts,
+        ...((!dbUser.name && (profile?.name ?? user?.name)) ? { name: profile?.name ?? user?.name } : {}),
+      },
+    });
 
     logAuthEvent({ action: "auth.login.success", userEmail: email, userId: dbUser.id });
     return true;
@@ -100,28 +110,96 @@ const callbacks: NextAuthConfig["callbacks"] = {
       if (email) {
         const dbUser = await prisma.user.findFirst({
           where: { email: { equals: email.toLowerCase(), mode: "insensitive" } },
-          select: { id: true, role: true },
+          select: {
+            id: true,
+            role: true,
+            prevLoginAt: true,
+            prevLoginIp: true,
+            failedAttemptsSinceLastLogin: true,
+            passwordChangedAt: true,
+            authMethod: true,
+          },
         });
         if (dbUser) {
-          token["id"] = dbUser.id;
+          token["id"]   = dbUser.id;
           token["role"] = dbUser.role;
+
+          // Feature 1 — previous login info for banner
+          token["prevLoginAt"]        = dbUser.prevLoginAt?.toISOString() ?? null;
+          token["prevLoginIp"]        = dbUser.prevLoginIp ?? null;
+          token["prevFailedAttempts"] = dbUser.failedAttemptsSinceLastLogin;
+
+          // Feature 2 — password expiry
+          let passwordExpired = false;
+          if (dbUser.authMethod === "PASSWORD") {
+            const expirySetting = await prisma.appSetting.findUnique({
+              where: { key: "PASSWORD_EXPIRY_DAYS" },
+            });
+            const expiryDays = parseInt(expirySetting?.value ?? "0");
+            if (expiryDays > 0 && dbUser.passwordChangedAt) {
+              const daysSince = (Date.now() - dbUser.passwordChangedAt.getTime()) / 86_400_000;
+              passwordExpired = daysSince >= expiryDays;
+            }
+          }
+          token["passwordExpired"] = passwordExpired;
+
+          // Feature 3 — concurrent session limiting
+          const sessionNonce = crypto.randomUUID();
+          const sessionSetting = await prisma.appSetting.findUnique({
+            where: { key: "MAX_CONCURRENT_SESSIONS" },
+          });
+          const maxSessions = parseInt(sessionSetting?.value ?? "0");
+          // IP/UA are not reliably accessible from the jwt callback
+          await createSession(dbUser.id, sessionNonce, maxSessions);
+          token["sessionNonce"] = sessionNonce;
+
+          // Absolute session timeout — bake the expiry timestamp into the JWT so
+          // the check on each refresh never requires a DB read.
+          const absoluteSetting = await prisma.appSetting.findUnique({
+            where: { key: "ABSOLUTE_SESSION_TIMEOUT_HOURS" },
+          });
+          const absoluteHours = parseInt(absoluteSetting?.value ?? "8");
+          if (absoluteHours > 0) {
+            token["absoluteExpiry"] = Date.now() + absoluteHours * 60 * 60 * 1000;
+          }
         }
       }
       // Bind the token to the User-Agent of the browser that signed in.
-      // requestStore is populated by the auth handler wrappers below.
       const uaHash = requestStore.getStore()?.uaHash;
       if (uaHash) token["uaHash"] = uaHash;
+    } else {
+      // Absolute session timeout — check before any other validation so an
+      // expired session is always revoked, even if still active in the registry.
+      const absoluteExpiry = token["absoluteExpiry"] as number | undefined;
+      if (absoluteExpiry && Date.now() > absoluteExpiry) {
+        const expiredNonce = token["sessionNonce"] as string | undefined;
+        if (expiredNonce) await revokeSession(expiredNonce).catch(() => {});
+        logAuthEvent({ action: "auth.session.expired", userId: token["id"] as string | undefined });
+        token["sessionRevoked"] = true;
+        return token;
+      }
+
+      // Feature 3 — validate session on every subsequent request (updateAge: 0)
+      const nonce = token["sessionNonce"] as string | undefined;
+      if (nonce) {
+        const valid = await validateAndTouchSession(nonce);
+        if (!valid) token["sessionRevoked"] = true;
+      }
     }
     return token;
   },
 
   async session({ session, token }) {
     if (session.user) {
-      session.user.id = (token["id"] as string) ?? "";
-      session.user.role = ((token["role"] as string) ?? "UPLOADER") as
-        | "ADMIN"
-        | "UPLOADER";
-      session.user.uaHash = (token["uaHash"] as string | undefined);
+      session.user.id             = (token["id"] as string) ?? "";
+      session.user.role           = ((token["role"] as string) ?? "UPLOADER") as "ADMIN" | "UPLOADER";
+      session.user.uaHash         = token["uaHash"] as string | undefined;
+      session.user.prevLoginAt    = token["prevLoginAt"] as string | null | undefined;
+      session.user.prevLoginIp    = token["prevLoginIp"] as string | null | undefined;
+      session.user.prevFailedAttempts = token["prevFailedAttempts"] as number | undefined;
+      session.user.passwordExpired    = token["passwordExpired"] as boolean | undefined;
+      session.user.sessionNonce       = token["sessionNonce"] as string | undefined;
+      session.user.sessionRevoked     = token["sessionRevoked"] as boolean | undefined;
     }
     return session;
   },
@@ -172,6 +250,8 @@ async function buildInstance(): Promise<AuthInstance> {
         });
         if (!dbUser || dbUser.authMethod !== "PASSWORD") return null;
 
+        // The jwt callback re-fetches the user by email to get snapshot fields, so
+        // returning minimal fields here is sufficient.
         return { id: dbUser.id, email: dbUser.email, name: dbUser.name ?? undefined };
       },
     })
@@ -207,25 +287,34 @@ async function buildInstance(): Promise<AuthInstance> {
     pages: { signIn: "/login", error: "/login" },
     callbacks,
     session: { strategy: "jwt", maxAge: 30 * 60, updateAge: 0 }, // 30-min idle: rolls on every request
+    cookies: {
+      sessionToken: {
+        options: {
+          httpOnly: true,
+          sameSite: "strict", // hardened from Auth.js default "lax"
+          path: "/",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+    },
     logger: {
       // Surface the real cause behind generic Auth.js errors. InvalidCheck
       // ("pkceCodeVerifier value could not be parsed") hides whether the cookie
-      // was MISSING or failed to DECRYPT inside error.cause — log it so prod
-      // failures are diagnosable via App Insights (console is auto-collected).
+      // was MISSING or failed to DECRYPT inside error.cause — log it here so
+      // prod failures are diagnosable via App Insights.
       error(error: Error & { cause?: unknown }) {
-        console.error(
-          "[auth][error]",
-          error?.name,
-          "|",
-          error?.message,
-          "| cause:",
-          error?.cause ?? "(none)"
+        logger.error(
+          `[auth][error] ${error?.name} | ${error?.message}`,
+          error,
+          { cause: String(error?.cause ?? "(none)") }
         );
       },
     },
     events: {
       async signOut(message) {
         const token = "token" in message ? message.token : null;
+        const nonce = token?.["sessionNonce"] as string | undefined;
+        if (nonce) await revokeSession(nonce);
         logAuthEvent({
           action: "auth.logout",
           userId: token?.["id"] as string | undefined,
@@ -241,12 +330,34 @@ function getInstance(): Promise<AuthInstance> {
   return _promise;
 }
 
+// ── Warm-up ───────────────────────────────────────────────────────────────────
+// Called from instrumentation.ts after secrets are loaded so the singleton is
+// built at startup rather than on the first real request.
+export function preWarmAuth(): Promise<AuthInstance> {
+  return getInstance();
+}
+
 // ── Proxy exports ─────────────────────────────────────────────────────────────
 
 export const handlers = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   GET: async (req: any) => {
     requestStore.enterWith({ uaHash: hashUa(req?.headers?.get?.("user-agent")) });
+    // Log OAuth errors returned by the provider in the callback redirect URL
+    // (e.g. invalid_client from an expired/mismatched Entra client secret).
+    // These never reach NextAuth's own logger because NextAuth detects the
+    // error query param and redirects to the error page without throwing.
+    try {
+      const url = new URL(req.url ?? "", "https://placeholder");
+      if (url.pathname.includes("/api/auth/callback/") && url.searchParams.has("error")) {
+        const provider = url.pathname.split("/").pop() ?? "unknown";
+        logger.error(
+          `[auth][provider-error] OAuth callback error from provider "${provider}"`,
+          new Error(url.searchParams.get("error") ?? "unknown"),
+          { error_description: url.searchParams.get("error_description") ?? undefined }
+        );
+      }
+    } catch { /* URL parse failure — not actionable */ }
     return (await getInstance()).handlers.GET(req);
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

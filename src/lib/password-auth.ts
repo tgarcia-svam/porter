@@ -94,16 +94,25 @@ export async function recordFailedAttempt(
   return state;
 }
 
-/** Clear all failure/lock state after a successful sign-in. */
+/** Clear all failure/lock state after a successful sign-in and stamp new login metadata.
+ *  Shifts lastLoginAt → prevLoginAt so the banner can show the prior session time. */
 export async function recordSuccess(
-  user: Pick<User, "id" | "email" | "failedLoginAttempts" | "lockedUntil">
+  user: Pick<User, "id" | "email" | "failedLoginAttempts" | "lockedUntil" | "lastLoginAt" | "lastLoginIp">,
+  ip?: string
 ): Promise<void> {
-  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { failedLoginAttempts: 0, lastFailedLoginAt: null, lockedUntil: null },
-    });
-  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      failedLoginAttempts:          0,
+      lastFailedLoginAt:            null,
+      lockedUntil:                  null,
+      prevLoginAt:                  user.lastLoginAt,
+      prevLoginIp:                  user.lastLoginIp,
+      lastLoginAt:                  new Date(),
+      lastLoginIp:                  ip ?? null,
+      failedAttemptsSinceLastLogin: user.failedLoginAttempts,
+    },
+  });
   logAuthEvent({ action: "auth.login.success", userId: user.id, userEmail: user.email });
 }
 

@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiUnauthorized, withHandler } from "@/lib/api-error";
 import { runScheduleNotifications } from "@/lib/upload-schedule-service";
+import { logger } from "@/lib/logger";
 
 function verifyWorkerSecret(req: NextRequest): boolean {
   const secret = process.env.UPLOAD_WORKER_SECRET;
@@ -30,9 +31,7 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   const t0 = Date.now();
   const result = await runScheduleNotifications();
-  console.log(
-    `[schedules] ran in ${Date.now() - t0}ms — checked=${result.schedulesChecked} reminders=${result.remindersSent} overdue=${result.overdueSent}`
-  );
+  logger.info("[schedules] run complete", { durationMs: Date.now() - t0, checked: result.schedulesChecked, reminders: result.remindersSent, overdue: result.overdueSent });
 
   return NextResponse.json(result);
 });

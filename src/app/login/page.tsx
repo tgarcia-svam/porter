@@ -6,18 +6,33 @@ import Link from "next/link";
 import { Suspense, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 
+// Returns true only for same-origin relative paths. Normalizes backslashes
+// before parsing so /\evil.com tricks don't bypass the startsWith("//") check.
+// Anchors against window.location.origin so validation is automatically correct
+// across dev, staging, and prod without hardcoding a URL.
+function isSafeCallbackUrl(url: string): boolean {
+  const normalized = url.replace(/\\/g, "/");
+  if (!normalized.startsWith("/") || normalized.startsWith("//")) return false;
+  try {
+    return new URL(normalized, window.location.origin).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
-  const raw = searchParams.get("callbackUrl") || "/";
-  // Reject absolute URLs and protocol-relative URLs to prevent open redirect.
-  const callbackUrl = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+  const raw = searchParams.get("callbackUrl") ?? "/";
+  const callbackUrl = isSafeCallbackUrl(raw) ? raw : "/";
 
   const oauthError =
     error === "AccessDenied"
       ? "Your account is not authorized. Contact an administrator."
+      : error === "OAuthCallbackError"
+      ? "Sign-in failed. The identity provider returned an error — if this persists, contact an administrator."
       : error
       ? "Sign-in failed. Please try again."
       : null;

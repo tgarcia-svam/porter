@@ -17,6 +17,7 @@ import {
   CHALLENGE_COOKIE,
   type AuthenticationResponse,
 } from "@/lib/webauthn";
+import { CSRF_COOKIE } from "@/lib/csrf";
 
 /**
  * Local sign-in. Two-step, single endpoint:
@@ -62,6 +63,9 @@ const success = (email: string) => {
   const res = NextResponse.json({ ok: true, ticket: issueLoginTicket(email) });
   // Challenge is single-use — drop it once consumed.
   res.cookies.set(CHALLENGE_COOKIE, "", { path: "/", maxAge: 0 });
+  // Rotate the CSRF token at every authentication boundary (session fixation prevention).
+  // Middleware will issue a fresh token on the next request since the cookie is absent.
+  res.cookies.set(CSRF_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 };
 
@@ -69,6 +73,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return apiBadRequest(parsed.error.flatten());
 
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined;
   const email = parsed.data.email.toLowerCase();
   const { password, pendingTicket, totp } = parsed.data;
 
@@ -96,6 +101,11 @@ export const POST = withHandler(async (req: NextRequest) => {
       if (state.locked) return lockResponse(state);
       return generic();
     }
+    // MFA-exempt accounts (e.g. scanner service accounts) skip all second-factor checks.
+    if (user.mfaExempt) {
+      await recordSuccess(user, ip);
+      return success(email);
+    }
     if (!hasTotp && !hasPasskey) {
       return NextResponse.json({ ok: false, code: "mfa_setup_required" }, { status: 403 });
     }
@@ -118,7 +128,7 @@ export const POST = withHandler(async (req: NextRequest) => {
       if (state.locked) return lockResponse(state);
       return NextResponse.json({ ok: false, code: "mfa_invalid" }, { status: 401 });
     }
-    await recordSuccess(user);
+    await recordSuccess(user, ip);
     return success(email);
   }
 
@@ -149,7 +159,7 @@ export const POST = withHandler(async (req: NextRequest) => {
       where: { id: cred.id },
       data: { counter: newCounter, lastUsedAt: new Date() },
     });
-    await recordSuccess(user);
+    await recordSuccess(user, ip);
     return success(email);
   }
 

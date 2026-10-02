@@ -4,6 +4,7 @@ import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { apiBadRequest, withHandler } from "@/lib/api-error";
 import { createAuthToken, invalidateUserTokens } from "@/lib/auth-tokens";
 import { sendResetEmail } from "@/lib/email";
+import { logger } from "@/lib/logger";
 
 /**
  * Self-service password reset request. Always returns a generic 200 regardless of
@@ -28,7 +29,7 @@ export const POST = withHandler(async (req: NextRequest) => {
     try {
       await sendResetEmail(user.email, rawToken);
     } catch (err) {
-      console.error("[account/forgot] failed to send reset email:", err);
+      logger.error("[account/forgot] failed to send reset email", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     }
   }
 

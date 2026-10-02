@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-auth";
 import { apiUnauthorized, withHandler } from "@/lib/api-error";
 import { runRetention } from "@/lib/retention-service";
+import { logger } from "@/lib/logger";
 
 function verifyWorkerSecret(req: NextRequest): boolean {
   const secret = process.env.RETENTION_WORKER_SECRET;
@@ -29,9 +30,7 @@ export const POST = withHandler(async (req: NextRequest) => {
 
   const t0 = Date.now();
   const result = await runRetention();
-  console.log(
-    `[retention] ran in ${Date.now() - t0}ms — softDeleted=${result.uploadsSoftDeleted} hardDeleted=${result.uploadsHardDeleted} auditDeleted=${result.auditLogsDeleted}`
-  );
+  logger.info("[retention] run complete", { durationMs: Date.now() - t0, softDeleted: result.uploadsSoftDeleted, hardDeleted: result.uploadsHardDeleted, auditDeleted: result.auditLogsDeleted });
 
   return NextResponse.json(result);
 });

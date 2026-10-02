@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { withOrgContext } from "@/lib/with-org-context";
 import { validateFile } from "@/lib/validate";
@@ -122,7 +123,7 @@ export const POST = withHandler(async (req: NextRequest) => {
   try {
     blobUrl = await uploadToBlob(buffer, blobName, mimeType);
   } catch (err: unknown) {
-    console.error("Azure upload failed:", err);
+    logger.error("[upload] Azure upload failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiServiceUnavailable("File storage is not configured. Please contact an administrator.");
   }
 

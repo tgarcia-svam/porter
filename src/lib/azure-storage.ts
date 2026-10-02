@@ -49,7 +49,8 @@ export async function waitForMalwareScanResult(
       const code = (err as { code?: string; statusCode?: number })?.code ?? "";
       const status = (err as { statusCode?: number })?.statusCode ?? 0;
       if (code === "AuthorizationPermissionMismatch" || status === 403) {
-        console.warn("[azure-storage] blob tag read not authorized — malware scan skipped (missing blobs/tags/read permission)");
+        const { logger } = await import("@/lib/logger");
+        logger.warn("[azure-storage] blob tag read not authorized — malware scan skipped (missing blobs/tags/read permission)");
         return "clean";
       }
       throw err;
@@ -74,19 +75,6 @@ export async function deleteBlobByName(blobName: string): Promise<void> {
   await blockBlobClient.deleteIfExists();
 }
 
-export async function downloadFromBlob(blobUrl: string): Promise<Buffer> {
-  const containerClient = getContainerClient();
-
-  // Extract blob name from URL: strip scheme + host + "/{containerName}/"
-  // Decode first so the SDK doesn't double-encode any percent-encoded characters.
-  const url = new URL(blobUrl);
-  const blobName = decodeURIComponent(
-    url.pathname.replace(`/${containerClient.containerName}/`, "")
-  );
-
-  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-  return await blockBlobClient.downloadToBuffer();
-}
 
 export async function downloadBlobByName(blobName: string): Promise<Buffer> {
   const containerClient = getContainerClient();
@@ -95,6 +83,7 @@ export async function downloadBlobByName(blobName: string): Promise<Buffer> {
 }
 
 async function logAzurePrincipal() {
+  const { logger } = await import("@/lib/logger");
   try {
     const credential = new DefaultAzureCredential();
     const token = await credential.getToken("https://storage.azure.com/.default");
@@ -102,10 +91,11 @@ async function logAzurePrincipal() {
       const payload = JSON.parse(
         Buffer.from(token.token.split(".")[1], "base64url").toString()
       );
-      console.log("[azure-storage] principal oid:", payload.oid ?? payload.sub ?? "unknown");
+      // Diagnostics-only: log principal OID to confirm which managed identity is in use.
+      logger.info("[azure-storage] principal oid", { oid: payload.oid ?? payload.sub ?? "unknown" });
     }
   } catch (err) {
-    console.warn("[azure-storage] could not resolve principal:", err);
+    logger.warn("[azure-storage] could not resolve principal", { error: String(err) });
   }
 }
 

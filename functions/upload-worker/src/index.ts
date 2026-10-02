@@ -15,7 +15,7 @@ app.serviceBusQueue("uploadWorker", {
   connection: "ServiceBusConnection",
   handler: async (message: unknown, context: InvocationContext): Promise<void> => {
     const job = message as UploadJobMessage;
-    context.log(`Processing upload job: uploadId=${job.uploadId} blob=${job.blobName}`);
+    context.log(`Processing upload job: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} blob=${encodeURIComponent(String(job.blobName ?? ""))}`);
 
     const appUrl = process.env.APP_URL;
     const workerSecret = process.env.UPLOAD_WORKER_SECRET;
@@ -44,6 +44,6 @@ app.serviceBusQueue("uploadWorker", {
     }
 
     const result = await res.json();
-    context.log(`Upload job complete: uploadId=${job.uploadId} status=${result.status} rows=${result.rowCount}`);
+    context.log(`Upload job complete: uploadId=${encodeURIComponent(String(job.uploadId ?? ""))} status=${encodeURIComponent(String(result.status ?? ""))} rows=${encodeURIComponent(String(result.rowCount ?? ""))}`);
   },
 });

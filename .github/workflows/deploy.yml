@@ -94,17 +94,22 @@ jobs:
           DATABASE_URL="$ADMIN_URL" npm run db:rls
           DATABASE_URL="$ADMIN_URL" \
             SEED_ADMIN_EMAIL="${{ vars.SEED_ADMIN_EMAIL }}" \
+            SEED_ADMIN_PASSWORD="${{ secrets.SEED_ADMIN_PASSWORD }}" \
             npm run db:seed
 
       - name: Close Postgres firewall
         if: always()
         run: |
           DB_SERVER=$(grep "^param dbServerName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
-          az postgres flexible-server firewall-rule delete \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --server-name $DB_SERVER \
-            --name github-actions-runner \
-            --yes
+          for attempt in 1 2 3; do
+            az postgres flexible-server firewall-rule delete \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --server-name $DB_SERVER \
+              --name github-actions-runner \
+              --yes && break
+            echo "Attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
 
       - name: Build and push image to ACR
         run: |
@@ -120,9 +125,30 @@ jobs:
       - name: Restart App Service
         run: |
           APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
-          az webapp restart \
-            --name $APP_SERVICE_NAME \
-            --resource-group ${{ env.RESOURCE_GROUP }}
+          for attempt in 1 2 3; do
+            az webapp restart \
+              --name $APP_SERVICE_NAME \
+              --resource-group ${{ env.RESOURCE_GROUP }} && break
+            echo "Attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
+
+      - name: Wait for App Service to be ready
+        run: |
+          APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
+          APP_URL="https://${APP_SERVICE_NAME}.azurewebsites.net"
+          echo "Polling ${APP_URL}/api/health until ready (max 3 min)..."
+          for i in $(seq 1 18); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${APP_URL}/api/health" || echo "000")
+            echo "  attempt ${i}/18: HTTP ${STATUS}"
+            if [ "$STATUS" = "200" ]; then
+              echo "App is warm and healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "WARNING: app did not return 200 within 3 minutes — deployment may be slow for the first user."
+          exit 0
 
       - name: Build and deploy upload-worker Function App
         run: |

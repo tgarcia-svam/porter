@@ -38,6 +38,7 @@ export default async function UsersPage() {
           organization: u.organization,
           authMethod: u.authMethod as "PASSWORD" | "SSO",
           mfaEnabled: u.mfaEnabled,
+          mfaExempt: u.mfaExempt,
           passkeyCount: u._count.passkeys,
           lockedUntil: u.lockedUntil ? u.lockedUntil.toISOString() : null,
           lockedForReset: u.lockedForReset,

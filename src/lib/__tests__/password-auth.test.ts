@@ -111,15 +111,25 @@ describe("recordFailedAttempt", () => {
 });
 
 // ── recordSuccess / clearLockoutForReset ───────────────────────────────────────
+const baseSuccessUser = {
+  id: "u1",
+  email: "u@test.com",
+  failedLoginAttempts: 3,
+  lockedUntil: null,
+  lastLoginAt: null,
+  lastLoginIp: null,
+};
+
 describe("recordSuccess", () => {
-  it("clears counters when there was prior failure state", async () => {
-    await recordSuccess({ id: "u1", email: "u@test.com", failedLoginAttempts: 3, lockedUntil: null });
+  it("clears counters and stamps lastLoginAt", async () => {
+    await recordSuccess(baseSuccessUser);
     const { data } = mockUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(data).toMatchObject({ failedLoginAttempts: 0, lockedUntil: null });
+    expect(data.lastLoginAt).toBeInstanceOf(Date);
   });
-  it("does not write when there was nothing to clear", async () => {
-    await recordSuccess({ id: "u1", email: "u@test.com", failedLoginAttempts: 0, lockedUntil: null });
-    expect(mockUpdate).not.toHaveBeenCalled();
+  it("always writes (to stamp lastLoginAt) even with no prior failure state", async () => {
+    await recordSuccess({ ...baseSuccessUser, failedLoginAttempts: 0 });
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
   });
 });
 

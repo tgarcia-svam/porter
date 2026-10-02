@@ -3,6 +3,7 @@ import { prismaAdmin as prisma } from "@/lib/prisma-admin";
 import { auth } from "@/lib/auth";
 import { apiForbidden, apiUnauthorized, apiNotFound, apiInternalError, withHandler } from "@/lib/api-error";
 import { generateDownloadSasUrl } from "@/lib/azure-storage";
+import { logger } from "@/lib/logger";
 
 type RouteContext = { params: Promise<{ id: string; resourceId: string }> };
 
@@ -47,7 +48,7 @@ export const GET = withHandler<RouteContext>(async (req, { params }) => {
   try {
     downloadUrl = await generateDownloadSasUrl(resource.blobName, contentDisposition);
   } catch (err) {
-    console.error("[resources/download] SAS generation failed:", err);
+    logger.error("[resources/download] SAS generation failed", err instanceof Error ? err : undefined, { detail: err instanceof Error ? undefined : String(err) });
     return apiInternalError("Could not generate download URL. Please try again.");
   }
 
