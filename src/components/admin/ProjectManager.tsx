@@ -603,6 +603,9 @@ export function ScheduleEditor({ project, onSaved }: { project: Project; onSaved
     try {
       await apiFetch(`/api/projects/${project.id}/schedule`, { method: "DELETE" });
       setNextDue(null);
+      setReminderEnabled(false);
+      setOverdueEnabled(false);
+      setReminderDaysBefore(3);
       await onSaved();
     } finally {
       setSaving(false);
