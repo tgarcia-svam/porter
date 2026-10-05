@@ -240,7 +240,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   properties: {
     allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_2'
+    minimumTlsVersion: 'TLS1_3'
     supportsHttpsTrafficOnly: true
   }
 }
@@ -357,7 +357,7 @@ resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2022-10-01-preview
     tier: 'Standard'
   }
   properties: {
-    minimumTlsVersion: '1.2'
+    minimumTlsVersion: '1.3'
   }
 }
 
@@ -386,7 +386,7 @@ resource workerStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   properties: {
     allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_2'
+    minimumTlsVersion: 'TLS1_3'
     supportsHttpsTrafficOnly: true
   }
 }
@@ -419,7 +419,7 @@ resource workerFunction 'Microsoft.Web/sites@2023-12-01' = {
     serverFarmId: workerPlan.id
     httpsOnly: true
     siteConfig: {
-      minTlsVersion: '1.2'
+      minTlsVersion: '1.3'
     }
   }
 }
@@ -701,8 +701,8 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
       acrUseManagedIdentityCreds: true
-      minTlsVersion: '1.2'
-      scmMinTlsVersion: '1.2'
+      minTlsVersion: '1.3'
+      scmMinTlsVersion: '1.3'
       http20Enabled: true           // enable HTTP/2
     }
   }
