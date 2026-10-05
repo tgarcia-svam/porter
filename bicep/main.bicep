@@ -104,6 +104,9 @@ param emailSenderDomain string = ''
 @description('Set true ONLY after the custom email domain\'s DNS records are published and verified in ACS. Gates linking/sending so the first deploy can create the domain and emit DNS records without failing.')
 param emailDomainVerified bool = false
 
+@description('Set true ONLY after the Front Door custom domain DNS CNAME is live and the managed cert is provisioned. Locks App Service to accept traffic exclusively from this Front Door profile, blocking direct access.')
+param lockAppServiceToFrontDoor bool = false
+
 // Data-warehouse export destination (account URL, tenant ID, client ID,
 // container, root path) is configured by an admin in the Settings UI and stored
 // in the database — not here. The only infrastructure piece is the user-assigned
@@ -125,6 +128,12 @@ var acsName                 = '${appServiceName}-comms'
 var emailServiceName        = '${appServiceName}-email'
 // Storage account names: max 24 chars, alphanumeric only
 var workerStorageName       = take('fnwrk${uniqueString(resourceGroup().id, appServiceName)}', 24)
+// Front Door resource names
+var frontDoorProfileName    = '${appServiceName}-afd'
+var frontDoorEndpointName   = '${appServiceName}-ep'
+// Custom domain: strip https:// for the hostname; replace dots with hyphens for the Bicep resource name
+var customDomainHostname        = replace(nextauthUrl, 'https://', '')
+var afdCustomDomainResourceName = replace(customDomainHostname, '.', '-')
 
 // ── Virtual Network ───────────────────────────────────────────────────────────
 
@@ -240,7 +249,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   properties: {
     allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_3'
+    minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
 }
@@ -357,7 +366,7 @@ resource serviceBusNamespace 'Microsoft.ServiceBus/namespaces@2022-10-01-preview
     tier: 'Standard'
   }
   properties: {
-    minimumTlsVersion: '1.3'
+    minimumTlsVersion: '1.2'
   }
 }
 
@@ -386,7 +395,7 @@ resource workerStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   properties: {
     allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_3'
+    minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
 }
@@ -419,7 +428,7 @@ resource workerFunction 'Microsoft.Web/sites@2023-12-01' = {
     serverFarmId: workerPlan.id
     httpsOnly: true
     siteConfig: {
-      minTlsVersion: '1.3'
+      minTlsVersion: '1.2'
     }
   }
 }
@@ -701,9 +710,27 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/porter:${containerTag}'
       acrUseManagedIdentityCreds: true
-      minTlsVersion: '1.3'
-      scmMinTlsVersion: '1.3'
+      minTlsVersion: '1.2'
+      scmMinTlsVersion: '1.2'
       http20Enabled: true           // enable HTTP/2
+      // Once the Front Door custom domain DNS CNAME is live and cert is provisioned,
+      // flip lockAppServiceToFrontDoor=true in the params file. This restricts the
+      // App Service to only accept requests that originate from THIS Front Door
+      // profile (service tag + profile ID header), blocking scanner direct access.
+      ipSecurityRestrictions: lockAppServiceToFrontDoor ? [
+        {
+          name: 'AllowFrontDoor'
+          priority: 100
+          action: 'Allow'
+          tag: 'ServiceTag'
+          ipAddress: 'AzureFrontDoor.Backend'
+          headers: {
+            'x-azure-fdid': [frontDoorProfile.properties.frontDoorId]
+          }
+        }
+      ] : []
+      ipSecurityRestrictionsDefaultAction: lockAppServiceToFrontDoor ? 'Deny' : 'Allow'
+      scmIpSecurityRestrictionsUseMain: lockAppServiceToFrontDoor
     }
   }
 }
@@ -827,6 +854,102 @@ resource appVnetIntegration 'Microsoft.Web/sites/networkConfig@2023-12-01' = {
     subnetResourceId: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'app-subnet')
     swiftSupported: true
   }
+}
+
+// ── Azure Front Door Standard ─────────────────────────────────────────────────
+// Terminates TLS at Microsoft's global edge using modern cipher suites only —
+// ECDHE key exchange (Perfect Forward Secrecy) and AEAD MACs (AES-GCM), no
+// SHA-1 or RSA key-exchange suites. Resolves AppScan M4 (SHA-1 ciphers) and
+// M6 (no PFS) by ensuring the scanner never reaches App Service directly.
+//
+// Deployment order:
+//   1. Deploy with lockAppServiceToFrontDoor=false (default).
+//      Outputs frontDoorEndpointHostname.
+//   2. Add a CNAME at your DNS provider:
+//        demo.porterdata.com  CNAME  <frontDoorEndpointHostname>
+//      (For an apex/root domain use an ALIAS or ANAME record if your DNS
+//      provider supports it, or use Azure DNS alias records.)
+//   3. Wait ~5–15 min for AFD to validate the domain and provision a managed cert.
+//   4. Re-deploy with lockAppServiceToFrontDoor=true to block direct App Service access.
+
+resource frontDoorProfile 'Microsoft.Cdn/profiles@2023-05-01' = {
+  name: frontDoorProfileName
+  location: 'global'
+  sku: { name: 'Standard_AzureFrontDoor' }
+}
+
+resource frontDoorOriginGroup 'Microsoft.Cdn/profiles/originGroups@2023-05-01' = {
+  parent: frontDoorProfile
+  name: 'porter-origins'
+  properties: {
+    loadBalancingSettings: {
+      sampleSize: 4
+      successfulSamplesRequired: 3
+      additionalLatencyInMilliseconds: 50
+    }
+    healthProbeSettings: {
+      probePath: '/api/health'
+      probeRequestType: 'HEAD'
+      probeProtocol: 'Https'
+      probeIntervalInSeconds: 100
+    }
+    sessionAffinityState: 'Disabled'
+  }
+}
+
+resource frontDoorOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2023-05-01' = {
+  parent: frontDoorOriginGroup
+  name: 'app-service-origin'
+  properties: {
+    hostName: '${appServiceName}.azurewebsites.net'
+    httpPort: 80
+    httpsPort: 443
+    originHostHeader: '${appServiceName}.azurewebsites.net'
+    priority: 1
+    weight: 1000
+    enabledState: 'Enabled'
+    enforceCertificateNameCheck: true
+  }
+}
+
+resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2023-05-01' = {
+  parent: frontDoorProfile
+  name: frontDoorEndpointName
+  location: 'global'
+  properties: { enabledState: 'Enabled' }
+}
+
+resource frontDoorCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
+  parent: frontDoorProfile
+  name: afdCustomDomainResourceName
+  properties: {
+    hostName: customDomainHostname
+    tlsSettings: {
+      certificateType: 'ManagedCertificate'
+      minimumTlsVersion: 'TLS12'
+    }
+  }
+}
+
+// Route: forward all HTTPS traffic from the endpoint to the App Service origin.
+// The custom domain association makes AFD serve porterdata.com; the default AFD
+// endpoint (*.z01.azurefd.net) is also enabled for health-check fallback.
+resource frontDoorRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' = {
+  parent: frontDoorEndpoint
+  name: 'default-route'
+  properties: {
+    originGroup: { id: frontDoorOriginGroup.id }
+    supportedProtocols: ['Https']
+    patternsToMatch: ['/*']
+    forwardingProtocol: 'HttpsOnly'
+    linkToDefaultDomain: 'Enabled'
+    httpsRedirect: 'Enabled'
+    enabledState: 'Enabled'
+    customDomains: [
+      { id: frontDoorCustomDomain.id }
+    ]
+  }
+  dependsOn: [frontDoorOrigin]
 }
 
 // ── Role Assignments ──────────────────────────────────────────────────────────
@@ -986,6 +1109,7 @@ resource workerStorageTableAssignment 'Microsoft.Authorization/roleAssignments@2
 // ── Outputs ───────────────────────────────────────────────────────────────────
 
 output appUrl                  string = 'https://${appService.properties.defaultHostName}'
+output frontDoorEndpointHostname string = frontDoorEndpoint.properties.hostName
 output acrLoginServer          string = acr.properties.loginServer
 output dbHostname              string = postgresServer.properties.fullyQualifiedDomainName
 output keyVaultUri             string = keyVault.properties.vaultUri
