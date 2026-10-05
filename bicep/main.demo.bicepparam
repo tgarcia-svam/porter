@@ -80,6 +80,12 @@ param mfaEncryptionKey = ''   // overridden in main.demo.secrets.bicepparam
 param emailSenderDomain   = 'mail.demo.porterdata.com'
 param emailDomainVerified = true
 
+// ── Front Door ────────────────────────────────────────────────────────────────
+// Step 1: deploy with false (default). Read frontDoorEndpointHostname from outputs.
+// Step 2: add CNAME: demo.porterdata.com → <frontDoorEndpointHostname>
+// Step 3: wait for cert provisioning (~5–15 min), then flip to true and redeploy.
+param lockAppServiceToFrontDoor = false
+
 // ── Cost controls (lower than production for a demo environment) ──────────────
 param blobTierToCoolAfterDays    = 30
 param blobTierToArchiveAfterDays = 90
