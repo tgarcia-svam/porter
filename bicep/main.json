@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "9206198990150911785"
+      "templateHash": "11094532205411117688"
     }
   },
   "parameters": {
@@ -202,6 +202,13 @@
         "description": "Set true ONLY after the custom email domain's DNS records are published and verified in ACS. Gates linking/sending so the first deploy can create the domain and emit DNS records without failing."
       }
     },
+    "lockAppServiceToFrontDoor": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Set true ONLY after the Front Door custom domain DNS CNAME is live and the managed cert is provisioned. Locks App Service to accept traffic exclusively from this Front Door profile, blocking direct access."
+      }
+    },
     "blobTierToCoolAfterDays": {
       "type": "int",
       "defaultValue": 30,
@@ -250,6 +257,10 @@
     "acsName": "[format('{0}-comms', parameters('appServiceName'))]",
     "emailServiceName": "[format('{0}-email', parameters('appServiceName'))]",
     "workerStorageName": "[take(format('fnwrk{0}', uniqueString(resourceGroup().id, parameters('appServiceName'))), 24)]",
+    "frontDoorProfileName": "[format('{0}-afd', parameters('appServiceName'))]",
+    "frontDoorEndpointName": "[format('{0}-ep', parameters('appServiceName'))]",
+    "customDomainHostname": "[replace(parameters('nextauthUrl'), 'https://', '')]",
+    "afdCustomDomainResourceName": "[replace(variables('customDomainHostname'), '.', '-')]",
     "useCustomEmailDomain": "[not(empty(parameters('emailSenderDomain')))]",
     "emailDomainReady": "[or(not(variables('useCustomEmailDomain')), parameters('emailDomainVerified'))]",
     "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
@@ -585,6 +596,7 @@
         "AZURE_SERVICE_BUS_QUEUE_NAME": "[parameters('serviceBusQueueName')]",
         "APP_URL": "[parameters('nextauthUrl')]",
         "UPLOAD_WORKER_SECRET": "[format('@Microsoft.KeyVault(VaultName={0};SecretName=upload-worker-secret)', variables('keyVaultName'))]",
+        "WEBSITE_TIME_ZONE": "America/New_York",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]",
         "ApplicationInsightsAgent_EXTENSION_VERSION": "~3"
       },
@@ -864,16 +876,22 @@
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
         "httpsOnly": true,
+        "clientAffinityEnabled": false,
         "siteConfig": {
           "linuxFxVersion": "[format('DOCKER|{0}/porter:{1}', reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').loginServer, parameters('containerTag'))]",
           "acrUseManagedIdentityCreds": true,
           "minTlsVersion": "1.2",
-          "scmMinTlsVersion": "1.2"
+          "scmMinTlsVersion": "1.2",
+          "http20Enabled": true,
+          "ipSecurityRestrictions": "[if(parameters('lockAppServiceToFrontDoor'), createArray(createObject('name', 'AllowFrontDoor', 'priority', 100, 'action', 'Allow', 'tag', 'ServiceTag', 'ipAddress', 'AzureFrontDoor.Backend', 'headers', createObject('x-azure-fdid', createArray(reference(resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName')), '2023-05-01').frontDoorId)))), createArray())]",
+          "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockAppServiceToFrontDoor'), 'Deny', 'Allow')]",
+          "scmIpSecurityRestrictionsUseMain": "[parameters('lockAppServiceToFrontDoor')]"
         }
       },
       "dependsOn": [
         "[resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
         "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('warehouseIdentityName'))]"
       ]
     },
@@ -984,6 +1002,113 @@
       ]
     },
     {
+      "type": "Microsoft.Cdn/profiles",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('frontDoorProfileName')]",
+      "location": "global",
+      "sku": {
+        "name": "Standard_AzureFrontDoor"
+      }
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('frontDoorProfileName'), 'porter-origins')]",
+      "properties": {
+        "loadBalancingSettings": {
+          "sampleSize": 4,
+          "successfulSamplesRequired": 3,
+          "additionalLatencyInMilliseconds": 50
+        },
+        "healthProbeSettings": {
+          "probePath": "/api/health",
+          "probeRequestType": "HEAD",
+          "probeProtocol": "Https",
+          "probeIntervalInSeconds": 100
+        },
+        "sessionAffinityState": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/originGroups/origins",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('frontDoorProfileName'), 'porter-origins', 'app-service-origin')]",
+      "properties": {
+        "hostName": "[format('{0}.azurewebsites.net', parameters('appServiceName'))]",
+        "httpPort": 80,
+        "httpsPort": 443,
+        "originHostHeader": "[format('{0}.azurewebsites.net', parameters('appServiceName'))]",
+        "priority": 1,
+        "weight": 1000,
+        "enabledState": "Enabled",
+        "enforceCertificateNameCheck": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('frontDoorProfileName'), 'porter-origins')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('frontDoorProfileName'), variables('frontDoorEndpointName'))]",
+      "location": "global",
+      "properties": {
+        "enabledState": "Enabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/customDomains",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]",
+      "properties": {
+        "hostName": "[variables('customDomainHostname')]",
+        "tlsSettings": {
+          "certificateType": "ManagedCertificate",
+          "minimumTlsVersion": "TLS12"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdEndpoints/routes",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('frontDoorProfileName'), variables('frontDoorEndpointName'), 'default-route')]",
+      "properties": {
+        "originGroup": {
+          "id": "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('frontDoorProfileName'), 'porter-origins')]"
+        },
+        "supportedProtocols": [
+          "Https"
+        ],
+        "patternsToMatch": [
+          "/*"
+        ],
+        "forwardingProtocol": "HttpsOnly",
+        "linkToDefaultDomain": "Enabled",
+        "httpsRedirect": "Enabled",
+        "enabledState": "Enabled",
+        "customDomains": [
+          {
+            "id": "[resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]",
+        "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('frontDoorProfileName'), variables('frontDoorEndpointName'))]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups/origins', variables('frontDoorProfileName'), 'porter-origins', 'app-service-origin')]",
+        "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('frontDoorProfileName'), 'porter-origins')]"
+      ]
+    },
+    {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
@@ -1025,6 +1150,49 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Web/sites', parameters('appServiceName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleDefinitions",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'blob-tag-reader')]",
+      "properties": {
+        "roleName": "[format('Blob Tag Reader ({0})', parameters('storageAccountName'))]",
+        "description": "Read-only access to blob index tags — used to check Defender malware scan verdicts",
+        "type": "CustomRole",
+        "assignableScopes": [
+          "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+        ],
+        "permissions": [
+          {
+            "actions": [],
+            "notActions": [],
+            "dataActions": [
+              "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read"
+            ],
+            "notDataActions": []
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('appServiceName'), 'blob-tag-reader')]",
+      "properties": {
+        "roleDefinitionId": "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleDefinitions', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'blob-tag-reader'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('appServiceName')), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('appServiceName'))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleDefinitions', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'blob-tag-reader'))]",
         "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
       ]
     },
@@ -1138,6 +1306,10 @@
     "appUrl": {
       "type": "string",
       "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', parameters('appServiceName')), '2023-12-01').defaultHostName)]"
+    },
+    "frontDoorEndpointHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('frontDoorProfileName'), variables('frontDoorEndpointName')), '2023-05-01').hostName]"
     },
     "acrLoginServer": {
       "type": "string",
