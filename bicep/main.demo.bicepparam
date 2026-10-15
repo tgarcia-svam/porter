@@ -84,7 +84,7 @@ param emailDomainVerified = true
 // Step 1: deploy with false (default). Read frontDoorEndpointHostname from outputs.
 // Step 2: add CNAME: demo.porterdata.com → <frontDoorEndpointHostname>
 // Step 3: wait for cert provisioning (~5–15 min), then flip to true and redeploy.
-param lockAppServiceToFrontDoor = false
+param lockAppServiceToFrontDoor = true
 
 // ── Cost controls (lower than production for a demo environment) ──────────────
 param blobTierToCoolAfterDays    = 30
