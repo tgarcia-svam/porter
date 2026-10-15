@@ -44,8 +44,13 @@ export async function createSession(
  *  Updates lastSeenAt at most once per TOUCH_DEBOUNCE_MS to limit write pressure. */
 export async function validateAndTouchSession(nonce: string): Promise<boolean> {
   const tokenHash = hashNonce(nonce);
-  const session = await prisma.userSession.findUnique({ where: { tokenHash } });
+  const session = await prisma.userSession.findUnique({
+    where:   { tokenHash },
+    include: { user: { select: { deletedAt: true } } },
+  });
   if (!session) return false;
+  // A deactivated (soft-deleted) user's sessions are dead even if a row survives.
+  if (session.user?.deletedAt) return false;
 
   const shouldTouch = Date.now() - session.lastSeenAt.getTime() > TOUCH_DEBOUNCE_MS;
   if (shouldTouch) {

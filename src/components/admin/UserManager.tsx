@@ -148,6 +148,7 @@ export default function UserManager({
       setNewOrgName("");
       setNewAuthMethod("PASSWORD");
       await refreshUsers();
+      await refreshOrgs();
       router.refresh();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add user");
@@ -227,6 +228,8 @@ export default function UserManager({
       return;
     }
     await refreshUsers();
+    await refreshOrgs();
+    router.refresh();
   }
 
   async function handleRoleChange(id: string, role: "ADMIN" | "UPLOADER") {
@@ -257,6 +260,8 @@ export default function UserManager({
       return;
     }
     await refreshUsers();
+    await refreshOrgs();
+    router.refresh();
   }
 
   // ── Org handlers ───────────────────────────────────────────────────────

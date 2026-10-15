@@ -712,6 +712,9 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
       acrUseManagedIdentityCreds: true
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'
+      // Defense in depth: even direct (non-Front Door) access cannot negotiate RSA
+      // key exchange / CBC suites — ECDHE + AES-GCM only (AppScan M6, PFS).
+      minTlsCipherSuite: 'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384'
       http20Enabled: true           // enable HTTP/2
       // Once the Front Door custom domain DNS CNAME is live and cert is provisioned,
       // flip lockAppServiceToFrontDoor=true in the params file. This restricts the

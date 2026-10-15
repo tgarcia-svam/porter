@@ -25,7 +25,7 @@ export const PUT = withHandler<{ params: Promise<{ id: string }> }>(
     const organization = await prisma.organization.update({
       where: { id },
       data: { name: parsed.data.name.trim() },
-      include: { _count: { select: { users: true } } },
+      include: { _count: { select: { users: { where: { deletedAt: null } } } } },
     });
 
     return NextResponse.json(organization);

@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import ExcelJS from "exceljs";
 import { Readable } from "stream";
+import { parseDateStrict, checkValue, comparisonError, type ComparisonRule } from "@/lib/validate-core";
 
 export type ValidationError = {
   row: number;
@@ -17,11 +18,7 @@ export type ValidationReport = {
   rows: Record<string, string>[];
 };
 
-export type ComparisonRule = {
-  sourceColumnName: string;
-  operator: "LT" | "LTE" | "GT" | "GTE";
-  targetColumnName: string;
-};
+export type { ComparisonRule };
 
 export type ClassificationConstraint = {
   type: "VALUE_LIST" | "REGEX" | "NUMBER_RANGE" | "DATE_RANGE";
@@ -97,91 +94,6 @@ const EXCEL_MAX_ROWS = 200_000;
 // ---------------------------------------------------------------------------
 // Type checkers
 // ---------------------------------------------------------------------------
-
-/**
- * Strict date parser. Accepts only:
- *   - ISO 8601:  YYYY-MM-DD  (optionally followed by Thh:mm:ss... — used by
- *                              Excel cells which exceljs converts via toISOString)
- *   - US slash:  M/D/YYYY or MM/DD/YYYY
- *
- * Rejects calendar-invalid dates (Feb 30, Apr 31, Feb 29 in non-leap years)
- * and any other format. Returns midnight UTC on the parsed calendar day, or
- * null. Note: `new Date()` and `Date.parse()` would silently roll Feb 30 over
- * to March 2 — this function catches that by extracting Y/M/D components and
- * verifying they round-trip through the Date constructor.
- */
-function parseDateStrict(value: string): Date | null {
-  const v = value.trim();
-  if (!v) return null;
-
-  let y: number;
-  let m: number;
-  let d: number;
-
-  const iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/);
-  if (iso) {
-    y = +iso[1];
-    m = +iso[2];
-    d = +iso[3];
-  } else {
-    const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!slash) return null;
-    m = +slash[1];
-    d = +slash[2];
-    y = +slash[3];
-  }
-
-  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1 || d > 31) return null;
-
-  const date = new Date(Date.UTC(y, m - 1, d));
-  if (
-    date.getUTCFullYear() !== y ||
-    date.getUTCMonth() !== m - 1 ||
-    date.getUTCDate() !== d
-  ) {
-    return null;
-  }
-  return date;
-}
-
-function checkValue(value: string, dataType: string): string | null {
-  const v = value.trim();
-
-  switch (dataType) {
-    case "TEXT":
-      return null; // always valid
-
-    case "NUMBER":
-      if (v === "" || isNaN(Number(v))) return "Expected a number";
-      return null;
-
-    case "INTEGER":
-      if (v === "" || !Number.isInteger(Number(v)))
-        return "Expected an integer (whole number)";
-      return null;
-
-    case "BOOLEAN": {
-      const allowed = new Set(["true", "false", "yes", "no", "1", "0"]);
-      if (!allowed.has(v.toLowerCase()))
-        return "Expected true/false, yes/no, or 1/0";
-      return null;
-    }
-
-    case "DATE":
-      if (parseDateStrict(v) === null) {
-        return "Expected a valid date (YYYY-MM-DD or M/D/YYYY)";
-      }
-      return null;
-
-    case "EMAIL":
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
-        return "Expected a valid email address";
-      return null;
-
-    default:
-      return null;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Row validation (shared between streaming and batch paths)
@@ -289,9 +201,6 @@ function validateRow(
 
   if (comparisons?.length) {
     const typeByLcName = new Map(columns.map((c) => [c.name.toLowerCase(), c.dataType]));
-    const LABEL: Record<ComparisonRule["operator"], string> = {
-      LT: "<", LTE: "≤", GT: ">", GTE: "≥",
-    };
     for (const rule of comparisons) {
       if (errors.length >= MAX_ERRORS) break;
       const srcHeader = headerMap.get(rule.sourceColumnName.toLowerCase());
@@ -299,28 +208,14 @@ function validateRow(
       if (!srcHeader || !tgtHeader) continue;
       const srcRaw = String(row[srcHeader] ?? "").trim();
       const tgtRaw = String(row[tgtHeader] ?? "").trim();
-      if (!srcRaw || !tgtRaw) continue;
-      const srcType = typeByLcName.get(rule.sourceColumnName.toLowerCase());
-      let sv: number, tv: number;
-      if (srcType === "DATE") {
-        const sd = parseDateStrict(srcRaw), td = parseDateStrict(tgtRaw);
-        if (!sd || !td) continue;
-        sv = sd.getTime(); tv = td.getTime();
-      } else {
-        sv = Number(srcRaw); tv = Number(tgtRaw);
-        if (isNaN(sv) || isNaN(tv)) continue;
-      }
-      const passed =
-        rule.operator === "LT"  ? sv < tv  :
-        rule.operator === "LTE" ? sv <= tv :
-        rule.operator === "GT"  ? sv > tv  : sv >= tv;
-      if (!passed) {
-        errors.push({
-          row: rowNumber,
-          column: rule.sourceColumnName,
-          value: srcRaw,
-          error: `'${rule.sourceColumnName}' must be ${LABEL[rule.operator]} '${rule.targetColumnName}'`,
-        });
+      const msg = comparisonError(
+        rule,
+        srcRaw,
+        tgtRaw,
+        typeByLcName.get(rule.sourceColumnName.toLowerCase())
+      );
+      if (msg) {
+        errors.push({ row: rowNumber, column: rule.sourceColumnName, value: srcRaw, error: msg });
       }
     }
   }
