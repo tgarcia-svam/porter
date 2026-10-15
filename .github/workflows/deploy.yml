@@ -135,8 +135,9 @@ jobs:
 
       - name: Wait for App Service to be ready
         run: |
-          APP_SERVICE_NAME=$(grep "^param appServiceName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
-          APP_URL="https://${APP_SERVICE_NAME}.azurewebsites.net"
+          # Poll the public Front Door URL — the App Service origin is locked to
+          # Front Door, so its azurewebsites.net hostname returns 403.
+          APP_URL=$(grep "^param nextauthUrl" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
           echo "Polling ${APP_URL}/api/health until ready (max 3 min)..."
           for i in $(seq 1 18); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${APP_URL}/api/health" || echo "000")
