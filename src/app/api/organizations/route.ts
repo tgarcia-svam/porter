@@ -10,7 +10,7 @@ export const GET = withHandler(async (req: NextRequest) => {
 
   const organizations = await prisma.organization.findMany({
     where: { deletedAt: null },
-    include: { _count: { select: { users: true } } },
+    include: { _count: { select: { users: { where: { deletedAt: null } } } } },
     orderBy: { name: "asc" },
   });
 

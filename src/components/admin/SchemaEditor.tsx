@@ -161,8 +161,20 @@ export default function SchemaEditor({
   }
 
   function removeColumn(i: number) {
-    setIsDirty(true);
     const removedName = columns[i].name.trim();
+    if (removedName) {
+      // Visualizations that reference the column would make the save fail with
+      // "unknown column", so remove them (after confirming with the admin).
+      const affected = visualizations.filter(
+        (v) => v.xColumn === removedName || (v.aggregate !== "COUNT" && v.valueColumn === removedName)
+      );
+      if (affected.length > 0) {
+        const titles = affected.map((v) => `"${v.title.trim() || "Untitled"}"`).join(", ");
+        if (!confirm(`Removing "${removedName}" will also remove these visualizations that use it: ${titles}. Continue?`)) return;
+        setVisualizations((prev) => prev.filter((v) => !affected.includes(v)));
+      }
+    }
+    setIsDirty(true);
     setColumns((prev) => prev.filter((_, idx) => idx !== i));
     if (removedName) {
       setComparisons((prev) =>
@@ -340,7 +352,8 @@ export default function SchemaEditor({
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(JSON.stringify(data.error ?? "Save failed"));
+        const msg = data.error;
+        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg ?? "Save failed"));
       }
 
       router.push("/admin/schemas");

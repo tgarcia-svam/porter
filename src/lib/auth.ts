@@ -245,7 +245,7 @@ async function buildInstance(): Promise<AuthInstance> {
         if (!ticketEmail || ticketEmail.toLowerCase() !== email) return null;
 
         const dbUser = await prisma.user.findFirst({
-          where: { email: { equals: email, mode: "insensitive" } },
+          where: { email: { equals: email, mode: "insensitive" }, deletedAt: null },
           select: { id: true, email: true, name: true, role: true, authMethod: true },
         });
         if (!dbUser || dbUser.authMethod !== "PASSWORD") return null;

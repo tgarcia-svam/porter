@@ -116,6 +116,8 @@ export const DELETE = withHandler<{ params: Promise<{ id: string }> }>(
     }
 
     await prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
+    // Kill any live sessions so the user is logged out on their next request.
+    await prisma.userSession.deleteMany({ where: { userId: id } });
     return new NextResponse(null, { status: 204 });
   }
 );
