@@ -76,7 +76,7 @@ export const GET = withHandler(async (req: NextRequest) => {
     // Raw SQL because Prisma's JSON filters don't support substring search on
     // arbitrary keys. RLS still applies inside this transaction.
     const searchFilter = q
-      ? Prisma.sql`AND "data"::text ILIKE ${"%" + q + "%"}`
+      ? Prisma.sql`AND "data"::text ILIKE ${"%" + q.replace(/[\\%_]/g, "\\$&") + "%"}`
       : Prisma.empty;
 
     type Row = { rowIndex: number; data: Record<string, string> };

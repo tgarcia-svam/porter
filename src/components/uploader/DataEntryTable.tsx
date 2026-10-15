@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
+import { checkValue, comparisonError, type ComparisonRule } from "@/lib/validate-core";
 import ValidationResults from "./ValidationResults";
 import Spinner from "@/components/Spinner";
 
@@ -34,6 +35,7 @@ type Schema = {
   id: string;
   name: string;
   columns: Column[];
+  comparisons?: ComparisonRule[];
 };
 
 type ServerRow = { rowIndex: number; data: Record<string, string> };
@@ -122,6 +124,47 @@ function classificationError(value: string, col: Column): string | null {
   }
 }
 
+const REQUIRED_MSG = "Required field is empty";
+
+/**
+ * Full client-side check of one row, mirroring validateRow in src/lib/validate.ts:
+ * required → data type → classification → cross-column comparisons. Returns
+ * column name → message (comparison errors are attached to the source column,
+ * as on the server). The server stays the source of truth on submit.
+ */
+function rowErrors(
+  row: Record<string, string>,
+  columns: Column[],
+  comparisons: ComparisonRule[] | undefined
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const col of columns) {
+    const value = String(row[col.name] ?? "").trim();
+    if (value === "") {
+      if (col.required) errors[col.name] = REQUIRED_MSG;
+      continue;
+    }
+    const msg = checkValue(value, col.dataType) ?? classificationError(value, col);
+    if (msg) errors[col.name] = msg;
+  }
+  if (comparisons?.length) {
+    const typeByName = new Map(columns.map((c) => [c.name.toLowerCase(), c.dataType]));
+    for (const rule of comparisons) {
+      const src = columns.find((c) => c.name.toLowerCase() === rule.sourceColumnName.toLowerCase());
+      const tgt = columns.find((c) => c.name.toLowerCase() === rule.targetColumnName.toLowerCase());
+      if (!src || !tgt || errors[src.name] || errors[tgt.name]) continue;
+      const msg = comparisonError(
+        rule,
+        String(row[src.name] ?? ""),
+        String(row[tgt.name] ?? ""),
+        typeByName.get(src.name.toLowerCase())
+      );
+      if (msg) errors[src.name] = msg;
+    }
+  }
+  return errors;
+}
+
 /**
  * Apply DATE-column normalisation that the date input expects (YYYY-MM-DD,
  * truncating any ISO time suffix).
@@ -161,6 +204,7 @@ export default function DataEntryTable({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [loadingData, setLoadingData] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -200,13 +244,16 @@ export default function DataEntryTable({
         page: String(pagination.page),
         pageSize: String(PAGE_SIZE),
       });
-      if (debouncedQ) params.set("q", debouncedQ);
-      const res = await fetch(`/api/upload/latest-data?${params}`);
+      const q = debouncedQ.trim();
+      if (q) params.set("q", q);
+      setLoadError(null);
+      const res = await apiFetch(`/api/upload/latest-data?${params}`);
 
       if (requestIdRef.current !== myId) return; // a newer fetch is in flight — drop this response
 
       if (!res.ok) {
         setPageRows([]);
+        setLoadError("Couldn't load rows. Please refresh the page and try again.");
         return;
       }
       const data: { rows: ServerRow[]; pagination: Pagination } = await res.json();
@@ -219,7 +266,10 @@ export default function DataEntryTable({
       })));
       setPagination(data.pagination);
     } catch {
-      if (requestIdRef.current === myId) setPageRows([]);
+      if (requestIdRef.current === myId) {
+        setPageRows([]);
+        setLoadError("Couldn't load rows. Please check your connection and try again.");
+      }
     } finally {
       if (requestIdRef.current === myId) setLoadingData(false);
     }
@@ -319,6 +369,13 @@ export default function DataEntryTable({
   const pinnedNewRows = pagination.page === 1 ? newRows : [];
 
   const pendingCount = edits.size + deletions.size + newRows.length;
+
+  // Rows the user touched (new or edited) that fail validation. These block Submit.
+  const invalidCount =
+    newRows.filter((r) => Object.keys(rowErrors(r, schema.columns, schema.comparisons)).length > 0).length +
+    Array.from(edits.values()).filter(
+      (r) => Object.keys(rowErrors(r, schema.columns, schema.comparisons)).length > 0
+    ).length;
   const totalAfterDiff = Math.max(0, pagination.total + newRows.length - deletions.size);
 
   return (
@@ -414,7 +471,9 @@ export default function DataEntryTable({
                       <span>Loading…</span>
                     </span>
                   ) : (
-                    debouncedQ ? "No matching rows." : "No data. Click Add row to start entering."
+                    loadError
+                      ? <span className="text-red-600">{loadError}</span>
+                      : debouncedQ.trim() ? "No matching rows." : "No data. Click Add row to start entering."
                   )}
                 </td>
               </tr>
@@ -424,6 +483,7 @@ export default function DataEntryTable({
                   <Row
                     key={`new-${i}`}
                     columns={schema.columns}
+                    comparisons={schema.comparisons}
                     data={row}
                     onChange={(col, v) => editNewRow(i, col, v)}
                     onDelete={() => deleteNewRow(i)}
@@ -435,6 +495,7 @@ export default function DataEntryTable({
                   <Row
                     key={`row-${r.rowIndex}`}
                     columns={schema.columns}
+                    comparisons={schema.comparisons}
                     data={r.data}
                     onChange={(col, v) => editServerRow(r.rowIndex, col, v)}
                     onDelete={() => deleteServerRow(r.rowIndex)}
@@ -481,10 +542,15 @@ export default function DataEntryTable({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={submitting || pendingCount === 0}
+          disabled={submitting || pendingCount === 0 || invalidCount > 0}
+          title={invalidCount > 0 ? "Fix the highlighted rows before submitting" : undefined}
           className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          {submitting ? "Submitting…" : "Submit data"}
+          {submitting
+            ? "Submitting…"
+            : invalidCount > 0
+              ? `Fix ${invalidCount} invalid ${invalidCount === 1 ? "row" : "rows"}`
+              : "Submit data"}
         </button>
       </div>
 
@@ -503,6 +569,7 @@ export default function DataEntryTable({
 
 function Row({
   columns,
+  comparisons,
   data,
   onChange,
   onDelete,
@@ -511,6 +578,7 @@ function Row({
   label,
 }: {
   columns: Column[];
+  comparisons?: ComparisonRule[];
   data: Record<string, string>;
   onChange: (col: string, value: string) => void;
   onDelete: () => void;
@@ -518,6 +586,10 @@ function Row({
   edited?: boolean;
   label?: "new";
 }) {
+  const errors = rowErrors(data, columns, comparisons);
+  // Don't shout "required" at a freshly added blank row; show it once the user
+  // has started filling the row in (Submit stays blocked either way).
+  const started = Object.values(data).some((v) => String(v ?? "").trim() !== "");
   return (
     <tr
       className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/40 ${
@@ -532,10 +604,12 @@ function Row({
         // Only value-list classifications constrain entry to a dropdown; other
         // classification types use a normal input and are checked on the fly.
         const isValueList = col.classification?.type === "VALUE_LIST";
-        const error = classificationError(value, col);
+        const rawError = errors[col.name];
+        const error = rawError === REQUIRED_MSG && !started ? null : rawError ?? null;
         return (
           <td key={col.id} className="px-2 py-1 align-top">
             {isValueList ? (
+              <>
               <select
                 value={value}
                 onChange={(e) => onChange(col.name, e.target.value)}
@@ -547,6 +621,10 @@ function Row({
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
+              {error && (
+                <p className="mt-0.5 text-xs text-red-600 max-w-[220px] whitespace-normal">{error}</p>
+              )}
+              </>
             ) : (
               <>
                 <input

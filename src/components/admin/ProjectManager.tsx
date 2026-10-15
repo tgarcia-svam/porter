@@ -730,8 +730,14 @@ export function ScheduleEditor({ project, onSaved }: { project: Project; onSaved
   async function handleRemove() {
     if (!confirm("Remove the upload schedule for this project? No further reminders will be sent.")) return;
     setSaving(true);
+    setError(null);
     try {
-      await apiFetch(`/api/projects/${project.id}/schedule`, { method: "DELETE" });
+      const res = await apiFetch(`/api/projects/${project.id}/schedule`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(typeof data?.error === "string" ? data.error : "Failed to remove schedule");
+        return;
+      }
       setNextDue(null);
       setReminderEnabled(false);
       setOverdueEnabled(false);

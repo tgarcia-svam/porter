@@ -40,9 +40,7 @@ export default function RecentUploadsReport() {
     let cancelled = false;
     setLoading(true);
     const _rpParams = new URLSearchParams({ page: String(page), pageSize: "20" });
-    const _rpUrl = new URL("/api/admin/uploads/recent", "https://same-origin.invalid");
-    if (_rpUrl.host !== "same-origin.invalid") return;
-    fetch(`${_rpUrl.pathname}?${_rpParams}`)
+    fetch(`/api/admin/uploads/recent?${_rpParams}`)
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;

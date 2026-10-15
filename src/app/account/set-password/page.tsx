@@ -30,9 +30,7 @@ function SetPasswordContent() {
     if (!token || phase !== "checking") return;
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) { setPhase("expired"); return; }
     const _spParams = new URLSearchParams({ token });
-    const _spUrl = new URL("/api/account/reset", "https://same-origin.invalid");
-    if (_spUrl.host !== "same-origin.invalid") { setPhase("expired"); return; }
-    fetch(`${_spUrl.pathname}?${_spParams}`)
+    fetch(`/api/account/reset?${_spParams}`)
       .then((r) => r.json())
       .then((d) => setPhase(d.valid ? "password" : "expired"))
       .catch(() => setPhase("expired"));
