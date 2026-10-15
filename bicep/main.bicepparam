@@ -68,8 +68,8 @@ param emailDomainVerified = true
 // Step 1: deploy with false (default). Read frontDoorEndpointHostname from outputs.
 // Step 2: add CNAME: porterdata.com → <frontDoorEndpointHostname>
 // Step 3: wait for cert provisioning (~5–15 min), then flip to true and redeploy.
-// Step 3 done: cert is live — origin is locked to this Front Door profile.
-param lockAppServiceToFrontDoor = true
+// Keep false until porterdata.com DNS actually points at Front Door (it resolved to the App Service IP directly, so locking caused a site-wide 403).
+param lockAppServiceToFrontDoor = false
 
 // ── Data-warehouse export ─────────────────────────────────────────────────────
 // No params here: the destination is configured in the admin Settings UI. The
