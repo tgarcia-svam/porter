@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "11094532205411117688"
+      "templateHash": "3514004755513368901"
     }
   },
   "parameters": {
@@ -882,6 +882,7 @@
           "acrUseManagedIdentityCreds": true,
           "minTlsVersion": "1.2",
           "scmMinTlsVersion": "1.2",
+          "minTlsCipherSuite": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
           "http20Enabled": true,
           "ipSecurityRestrictions": "[if(parameters('lockAppServiceToFrontDoor'), createArray(createObject('name', 'AllowFrontDoor', 'priority', 100, 'action', 'Allow', 'tag', 'ServiceTag', 'ipAddress', 'AzureFrontDoor.Backend', 'headers', createObject('x-azure-fdid', createArray(reference(resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName')), '2023-05-01').frontDoorId)))), createArray())]",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockAppServiceToFrontDoor'), 'Deny', 'Allow')]",

@@ -21,9 +21,7 @@ export default function DashboardPanel({ schemaId, projectId }: { schemaId: stri
     setLoading(true);
     setData(null);
     const _dbParams = new URLSearchParams({ schemaId, projectId });
-    const _dbUrl = new URL("/api/dashboard", "https://same-origin.invalid");
-    if (_dbUrl.host !== "same-origin.invalid") return;
-    fetch(`${_dbUrl.pathname}?${_dbParams}`)
+    fetch(`/api/dashboard?${_dbParams}`)
       .then((r) => r.json())
       .then(setData)
       .catch(() => setData(null))
