@@ -816,7 +816,8 @@ export default function FileUploader({
                             : <span className="text-gray-500">—</span>}
                         </td>
                         <td className="px-6 py-3 text-gray-500 text-xs">
-                          {new Date(u.createdAt).toLocaleString()}
+                          {/* Locale/timezone differ between server render and browser */}
+                          <span suppressHydrationWarning>{new Date(u.createdAt).toLocaleString()}</span>
                         </td>
                       </tr>
                     ))}
