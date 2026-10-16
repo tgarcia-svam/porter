@@ -11,11 +11,9 @@
           var x = new URL(u, location.href);
           if (x.origin === location.origin && (x.pathname.indexOf("/_next/") === 0 || x.pathname === "/tt-policy.js")) return x.href;
         } catch (e) {}
-        console.warn("TT blocked script URL:", String(u).slice(0, 200));
         throw new TypeError("Blocked untrusted script URL");
       },
-      createScript: function (s) {
-        console.warn("TT blocked script string:", String(s).slice(0, 200));
+      createScript: function () {
         throw new TypeError("Blocked inline script string");
       },
       createHTML: function (h) {
@@ -23,7 +21,6 @@
         if (h === "<script></script>") return h;
         // No "<" => cannot create elements/scripts/handlers (e.g. CSS for Next's error page).
         if (String(h).indexOf("<") === -1) return h;
-        console.warn("TT blocked HTML:", String(h).slice(0, 200));
         throw new TypeError("Blocked HTML string");
       },
     });
