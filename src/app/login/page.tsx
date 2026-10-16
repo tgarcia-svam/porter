@@ -1,7 +1,7 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
@@ -38,7 +38,6 @@ function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
 }
 
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
@@ -177,8 +176,9 @@ function LoginContent() {
       callbackUrl,
     });
     if (res?.ok) {
-      router.push(callbackUrl);
-      router.refresh();
+      // Full page load (callbackUrl is validated same-origin above). A client-side
+      // router.push() after sign-in rendered a blank page on demo until refreshed.
+      window.location.assign(callbackUrl);
     } else {
       setFormError("Sign-in failed. Please try again.");
     }
