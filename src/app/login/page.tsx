@@ -20,6 +20,19 @@ function isSafeCallbackUrl(url: string): boolean {
   }
 }
 
+// Rejects with name "TimeoutError" if `p` hasn't settled in `ms` — a hung passkey
+// step must never leave the user stuck on "Waiting for passkey…".
+function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      const e = new Error(`passkey ${stage} timed out`);
+      e.name = "TimeoutError";
+      reject(e);
+    }, ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -117,6 +130,7 @@ function LoginContent() {
     setFormError(null);
     setBusy(true);
     try {
+      console.debug("[passkey] requesting auth-options");
       const optRes = await apiFetch("/api/account/passkey/auth-options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,8 +139,10 @@ function LoginContent() {
       const options = await optRes.json();
       if (!optRes.ok) { setStep("credentials"); setFormError(messageFor("expired")); return; }
 
-      const { startAuthentication } = await import("@simplewebauthn/browser");
-      const assertion = await startAuthentication(options);
+      console.debug("[passkey] auth-options ok; loading webauthn module");
+      const { startAuthentication } = await withTimeout(import("@simplewebauthn/browser"), 15_000, "module load");
+      console.debug("[passkey] calling navigator.credentials.get");
+      const assertion = await withTimeout(startAuthentication(options), 45_000, "prompt");
 
       const res = await apiFetch("/api/account/login", {
         method: "POST",
@@ -138,8 +154,11 @@ function LoginContent() {
       if (data?.code === "expired") setStep("credentials");
       setFormError(messageFor(data?.code, data?.retryAfterSec));
     } catch (err) {
+      console.error("[passkey] sign-in failed:", err);
       setFormError(
-        err instanceof Error && err.name === "NotAllowedError"
+        err instanceof Error && err.name === "TimeoutError"
+          ? "The passkey prompt didn't respond. Use your authenticator code instead."
+          : err instanceof Error && err.name === "NotAllowedError"
           ? "Passkey prompt was cancelled."
           : "Couldn't use a passkey. Try a code instead, or start again."
       );
