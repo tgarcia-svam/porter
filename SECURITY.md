@@ -681,7 +681,7 @@ Fixed security parameters (not configurable at runtime):
 Fixed: API `Cache-Control: no-store` (incl. `/api/auth/*`), restrictive CSP on `/api/auth/*`,
 `X-Powered-By` removed, login password `autocomplete="off"`, `/api/classifications` returns an
 object (JSON hijacking) plus a 403 for `Sec-Fetch-Dest: script` on GET `/api/*`, `csrf-token`
-cookie is now a session cookie, Trusted Types enforced (default policy in `app/layout.tsx`;
+cookie is now a session cookie, Trusted Types enforced (default policy in `public/tt-policy.js`, blocks script URLs outside `/_next/`, script strings and HTML containing `<` other than React's script literal;
 `TRUSTED_TYPES_MODE=report` downgrades to Report-Only), retention/warehouse inputs bounded,
 client session payload trimmed.
 

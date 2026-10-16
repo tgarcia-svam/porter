@@ -30,18 +30,11 @@ export default async function RootLayout({
   return (
     <html lang="en" className={montserrat.variable}>
       <head>
-        {/* Trusted Types `default` policy. Must run before any bundle. Allows the
-            framework's script.src assignments only for same-origin /_next/ URLs and
-            rejects every other string-to-script/HTML sink (DOM-XSS defence). The one HTML
-            string allowed is the literal React DOM uses internally to create <script> elements. Inert
-            unless the CSP carries require-trusted-types-for 'script'. */}
-        <script
-          nonce={nonce}
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{
-            __html: `(function(){var tt=window.trustedTypes;if(!tt||!tt.createPolicy)return;try{tt.createPolicy("default",{createScriptURL:function(u){try{var x=new URL(u,location.href);if(x.origin===location.origin&&x.pathname.indexOf("/_next/")===0)return x.href;}catch(e){}console.warn("TT blocked script URL:",String(u).slice(0,200));throw new TypeError("Blocked untrusted script URL");},createScript:function(s){console.warn("TT blocked script string:",String(s).slice(0,200));throw new TypeError("Blocked inline script string");},createHTML:function(h){if(h==="<script><\\/script>")return h;console.warn("TT blocked HTML:",String(h).slice(0,200));throw new TypeError("Blocked HTML string");}});}catch(e){}})();`,
-          }}
-        />
+        {/* Trusted Types `default` policy (public/tt-policy.js). Must run before any bundle, so
+            it is a synchronous static script in <head>, not an inline innerHTML script (React
+            would re-create that via innerHTML on the client and the policy would block itself).
+            Inert unless the CSP carries require-trusted-types-for 'script'. */}
+        <script src="/tt-policy.js" nonce={nonce} />
       </head>
       <body className="min-h-screen bg-gray-50 text-gray-900 antialiased">
         {children}
