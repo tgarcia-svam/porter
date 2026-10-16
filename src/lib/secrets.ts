@@ -44,7 +44,8 @@ export async function loadSecretsFromKeyVault(): Promise<void> {
       if (secret.value) process.env[envKey] = secret.value;
     } catch (err) {
       if (required) {
-        console.warn(`[secrets] Could not load ${secretName} from Key Vault:`, err);
+        const reason = err instanceof Error ? err.name : "UnknownError";
+        console.warn(`[secrets] Could not load ${secretName} from Key Vault (${reason})`);
       }
       // Optional secrets silently absent — provider will be disabled at runtime
     }
