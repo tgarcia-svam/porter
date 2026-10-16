@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
+// Static import (not a lazy `import()`): on demo the lazily-loaded chunk never
+// resolved, leaving the passkey button stuck. Bundling it with the login page
+// removes the runtime chunk fetch from the sign-in path.
+import { startAuthentication } from "@simplewebauthn/browser";
 
 // Returns true only for same-origin relative paths. Normalizes backslashes
 // before parsing so /\evil.com tricks don't bypass the startsWith("//") check.
@@ -139,9 +143,7 @@ function LoginContent() {
       const options = await optRes.json();
       if (!optRes.ok) { setStep("credentials"); setFormError(messageFor("expired")); return; }
 
-      console.debug("[passkey] auth-options ok; loading webauthn module");
-      const { startAuthentication } = await withTimeout(import("@simplewebauthn/browser"), 15_000, "module load");
-      console.debug("[passkey] calling navigator.credentials.get");
+      console.debug("[passkey] auth-options ok; calling navigator.credentials.get");
       const assertion = await withTimeout(startAuthentication(options), 45_000, "prompt");
 
       const res = await apiFetch("/api/account/login", {
