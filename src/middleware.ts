@@ -198,7 +198,10 @@ export function middleware(req: NextRequest) {
   // the app. Enforced by default (default policy in app/layout.tsx allows same-origin /_next/ scripts);
   // set TRUSTED_TYPES_MODE=report to downgrade to Report-Only if a violation ever appears.
   const ttDirective = "require-trusted-types-for 'script'";
-  if (process.env.TRUSTED_TYPES_MODE !== "report") {
+  const ttMode = process.env.TRUSTED_TYPES_MODE; // "off" = no TT header (diagnostics only)
+  if (ttMode === "off") {
+    // intentionally no Trusted Types header
+  } else if (ttMode !== "report") {
     res.headers.set("Content-Security-Policy", `${csp}; ${ttDirective}`);
   } else {
     res.headers.set("Content-Security-Policy-Report-Only", ttDirective);

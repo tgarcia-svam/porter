@@ -9,7 +9,7 @@
       createScriptURL: function (u) {
         try {
           var x = new URL(u, location.href);
-          if (x.origin === location.origin && (x.pathname.indexOf("/_next/") === 0 || x.pathname === "/tt-policy.js")) return x.href;
+          if (x.origin === location.origin && (x.pathname.indexOf("/_next/") === 0 || x.pathname === "/tt-policy.js")) return u; // keep the original (often relative) string: Turbopack matches chunks by their src attribute
         } catch (e) {}
         throw new TypeError("Blocked untrusted script URL");
       },
