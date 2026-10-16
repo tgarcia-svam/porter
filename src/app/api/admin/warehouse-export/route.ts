@@ -10,7 +10,20 @@ import { isManagedIdentityConfigured, getManagedIdentityPrincipalId } from "@/li
 
 const UpdateBody = z.object({
   enabled: z.boolean().optional(),
-  accountUrl: z.string().max(512).optional(),
+  // Empty clears it; otherwise must be an https Azure Blob endpoint (blocks arbitrary text/SSRF targets).
+  accountUrl: z
+    .string()
+    .max(512)
+    .refine((v) => {
+      if (v.trim() === "") return true;
+      try {
+        const u = new URL(v.trim());
+        return u.protocol === "https:" && u.hostname.endsWith(".blob.core.windows.net") && u.pathname === "/" && !u.search;
+      } catch {
+        return false;
+      }
+    }, "accountUrl must be https://<account>.blob.core.windows.net")
+    .optional(),
   tenantId: z.string().max(128).optional(),
   clientId: z.string().max(128).optional(),
   container: z.string().max(256).optional(),

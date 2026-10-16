@@ -28,7 +28,15 @@ export default async function AdminLayout({
         userName={session.user.name}
         role={session.user.role}
       />
-      <LoginNoticeBanner session={session} />
+      <LoginNoticeBanner
+        session={{
+          user: {
+            prevLoginAt: session.user.prevLoginAt,
+            prevLoginIp: session.user.prevLoginIp,
+            prevFailedAttempts: session.user.prevFailedAttempts,
+          },
+        }}
+      />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>

@@ -12,8 +12,8 @@ function makeReq(headers: Record<string, string>): Request {
 }
 
 describe("clientIp", () => {
-  it("returns the first IP from x-forwarded-for", () => {
-    expect(clientIp(makeReq({ "x-forwarded-for": "1.2.3.4, 5.6.7.8" }))).toBe("1.2.3.4");
+  it("returns the last IP from x-forwarded-for (App Service appends the real client IP)", () => {
+    expect(clientIp(makeReq({ "x-forwarded-for": "1.2.3.4, 5.6.7.8" }))).toBe("5.6.7.8");
   });
 
   it("returns the only IP when x-forwarded-for has one entry", () => {
@@ -29,7 +29,7 @@ describe("clientIp", () => {
   });
 
   it("trims whitespace from x-forwarded-for IPs", () => {
-    expect(clientIp(makeReq({ "x-forwarded-for": "  1.2.3.4  , 5.6.7.8" }))).toBe("1.2.3.4");
+    expect(clientIp(makeReq({ "x-forwarded-for": "1.2.3.4 ,  5.6.7.8  " }))).toBe("5.6.7.8");
   });
 
   it("prefers x-forwarded-for over x-real-ip", () => {

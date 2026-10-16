@@ -4,10 +4,12 @@ import { requireAdmin } from "@/lib/api-auth";
 import { apiForbidden, apiBadRequest, withHandler } from "@/lib/api-error";
 import { getRetentionSettings, setRetentionSettings } from "@/lib/retention-service";
 
+const MAX_DAYS = 36500; // ~100 years; 0 still means "keep forever"
+
 const UpdateBody = z.object({
-  uploadSoftDeleteDays: z.number().int().min(0).optional(),
-  uploadHardDeleteDays: z.number().int().min(0).optional(),
-  auditLogRetentionDays: z.number().int().min(0).optional(),
+  uploadSoftDeleteDays: z.number().int().min(0).max(MAX_DAYS).optional(),
+  uploadHardDeleteDays: z.number().int().min(0).max(MAX_DAYS).optional(),
+  auditLogRetentionDays: z.number().int().min(0).max(MAX_DAYS).optional(),
 });
 
 export const GET = withHandler(async (req: NextRequest) => {
