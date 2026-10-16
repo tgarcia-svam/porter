@@ -39,7 +39,7 @@ export default async function RootLayout({
           nonce={nonce}
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: `(function(){var tt=window.trustedTypes;if(!tt||!tt.createPolicy)return;try{tt.createPolicy("default",{createScriptURL:function(u){try{var x=new URL(u,location.href);if(x.origin===location.origin&&x.pathname.indexOf("/_next/")===0)return x.href;}catch(e){}throw new TypeError("Blocked untrusted script URL");},createScript:function(){throw new TypeError("Blocked inline script string");},createHTML:function(h){if(h==="<script><\\/script>")return h;throw new TypeError("Blocked HTML string");}});}catch(e){}})();`,
+            __html: `(function(){var tt=window.trustedTypes;if(!tt||!tt.createPolicy)return;try{tt.createPolicy("default",{createScriptURL:function(u){try{var x=new URL(u,location.href);if(x.origin===location.origin&&x.pathname.indexOf("/_next/")===0)return x.href;}catch(e){}console.warn("TT blocked script URL:",String(u).slice(0,200));throw new TypeError("Blocked untrusted script URL");},createScript:function(s){console.warn("TT blocked script string:",String(s).slice(0,200));throw new TypeError("Blocked inline script string");},createHTML:function(h){if(h==="<script><\\/script>")return h;console.warn("TT blocked HTML:",String(h).slice(0,200));throw new TypeError("Blocked HTML string");}});}catch(e){}})();`,
           }}
         />
       </head>
