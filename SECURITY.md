@@ -670,8 +670,31 @@ Fixed security parameters (not configurable at runtime):
 | TOTP secret encryption | AES-256-GCM | `src/lib/crypto-at-rest.ts` |
 | Password hashing | bcrypt, work factor 12 | `src/lib/password-auth.ts` |
 | Auth token storage | SHA-256 hash only | `src/lib/auth-tokens.ts` |
-| CSRF cookie lifetime | 8 hours | `src/middleware.ts` |
+| CSRF cookie lifetime | Browser session (no Max-Age) | `src/middleware.ts` |
 | CSRF cookie flags | `SameSite=Strict`, `Secure` (production) | `src/middleware.ts` |
 | Login rate limit | 15 requests / 1 minute per IP | `src/middleware.ts` |
 | Password-reset rate limit | 5 requests / 15 minutes per IP | `src/middleware.ts` |
 | Malware scan timeout | 60 seconds (configurable via `MALWARE_SCAN_TIMEOUT_MS`) | `src/lib/azure-storage.ts` |
+
+## AppScan 2026-10-14 triage (Low findings)
+
+Fixed: API `Cache-Control: no-store` (incl. `/api/auth/*`), restrictive CSP on `/api/auth/*`,
+`X-Powered-By` removed, login password `autocomplete="off"`, `/api/classifications` returns an
+object (JSON hijacking) plus a 403 for `Sec-Fetch-Dest: script` on GET `/api/*`, `csrf-token`
+cookie is now a session cookie, Trusted Types enforced (default policy in `app/layout.tsx`;
+`TRUSTED_TYPES_MODE=report` downgrades to Report-Only), retention/warehouse inputs bounded,
+client session payload trimmed.
+
+Accepted / false positives:
+- **csrf-token without HttpOnly** — double-submit design; JS must read it. `Secure; SameSite=Strict`.
+  The real session cookie is HttpOnly.
+- **Session-token "permanent cookie"** — Expires comes from Auth.js maxAge; the server enforces a
+  30-minute idle and 8-hour absolute timeout.
+- **Query parameter in SSL request** — `_rsc` params are Next.js prefetch internals; `page`/`pageSize`
+  are non-sensitive pagination.
+- **"Spring Boot Actuator" `/api/health`** — not Spring; unauthenticated by design (Front Door probe,
+  deploy warm-up); returns only `{ok:true}`.
+- **SameSite=Lax on Auth.js OAuth cookies (pkce/state/callback-url/csrf)** — OAuth callbacks are
+  cross-site redirects; Strict would drop them and break SSO. Session cookie is Strict.
+- **Email-address patterns** — `you@example.com` placeholders; admin-only pages show user emails by design.
+- **Non-quantum-resistant ciphers** — no PQC/hybrid key exchange available on Azure Front Door yet.

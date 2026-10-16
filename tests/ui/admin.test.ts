@@ -1,22 +1,22 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Admin dashboard", () => {
-  test("loads the dashboard page", async ({ page }) => {
+test.describe("Admin analytics (landing page)", () => {
+  test("/admin redirects to Analytics", async ({ page }) => {
     await page.goto("/admin");
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/analytics/);
+    await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
   });
 
-  test("shows stat cards for Users, File Formats, Total Uploads", async ({ page }) => {
-    await page.goto("/admin");
-    const main = page.getByRole("main");
-    await expect(main.getByText("Users", { exact: true }).first()).toBeVisible();
-    await expect(main.getByText("File Formats", { exact: true })).toBeVisible();
-    await expect(main.getByText("Total Uploads", { exact: true })).toBeVisible();
+  test("shows the Project Data and App Usage tabs", async ({ page }) => {
+    await page.goto("/admin/analytics");
+    const tabs = page.getByRole("navigation", { name: "Analytics tabs" });
+    await expect(tabs.getByRole("button", { name: "Project Data" })).toBeVisible();
+    await expect(tabs.getByRole("button", { name: "App Usage" })).toBeVisible();
   });
 
-  test("shows Recent Uploads section", async ({ page }) => {
-    await page.goto("/admin");
-    await expect(page.getByText("Recent Uploads")).toBeVisible();
+  test("shows the project picker on Project Data", async ({ page }) => {
+    await page.goto("/admin/analytics");
+    await expect(page.getByText("Pick a project and file format")).toBeVisible();
   });
 
   test("redirects unauthenticated users to login", async ({ browser }) => {

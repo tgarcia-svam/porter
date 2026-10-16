@@ -18,5 +18,5 @@ export async function GET() {
       { status: 503 }
     );
   }
-  return NextResponse.json({ ok: true, ts: Date.now() });
+  return NextResponse.json({ ok: true });
 }

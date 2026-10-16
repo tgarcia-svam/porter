@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import type { Session } from "next-auth";
 
-type Props = { session: Session };
+// Only the fields the banner renders — passing the full Session would serialize
+// uaHash / sessionNonce / email into the client RSC payload.
+type Props = { session: { user: Pick<Session["user"], "prevLoginAt" | "prevLoginIp" | "prevFailedAttempts"> } };
 
 export default function LoginNoticeBanner({ session }: Props) {
   const { prevLoginAt, prevLoginIp, prevFailedAttempts } = session.user;
