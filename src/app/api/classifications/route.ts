@@ -14,7 +14,8 @@ export const GET = withHandler(async (req: NextRequest) => {
     orderBy: { name: "asc" },
   });
 
-  return NextResponse.json(classifications);
+  // Wrapped in an object: a bare top-level JSON array is vulnerable to JSON hijacking.
+  return NextResponse.json({ items: classifications });
 });
 
 export const POST = withHandler(async (req: NextRequest) => {

@@ -485,9 +485,9 @@ describe("Excel file (xlsx mime type)", () => {
     expect(r.missingColumns).toContain("score");
   });
 
-  it("uses application/octet-stream as an Excel MIME type", async () => {
+  it("treats application/octet-stream as Excel when the file extension is .xlsx", async () => {
     const buf = await makeXlsx([["v"], ["hello"]]);
-    const r = await validateFile(buf, "application/octet-stream", [col("v", "TEXT")]);
+    const r = await validateFile(buf, "application/octet-stream", [col("v", "TEXT")], undefined, "data.xlsx");
     expect(r.errors).toHaveLength(0);
     expect(r.rowCount).toBe(1);
   });

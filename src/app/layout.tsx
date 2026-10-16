@@ -25,10 +25,17 @@ export default async function RootLayout({
   // inline <script> elements it generates for hydration. Without this call,
   // statically rendered pages receive a nonce in the CSP header but their
   // scripts lack the attribute, causing the browser to block them.
-  await headers();
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html lang="en" className={montserrat.variable}>
+      <head>
+        {/* Trusted Types `default` policy (public/tt-policy.js). Must run before any bundle, so
+            it is a synchronous static script in <head>, not an inline innerHTML script (React
+            would re-create that via innerHTML on the client and the policy would block itself).
+            Inert unless the CSP carries require-trusted-types-for 'script'. */}
+        <script src="/tt-policy.js" nonce={nonce} />
+      </head>
       <body className="min-h-screen bg-gray-50 text-gray-900 antialiased">
         {children}
         <IdleTimeout />

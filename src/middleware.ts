@@ -123,6 +123,12 @@ export function middleware(req: NextRequest) {
       });
     }
 
+    // ── JSON hijacking guard ─────────────────────────────────────────────────
+    // A cross-site <script src="/api/..."> include is never legitimate.
+    if (req.method === "GET" && req.headers.get("sec-fetch-dest") === "script") {
+      return new NextResponse("Forbidden", { status: 403, headers: { "Content-Type": "text/plain" } });
+    }
+
     // ── CSRF validation ──────────────────────────────────────────────────────
     const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
     if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
@@ -162,7 +168,8 @@ export function middleware(req: NextRequest) {
       sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 8 * 60 * 60, // 8 hours — persistent so it survives screen lock
+      // No maxAge: session cookie (not written to disk). Re-seeded above if the
+      // browser dropped it. Still survives screen lock within a browser session.
     });
   }
 
@@ -185,6 +192,20 @@ export function middleware(req: NextRequest) {
     "form-action 'self' https://login.microsoftonline.com https://accounts.google.com",
   ].join("; ");
   res.headers.set("Content-Security-Policy", csp);
+
+  // Trusted Types: blocks DOM-XSS sinks (script src/innerHTML) fed by raw strings.
+  // Next.js/Turbopack assigns script.src at runtime, so enforcing blindly may break
+  // the app. Enforced by default (default policy in app/layout.tsx allows same-origin /_next/ scripts);
+  // set TRUSTED_TYPES_MODE=report to downgrade to Report-Only if a violation ever appears.
+  const ttDirective = "require-trusted-types-for 'script'";
+  const ttMode = process.env.TRUSTED_TYPES_MODE; // "off" = no TT header (diagnostics only)
+  if (ttMode === "off") {
+    // intentionally no Trusted Types header
+  } else if (ttMode !== "report") {
+    res.headers.set("Content-Security-Policy", `${csp}; ${ttDirective}`);
+  } else {
+    res.headers.set("Content-Security-Policy-Report-Only", ttDirective);
+  }
 
   return res;
 }

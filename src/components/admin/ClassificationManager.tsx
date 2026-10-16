@@ -146,7 +146,7 @@ export default function ClassificationManager({
 
   async function refresh() {
     const res = await fetch("/api/classifications");
-    if (res.ok) setClassifications(await res.json());
+    if (res.ok) setClassifications((await res.json()).items);
     router.refresh();
   }
 

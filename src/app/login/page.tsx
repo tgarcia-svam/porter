@@ -1,10 +1,14 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
+// Static import (not a lazy `import()`): on demo the lazily-loaded chunk never
+// resolved, leaving the passkey button stuck. Bundling it with the login page
+// removes the runtime chunk fetch from the sign-in path.
+import { startAuthentication } from "@simplewebauthn/browser";
 
 // Returns true only for same-origin relative paths. Normalizes backslashes
 // before parsing so /\evil.com tricks don't bypass the startsWith("//") check.
@@ -20,8 +24,20 @@ function isSafeCallbackUrl(url: string): boolean {
   }
 }
 
+// Rejects with name "TimeoutError" if `p` hasn't settled in `ms` — a hung passkey
+// step must never leave the user stuck on "Waiting for passkey…".
+function withTimeout<T>(p: Promise<T>, ms: number, stage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      const e = new Error(`passkey ${stage} timed out`);
+      e.name = "TimeoutError";
+      reject(e);
+    }, ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const error  = searchParams.get("error");
   const reason = searchParams.get("reason");
@@ -125,8 +141,7 @@ function LoginContent() {
       const options = await optRes.json();
       if (!optRes.ok) { setStep("credentials"); setFormError(messageFor("expired")); return; }
 
-      const { startAuthentication } = await import("@simplewebauthn/browser");
-      const assertion = await startAuthentication(options);
+      const assertion = await withTimeout(startAuthentication(options), 45_000, "prompt");
 
       const res = await apiFetch("/api/account/login", {
         method: "POST",
@@ -139,7 +154,9 @@ function LoginContent() {
       setFormError(messageFor(data?.code, data?.retryAfterSec));
     } catch (err) {
       setFormError(
-        err instanceof Error && err.name === "NotAllowedError"
+        err instanceof Error && err.name === "TimeoutError"
+          ? "The passkey prompt didn't respond. Use your authenticator code instead."
+          : err instanceof Error && err.name === "NotAllowedError"
           ? "Passkey prompt was cancelled."
           : "Couldn't use a passkey. Try a code instead, or start again."
       );
@@ -156,8 +173,9 @@ function LoginContent() {
       callbackUrl,
     });
     if (res?.ok) {
-      router.push(callbackUrl);
-      router.refresh();
+      // Full page load (callbackUrl is validated same-origin above). A client-side
+      // router.push() after sign-in rendered a blank page on demo until refreshed.
+      window.location.assign(callbackUrl);
     } else {
       setFormError("Sign-in failed. Please try again.");
     }
@@ -210,7 +228,7 @@ function LoginContent() {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
                 <input
-                  type="password" autoComplete="current-password" required
+                  type="password" autoComplete="off" required
                   value={password} onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="••••••••••••••••"
