@@ -133,7 +133,6 @@ function LoginContent() {
     setFormError(null);
     setBusy(true);
     try {
-      console.debug("[passkey] requesting auth-options");
       const optRes = await apiFetch("/api/account/passkey/auth-options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +141,6 @@ function LoginContent() {
       const options = await optRes.json();
       if (!optRes.ok) { setStep("credentials"); setFormError(messageFor("expired")); return; }
 
-      console.debug("[passkey] auth-options ok; calling navigator.credentials.get");
       const assertion = await withTimeout(startAuthentication(options), 45_000, "prompt");
 
       const res = await apiFetch("/api/account/login", {
@@ -155,7 +153,6 @@ function LoginContent() {
       if (data?.code === "expired") setStep("credentials");
       setFormError(messageFor(data?.code, data?.retryAfterSec));
     } catch (err) {
-      console.error("[passkey] sign-in failed:", err);
       setFormError(
         err instanceof Error && err.name === "TimeoutError"
           ? "The passkey prompt didn't respond. Use your authenticator code instead."
