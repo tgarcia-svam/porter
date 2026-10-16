@@ -32,13 +32,14 @@ export default async function RootLayout({
       <head>
         {/* Trusted Types `default` policy. Must run before any bundle. Allows the
             framework's script.src assignments only for same-origin /_next/ URLs and
-            rejects every other string-to-script/HTML sink (DOM-XSS defence). Inert
+            rejects every other string-to-script/HTML sink (DOM-XSS defence). The one HTML
+            string allowed is the literal React DOM uses internally to create <script> elements. Inert
             unless the CSP carries require-trusted-types-for 'script'. */}
         <script
           nonce={nonce}
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: `(function(){var tt=window.trustedTypes;if(!tt||!tt.createPolicy)return;try{tt.createPolicy("default",{createScriptURL:function(u){try{var x=new URL(u,location.href);if(x.origin===location.origin&&x.pathname.indexOf("/_next/")===0)return x.href;}catch(e){}throw new TypeError("Blocked untrusted script URL");},createScript:function(){throw new TypeError("Blocked inline script string");},createHTML:function(){throw new TypeError("Blocked HTML string");}});}catch(e){}})();`,
+            __html: `(function(){var tt=window.trustedTypes;if(!tt||!tt.createPolicy)return;try{tt.createPolicy("default",{createScriptURL:function(u){try{var x=new URL(u,location.href);if(x.origin===location.origin&&x.pathname.indexOf("/_next/")===0)return x.href;}catch(e){}throw new TypeError("Blocked untrusted script URL");},createScript:function(){throw new TypeError("Blocked inline script string");},createHTML:function(h){if(h==="<script><\\/script>")return h;throw new TypeError("Blocked HTML string");}});}catch(e){}})();`,
           }}
         />
       </head>
