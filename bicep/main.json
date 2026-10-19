@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "3514004755513368901"
+      "templateHash": "10928601314816029269"
     }
   },
   "parameters": {
@@ -209,6 +209,13 @@
         "description": "Set true ONLY after the Front Door custom domain DNS CNAME is live and the managed cert is provisioned. Locks App Service to accept traffic exclusively from this Front Door profile, blocking direct access."
       }
     },
+    "additionalDomainHostnames": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Extra hostnames served by Front Door with their own managed certificate (e.g. www.porterdata.com). Each needs a _dnsauth TXT record — see the validationToken outputs."
+      }
+    },
     "blobTierToCoolAfterDays": {
       "type": "int",
       "defaultValue": 30,
@@ -246,6 +253,15 @@
     }
   },
   "variables": {
+    "copy": [
+      {
+        "name": "additionalDomainRefs",
+        "count": "[length(parameters('additionalDomainHostnames'))]",
+        "input": {
+          "id": "[resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), replace(parameters('additionalDomainHostnames')[copyIndex('additionalDomainRefs')], '.', '-'))]"
+        }
+      }
+    ],
     "appServicePlanName": "[format('{0}-plan', parameters('appServiceName'))]",
     "keyVaultName": "[format('{0}-keys', parameters('appServiceName'))]",
     "vnetName": "[format('{0}-vnet', parameters('appServiceName'))]",
@@ -1065,13 +1081,32 @@
     },
     {
       "type": "Microsoft.Cdn/profiles/customDomains",
-      "apiVersion": "2023-05-01",
+      "apiVersion": "2025-06-01",
       "name": "[format('{0}/{1}', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]",
       "properties": {
         "hostName": "[variables('customDomainHostname')]",
         "tlsSettings": {
           "certificateType": "ManagedCertificate",
-          "minimumTlsVersion": "TLS12"
+          "cipherSuiteSetType": "TLS12_2023"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cdn/profiles', variables('frontDoorProfileName'))]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "frontDoorAdditionalDomains",
+        "count": "[length(parameters('additionalDomainHostnames'))]"
+      },
+      "type": "Microsoft.Cdn/profiles/customDomains",
+      "apiVersion": "2025-06-01",
+      "name": "[format('{0}/{1}', variables('frontDoorProfileName'), replace(parameters('additionalDomainHostnames')[copyIndex()], '.', '-'))]",
+      "properties": {
+        "hostName": "[parameters('additionalDomainHostnames')[copyIndex()]]",
+        "tlsSettings": {
+          "certificateType": "ManagedCertificate",
+          "cipherSuiteSetType": "TLS12_2023"
         }
       },
       "dependsOn": [
@@ -1087,6 +1122,7 @@
           "id": "[resourceId('Microsoft.Cdn/profiles/originGroups', variables('frontDoorProfileName'), 'porter-origins')]"
         },
         "supportedProtocols": [
+          "Http",
           "Https"
         ],
         "patternsToMatch": [
@@ -1096,13 +1132,10 @@
         "linkToDefaultDomain": "Enabled",
         "httpsRedirect": "Enabled",
         "enabledState": "Enabled",
-        "customDomains": [
-          {
-            "id": "[resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]"
-          }
-        ]
+        "customDomains": "[concat(createArray(createObject('id', resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName')))), variables('additionalDomainRefs'))]"
       },
       "dependsOn": [
+        "frontDoorAdditionalDomains",
         "[resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), variables('afdCustomDomainResourceName'))]",
         "[resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('frontDoorProfileName'), variables('frontDoorEndpointName'))]",
         "[resourceId('Microsoft.Cdn/profiles/originGroups/origins', variables('frontDoorProfileName'), 'porter-origins', 'app-service-origin')]",
@@ -1311,6 +1344,20 @@
     "frontDoorEndpointHostname": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Cdn/profiles/afdEndpoints', variables('frontDoorProfileName'), variables('frontDoorEndpointName')), '2023-05-01').hostName]"
+    },
+    "additionalDomainValidation": {
+      "type": "array",
+      "metadata": {
+        "description": "Add as TXT records: _dnsauth.<host> = token, to validate each Front Door custom domain."
+      },
+      "copy": {
+        "count": "[length(parameters('additionalDomainHostnames'))]",
+        "input": {
+          "host": "[parameters('additionalDomainHostnames')[copyIndex()]]",
+          "txtName": "[format('_dnsauth.{0}', parameters('additionalDomainHostnames')[copyIndex()])]",
+          "txtValue": "[reference(resourceId('Microsoft.Cdn/profiles/customDomains', variables('frontDoorProfileName'), replace(parameters('additionalDomainHostnames')[copyIndex()], '.', '-')), '2025-06-01').validationProperties.validationToken]"
+        }
+      }
     },
     "acrLoginServer": {
       "type": "string",

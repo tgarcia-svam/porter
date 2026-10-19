@@ -7,6 +7,7 @@ import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/csrf";
 // Most-specific prefixes first: LIMITS.find() returns the first startsWith match.
 const LIMITS: { prefix: string; max: number; windowMs: number }[] = [
   { prefix: "/api/auth",            max: 20,  windowMs: 60_000 },      // 20 req/min per IP
+  { prefix: "/api/csp-report",      max: 30,  windowMs: 60_000 },      // browser CSP reports (unauthenticated)
   { prefix: "/api/account/forgot",  max: 5,   windowMs: 15 * 60_000 }, // 5 per 15 min (anti-spam)
   { prefix: "/api/account/login",   max: 15,  windowMs: 60_000 },      // 15 req/min (anti-stuffing)
   { prefix: "/api/account",         max: 30,  windowMs: 60_000 },      // reset / mfa endpoints
@@ -49,7 +50,8 @@ const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 // from a cross-origin form, so the same-origin session check is sufficient there.
 const CSRF_EXEMPT = [
   "/api/auth",
-  "/api/upload/process",         // authenticated by X-Worker-Secret header, not session/CSRF
+  "/api/csp-report",             // browser-generated CSP reports can't carry the CSRF header
+  "/api/upload/process",        // authenticated by X-Worker-Secret header, not session/CSRF
   "/api/upload/sas",             // session-authenticated JSON POST — no cookie available from SAS flow
   "/api/upload/confirm",         // follows SAS upload — session-authenticated JSON POST
   "/api/admin/schedules/run",    // called by Function App timer via X-Worker-Secret, no cookie
@@ -190,7 +192,10 @@ export function middleware(req: NextRequest) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self' https://login.microsoftonline.com https://accounts.google.com",
+    "report-uri /api/csp-report",
+    "report-to csp-endpoint",
   ].join("; ");
+  res.headers.set("Reporting-Endpoints", 'csp-endpoint="/api/csp-report"');
   res.headers.set("Content-Security-Policy", csp);
 
   // Trusted Types: blocks DOM-XSS sinks (script src/innerHTML) fed by raw strings.

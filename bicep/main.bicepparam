@@ -75,3 +75,10 @@ param lockAppServiceToFrontDoor = true
 // No params here: the destination is configured in the admin Settings UI. The
 // deployment only creates a user-assigned managed identity (see main.bicep) and
 // outputs its client/principal IDs for the data team's federated credential.
+
+// ── Additional Front Door domains ─────────────────────────────────────────────
+// www.porterdata.com already CNAMEs to Front Door; registering it gives it a valid
+// managed certificate (otherwise TLS clients see the default *.azurefd.net cert) and
+// lets the app's www → apex redirect run. After deploying, add the TXT record(s) from
+// the `additionalDomainValidation` deployment output: _dnsauth.www = <validationToken>.
+param additionalDomainHostnames = ['www.porterdata.com']

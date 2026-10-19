@@ -698,3 +698,21 @@ Accepted / false positives:
   cross-site redirects; Strict would drop them and break SSO. Session cookie is Strict.
 - **Email-address patterns** — `you@example.com` placeholders; admin-only pages show user emails by design.
 - **Non-quantum-resistant ciphers** — no PQC/hybrid key exchange available on Azure Front Door yet.
+
+## Veracode DAST 2026-10-19 triage
+
+Fixed:
+- **CSP `report-to`** — the CSP now carries `report-uri /api/csp-report; report-to csp-endpoint` and a
+  `Reporting-Endpoints` header. `/api/csp-report` is unauthenticated, rate-limited (30/min/IP), size-capped,
+  and logs only a sanitized summary (directive, blocked origin/path, document path — no query strings).
+- **Weak ciphers (ECDHE-RSA-AES128-CBC-SHA256 / AES256-CBC-SHA384)** — Front Door custom domains use the
+  `TLS12_2023` policy (AES-GCM only, TLS 1.2/1.3). Clients limited to CBC suites (Windows 7/8.x) can no longer connect.
+- **Certificate CN/SAN mismatch** — `www.porterdata.com` is now a Front Door custom domain with its own managed
+  certificate (`additionalDomainHostnames` in `bicep/main.bicep`); it then 308-redirects to the apex via middleware.
+- **Port 80** — the Front Door route accepts HTTP and redirects it to HTTPS instead of returning 404.
+- **CAA** — DNS CAA record `0 issue "digicert.com"` (Front Door managed certificates are issued by DigiCert;
+  a CAA record that omits it would block certificate issuance/renewal).
+
+Accepted:
+- **OCSP stapling not offered** — not configurable for Front Door managed certificates.
+- **Ports 80 / 443 open** — expected for a public web app; 80 only redirects to HTTPS.

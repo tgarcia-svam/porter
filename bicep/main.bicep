@@ -107,6 +107,9 @@ param emailDomainVerified bool = false
 @description('Set true ONLY after the Front Door custom domain DNS CNAME is live and the managed cert is provisioned. Locks App Service to accept traffic exclusively from this Front Door profile, blocking direct access.')
 param lockAppServiceToFrontDoor bool = false
 
+@description('Extra hostnames served by Front Door with their own managed certificate (e.g. www.porterdata.com). Each needs a _dnsauth TXT record — see the validationToken outputs.')
+param additionalDomainHostnames array = []
+
 // Data-warehouse export destination (account URL, tenant ID, client ID,
 // container, root path) is configured by an admin in the Settings UI and stored
 // in the database — not here. The only infrastructure piece is the user-assigned
@@ -922,17 +925,36 @@ resource frontDoorEndpoint 'Microsoft.Cdn/profiles/afdEndpoints@2023-05-01' = {
   properties: { enabledState: 'Enabled' }
 }
 
-resource frontDoorCustomDomain 'Microsoft.Cdn/profiles/customDomains@2023-05-01' = {
+// TLS policy TLS12_2023 = TLS 1.2/1.3 with AES-GCM suites only. The older TLS12_2022
+// policy (the default before late 2025) also offers ECDHE-RSA-AES*-CBC-SHA256/384,
+// which Veracode flags as weak. Clients limited to CBC (Windows 7/8.x) can't connect.
+resource frontDoorCustomDomain 'Microsoft.Cdn/profiles/customDomains@2025-06-01' = {
   parent: frontDoorProfile
   name: afdCustomDomainResourceName
   properties: {
     hostName: customDomainHostname
     tlsSettings: {
       certificateType: 'ManagedCertificate'
-      minimumTlsVersion: 'TLS12'
+      cipherSuiteSetType: 'TLS12_2023'
     }
   }
 }
+
+// Additional hostnames (e.g. www) — without a registered domain Front Door answers
+// with its default *.azurefd.net certificate, which fails hostname validation.
+resource frontDoorAdditionalDomains 'Microsoft.Cdn/profiles/customDomains@2025-06-01' = [for host in additionalDomainHostnames: {
+  parent: frontDoorProfile
+  name: replace(host, '.', '-')
+  properties: {
+    hostName: host
+    tlsSettings: {
+      certificateType: 'ManagedCertificate'
+      cipherSuiteSetType: 'TLS12_2023'
+    }
+  }
+}]
+
+var additionalDomainRefs = [for (host, i) in additionalDomainHostnames: { id: frontDoorAdditionalDomains[i].id }]
 
 // Route: forward all HTTPS traffic from the endpoint to the App Service origin.
 // The custom domain association makes AFD serve porterdata.com; the default AFD
@@ -942,15 +964,14 @@ resource frontDoorRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2023-05-01' 
   name: 'default-route'
   properties: {
     originGroup: { id: frontDoorOriginGroup.id }
-    supportedProtocols: ['Https']
+    // Http must be listed for httpsRedirect to take effect (otherwise port 80 answers 404).
+    supportedProtocols: ['Http', 'Https']
     patternsToMatch: ['/*']
     forwardingProtocol: 'HttpsOnly'
     linkToDefaultDomain: 'Enabled'
     httpsRedirect: 'Enabled'
     enabledState: 'Enabled'
-    customDomains: [
-      { id: frontDoorCustomDomain.id }
-    ]
+    customDomains: concat([{ id: frontDoorCustomDomain.id }], additionalDomainRefs)
   }
   dependsOn: [frontDoorOrigin]
 }
@@ -1113,6 +1134,12 @@ resource workerStorageTableAssignment 'Microsoft.Authorization/roleAssignments@2
 
 output appUrl                  string = 'https://${appService.properties.defaultHostName}'
 output frontDoorEndpointHostname string = frontDoorEndpoint.properties.hostName
+@description('Add as TXT records: _dnsauth.<host> = token, to validate each Front Door custom domain.')
+output additionalDomainValidation array = [for (host, i) in additionalDomainHostnames: {
+  host: host
+  txtName: '_dnsauth.${host}'
+  txtValue: frontDoorAdditionalDomains[i].properties.validationProperties.validationToken
+}]
 output acrLoginServer          string = acr.properties.loginServer
 output dbHostname              string = postgresServer.properties.fullyQualifiedDomainName
 output keyVaultUri             string = keyVault.properties.vaultUri
