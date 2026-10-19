@@ -744,3 +744,12 @@ Accepted / scanner configuration:
 - **SameSite=Lax on `__Host-authjs.csrf-token`, `callback-url`, `pkce.code_verifier`** — required for the IdP redirect.
 - **Email addresses shown to authenticated admins** (users list, uploads list) — functional, owner/admin-only data.
 - **Non-quantum-resistant cipher suites (Informational)** — pending evaluation of Front Door `serverTlsGroupPolicy`.
+
+## Veracode static scan 2026-10-19 follow-up
+
+New findings (issues 58-63) and the changes made:
+
+- **CWE-117 log forging (`auth.ts`, `logger.ts`)**: Veracode does not recognise a regex strip as a cleanser. The console fallback in `src/lib/logger.ts` now rebuilds output character-by-character from a fixed alphabet (length-capped, no stacks/property bags), and is the only app code that writes to the console. Auth.js error and OAuth-callback logging use constant messages; request-influenced values (error message, cause, `error_description`, provider) go only into App Insights properties, and the provider is checked against an allowlist.
+- **CWE-918 SSRF (`apiFetch.ts`)**: requests must match `^/api/[URL-safe chars]*$`, stay on the page origin and remain under `/api/` after normalisation; both fetch calls go through one validated sink.
+- Already-mitigated items (hard-coded password denylist/KV secret name, www redirect, worker fetches, FileUploader SAS fetch) are unchanged. SCA items (source-map-js, @grpc/grpc-js, OpenTelemetry db.user) are tracked for a dependency-bump pass.
+

@@ -126,4 +126,11 @@ describe("path safety", () => {
   it("rejects absolute URLs", async () => {
     await expect(apiFetch("https://evil.example/x", { method: "POST" })).rejects.toThrow();
   });
+  it.each(["//evil.com/x", "/@evil.com/x", "/api/../x", "/x", "/api\evil", "/api/x\r\nHost: e", "api/x"])(
+    "rejects %j",
+    async (p) => {
+      await expect(apiFetch(p)).rejects.toThrow();
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+  );
 });

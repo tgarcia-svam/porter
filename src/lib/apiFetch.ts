@@ -56,26 +56,34 @@ async function isCsrfRejection(res: Response): Promise<boolean> {
  * to the login page on 401 (expired session / UA mismatch). A CSRF rejection
  * (session rotated since the token was cached) refreshes the token and retries once.
  */
+// Only same-origin API paths are allowed: a leading "/api/" followed by URL-safe characters.
+// Rejects protocol-relative ("//host"), backslash, "@host" and control-character tricks.
+const API_PATH = /^\/api\/[A-Za-z0-9._~\-/%?=&+,:@]*$/;
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
-  // Parse against the actual deployed origin and assert the result stays on that origin.
-  // Any embedded host override (e.g. /@evil.com/x) resolves to a different origin and throws.
+  if (!API_PATH.test(path)) throw new Error("apiFetch: only relative /api/ paths are allowed");
+  // Parse against the actual deployed origin and assert the result stays on that origin
+  // and does not escape /api/ after normalisation (e.g. /api/../x).
   const parsed = new URL(path, window.location.origin);
   if (parsed.origin !== window.location.origin) throw new Error("apiFetch: host override detected");
-  const safePath = parsed.pathname + parsed.search + parsed.hash;
+  if (!parsed.pathname.startsWith("/api/")) throw new Error("apiFetch: path escapes /api/");
+  const safePath = parsed.pathname + parsed.search;
 
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
-  if (!mutating) return fetch(safePath, init).then(handleAuthError);
+  // Single validated network sink shared by every request below.
+  const send = (opts?: RequestInit) => fetch(safePath, opts);
 
-  const send = async (force: boolean) => {
+  if (!mutating) return send(init).then(handleAuthError);
+
+  const sendWithToken = async (force: boolean) => {
     const headers = new Headers(init?.headers);
     headers.set(CSRF_HEADER, await loadCsrfToken(force));
-    return fetch(safePath, { ...init, headers });
+    return send({ ...init, headers });
   };
 
-  let res = await send(false);
-  if (await isCsrfRejection(res)) res = await send(true);
+  let res = await sendWithToken(false);
+  if (await isCsrfRejection(res)) res = await sendWithToken(true);
   return handleAuthError(res);
 }
