@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { maskEmail } from "@/lib/mask-email";
 import { auth } from "@/lib/auth";
 import NavBar from "@/components/NavBar";
 import LoginNoticeBanner from "@/components/LoginNoticeBanner";
@@ -24,7 +25,7 @@ export default async function AdminLayout({
   return (
     <div className="min-h-screen bg-gray-50">
       <NavBar
-        userEmail={session.user.email ?? ""}
+        userEmail={maskEmail(session.user.email)}
         userName={session.user.name}
         role={session.user.role}
       />
