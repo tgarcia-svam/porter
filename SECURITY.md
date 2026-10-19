@@ -723,3 +723,24 @@ Accepted:
   `*.azureedge.net` certificate; this behavior is not configurable on Front Door Standard/Premium. Every client that
   sends SNI (browsers, curl, API consumers) receives the correct certificate. Verified 2026-10-19 with SSL Labs and
   the Front Door configuration (both custom domains Approved, `TLS12_2023`, route bound to both domains).
+
+## AppScan 2026-10-14 follow-up hardening
+
+Changed:
+- **CSRF** — the `csrf-token` cookie is HttpOnly and holds only a random nonce. The client obtains an
+  HMAC-SHA256 token (`GET /api/csrf`) bound to the Auth.js `sessionNonce` and sends it as `x-csrf-token`; middleware
+  recomputes and compares in constant time. Tokens are invalid across sessions, logins and browsers.
+- **Session cookie** — the `Set-Cookie` for `*authjs.session-token` has `Expires`/`Max-Age` removed (browser-session
+  cookie, not written to disk); the 30-minute idle expiry is still enforced server-side by the JWT. Other
+  cookies pass through unchanged (`src/lib/strip-session-cookie-expiry.ts`).
+- **Query-string data** — `uploads/recent` and `upload/latest-data` are POST with JSON bodies.
+- **Email patterns** — placeholders are plain text; the NavBar shows a masked address (`v•••@domain`).
+
+Accepted / scanner configuration:
+- **`_rsc` query parameter (Query Parameter in SSL Request)** — Next.js RSC cache key on every client navigation;
+  not sensitive and not removable. Exclude as a framework parameter / false positive in the scan.
+- **`/api/health` ("Spring Boot actuator")** — name-pattern false positive; unauthenticated by design for the Front
+  Door probe and deploy warm-up; returns only `{ok:true}`.
+- **SameSite=Lax on `__Host-authjs.csrf-token`, `callback-url`, `pkce.code_verifier`** — required for the IdP redirect.
+- **Email addresses shown to authenticated admins** (users list, uploads list) — functional, owner/admin-only data.
+- **Non-quantum-resistant cipher suites (Informational)** — pending evaluation of Front Door `serverTlsGroupPolicy`.
