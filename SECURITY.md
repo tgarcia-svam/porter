@@ -716,3 +716,10 @@ Fixed:
 Accepted:
 - **OCSP stapling not offered** — not configurable for Front Door managed certificates.
 - **Ports 80 / 443 open** — expected for a public web app; 80 only redirects to HTTPS.
+- **"CN or SAN in the certificate does not match the tested URL" (Veracode, Medium)** — false positive.
+  The certificate served for `porterdata.com` (and `www.porterdata.com`) is a valid DigiCert-issued managed
+  certificate with the matching SAN (SSL Labs: grade A+, no hostname mismatch, AES-GCM only). The scanner
+  connects without SNI, and Azure Front Door answers requests that carry no matching SNI with its default
+  `*.azureedge.net` certificate; this behavior is not configurable on Front Door Standard/Premium. Every client that
+  sends SNI (browsers, curl, API consumers) receives the correct certificate. Verified 2026-10-19 with SSL Labs and
+  the Front Door configuration (both custom domains Approved, `TLS12_2023`, route bound to both domains).
