@@ -1,9 +1,9 @@
 import { type APIRequestContext } from "@playwright/test";
 
-/** Read the csrf-token cookie from the current storage state. */
+/** The csrf-token cookie is HttpOnly; fetch the signed, session-bound token from /api/csrf. */
 export async function csrfToken(request: APIRequestContext): Promise<string> {
-  const state = await request.storageState();
-  return state.cookies.find((c) => c.name === "csrf-token")?.value ?? "";
+  const res = await request.get("/api/csrf");
+  return ((await res.json()) as { token?: string }).token ?? "";
 }
 
 /** POST with CSRF header included. */

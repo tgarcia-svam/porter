@@ -1,13 +1,34 @@
 import { signOut } from "next-auth/react";
 
-const CSRF_COOKIE = "csrf-token";
 const CSRF_HEADER = "x-csrf-token";
 
-function getCsrfToken(): string {
-  const match = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith(`${CSRF_COOKIE}=`));
-  return match ? match.split("=")[1] : "";
+// The csrf-token cookie is HttpOnly, so the token is fetched from GET /api/csrf
+// (HMAC-signed, bound to the current session) and cached in memory.
+let cachedToken: string | null = null;
+let inflight: Promise<string> | null = null;
+
+async function loadCsrfToken(force = false): Promise<string> {
+  if (!force && cachedToken) return cachedToken;
+  if (!inflight) {
+    inflight = fetch("/api/csrf", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error("csrf token unavailable");
+        const body = (await r.json()) as { token?: string };
+        if (!body.token) throw new Error("csrf token unavailable");
+        cachedToken = body.token;
+        return body.token;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+  }
+  return inflight;
+}
+
+/** Test helper: forget the cached token. */
+export function resetCsrfCache(): void {
+  cachedToken = null;
+  inflight = null;
 }
 
 // 401 means the session has expired or the session binding check failed.
@@ -20,12 +41,22 @@ function handleAuthError(res: Response): Response {
   return res;
 }
 
+async function isCsrfRejection(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    return (await res.clone().text()).includes("Invalid CSRF token");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Drop-in replacement for fetch() that automatically injects the CSRF token
  * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
- * to the login page on 401 (expired session / UA mismatch).
+ * to the login page on 401 (expired session / UA mismatch). A CSRF rejection
+ * (session rotated since the token was cached) refreshes the token and retries once.
  */
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!path.startsWith("/")) throw new Error("apiFetch: only relative paths are allowed");
   // Parse against the actual deployed origin and assert the result stays on that origin.
   // Any embedded host override (e.g. /@evil.com/x) resolves to a different origin and throws.
@@ -38,8 +69,13 @@ export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 
   if (!mutating) return fetch(safePath, init).then(handleAuthError);
 
-  const headers = new Headers(init?.headers);
-  headers.set(CSRF_HEADER, getCsrfToken());
+  const send = async (force: boolean) => {
+    const headers = new Headers(init?.headers);
+    headers.set(CSRF_HEADER, await loadCsrfToken(force));
+    return fetch(safePath, { ...init, headers });
+  };
 
-  return fetch(safePath, { ...init, headers }).then(handleAuthError);
+  let res = await send(false);
+  if (await isCsrfRejection(res)) res = await send(true);
+  return handleAuthError(res);
 }

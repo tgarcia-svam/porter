@@ -9,7 +9,10 @@ import { clientIp } from "@/lib/audit-context";
 import { apiUnauthorized, apiBadRequest, withHandler } from "@/lib/api-error";
 
 /**
- * GET /api/upload/latest-data?schemaId=…&projectId=…&page=…&pageSize=…&q=…
+ * POST /api/upload/latest-data  { schemaId, projectId, page?, pageSize?, q? }
+ *
+ * (POST with a JSON body, not GET query parameters, so the search text `q` and ids stay out of
+ * URLs, browser history and access logs.)
  *
  * Returns one page of UploadRows from the most recent VALID upload for this
  * schema + project, scoped to the caller's organisation. Supports a server-side
@@ -22,7 +25,7 @@ import { apiUnauthorized, apiBadRequest, withHandler } from "@/lib/api-error";
  * `rowIndex` is included so manual-entry edits can target specific rows in a
  * later patch submit.
  */
-export const GET = withHandler(async (req: NextRequest) => {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) return apiUnauthorized();
 
@@ -36,19 +39,19 @@ export const GET = withHandler(async (req: NextRequest) => {
     return apiUnauthorized();
   }
 
-  const { searchParams } = req.nextUrl;
-  const schemaId = searchParams.get("schemaId");
-  const projectId = searchParams.get("projectId");
+  const body = ((await req.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+  const schemaId = typeof body.schemaId === "string" ? body.schemaId : null;
+  const projectId = typeof body.projectId === "string" ? body.projectId : null;
   if (!schemaId || !projectId) return apiBadRequest("schemaId and projectId are required");
 
   const PAGE_SIZE_DEFAULT = 100;
   const PAGE_SIZE_MAX = 1000;
-  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const page = Math.max(1, parseInt(String(body.page ?? "1"), 10) || 1);
   const pageSize = Math.min(
     PAGE_SIZE_MAX,
-    Math.max(1, parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
+    Math.max(1, parseInt(String(body.pageSize ?? PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
   );
-  const q = (searchParams.get("q") ?? "").trim();
+  const q = (typeof body.q === "string" ? body.q : "").trim();
 
   const currentUser = await prismaAdmin.user.findUnique({
     where: { id: session.user.id },

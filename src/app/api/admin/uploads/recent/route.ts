@@ -4,23 +4,25 @@ import { prismaAdmin } from "@/lib/prisma-admin";
 import { apiUnauthorized, withHandler } from "@/lib/api-error";
 
 /**
- * GET /api/admin/uploads/recent?page=&pageSize=
+ * POST /api/admin/uploads/recent  { page, pageSize }
+ *
+ * (POST with a JSON body, not GET query parameters, so paging values stay out of URLs/logs.)
  *
  * Admin cross-org listing of the most recent uploads, newest first, paginated.
  * Response: { rows, pagination: { page, pageSize, total, totalPages } }.
  */
-export const GET = withHandler(async (req: NextRequest) => {
+export const POST = withHandler(async (req: NextRequest) => {
   const session = await requireAdmin(req);
   if (!session) return apiUnauthorized();
 
-  const { searchParams } = req.nextUrl;
+  const body = ((await req.json().catch(() => null)) ?? {}) as Record<string, unknown>;
   const PAGE_SIZE_DEFAULT = 20;
   const PAGE_SIZE_MAX = 100;
   const MAX_PAGE = 10_000;
-  const page = Math.min(MAX_PAGE, Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1));
+  const page = Math.min(MAX_PAGE, Math.max(1, parseInt(String(body.page ?? "1"), 10) || 1));
   const pageSize = Math.min(
     PAGE_SIZE_MAX,
-    Math.max(1, parseInt(searchParams.get("pageSize") ?? String(PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
+    Math.max(1, parseInt(String(body.pageSize ?? PAGE_SIZE_DEFAULT), 10) || PAGE_SIZE_DEFAULT)
   );
 
   const [uploads, total] = await Promise.all([

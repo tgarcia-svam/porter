@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Spinner from "@/components/Spinner";
+import { apiFetch } from "@/lib/apiFetch";
 
 type Row = {
   id: string;
@@ -39,8 +40,11 @@ export default function RecentUploadsReport() {
     if (!Number.isInteger(page) || page < 1) return;
     let cancelled = false;
     setLoading(true);
-    const _rpParams = new URLSearchParams({ page: String(page), pageSize: "20" });
-    fetch(`/api/admin/uploads/recent?${_rpParams}`)
+    apiFetch("/api/admin/uploads/recent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page, pageSize: 20 }),
+    })
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
