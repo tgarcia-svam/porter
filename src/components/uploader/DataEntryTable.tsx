@@ -238,16 +238,19 @@ export default function DataEntryTable({
     const myId = ++requestIdRef.current;
     setLoadingData(true);
     try {
-      const params = new URLSearchParams({
-        schemaId: schema.id,
-        projectId,
-        page: String(pagination.page),
-        pageSize: String(PAGE_SIZE),
-      });
       const q = debouncedQ.trim();
-      if (q) params.set("q", q);
       setLoadError(null);
-      const res = await apiFetch(`/api/upload/latest-data?${params}`);
+      const res = await apiFetch("/api/upload/latest-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemaId: schema.id,
+          projectId,
+          page: pagination.page,
+          pageSize: PAGE_SIZE,
+          ...(q ? { q } : {}),
+        }),
+      });
 
       if (requestIdRef.current !== myId) return; // a newer fetch is in flight — drop this response
 

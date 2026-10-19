@@ -67,7 +67,7 @@ const APEX_ORIGIN = (() => {
 })();
 
 // ── Middleware ───────────────────────────────────────────────────────────────
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   // ── Canonical host ─────────────────────────────────────────────────────────
   // NextAuth's OAuth cookies (pkce code_verifier, state) are host-only — bound
   // to the exact hostname that set them. If sign-in starts on www.<domain> but
@@ -133,7 +133,7 @@ export function middleware(req: NextRequest) {
 
     // ── CSRF validation ──────────────────────────────────────────────────────
     const isExempt = CSRF_EXEMPT.some((prefix) => path.startsWith(prefix));
-    if (MUTATION_METHODS.has(req.method) && !isExempt && !validateCsrf(req)) {
+    if (MUTATION_METHODS.has(req.method) && !isExempt && !(await validateCsrf(req))) {
       return new NextResponse("Invalid CSRF token", {
         status: 403,
         headers: { "Content-Type": "text/plain" },
@@ -152,7 +152,7 @@ export function middleware(req: NextRequest) {
   // ── Ensure CSRF cookie is set ──────────────────────────────────────────────
   // Seed the cookie on page navigations (and non-auth API requests) so it's
   // present in the browser before any client-side mutation. The client reads
-  // it from document.cookie to send the X-CSRF-Token header.
+  // it via GET /api/csrf (HttpOnly nonce -> HMAC token bound to the session).
   //
   // NOTE: NextAuth routes (/api/auth/*) are excluded from the matcher entirely,
   // so the middleware never runs on them. This is deliberate: NextAuth emits
@@ -164,9 +164,9 @@ export function middleware(req: NextRequest) {
   // guard below is belt-and-suspenders in case the matcher is ever loosened.
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   const isAuthRoute = path.startsWith("/api/auth");
-  if (!isAuthRoute && !req.cookies.get(CSRF_COOKIE)) {
+  if (!isAuthRoute && path !== "/api/csrf" && !req.cookies.get(CSRF_COOKIE)) {
     res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
-      httpOnly: false, // must be readable by client JS
+      httpOnly: true, // nonce only; the client gets its signed token from GET /api/csrf
       sameSite: "strict",
       secure: process.env.NODE_ENV === "production",
       path: "/",
