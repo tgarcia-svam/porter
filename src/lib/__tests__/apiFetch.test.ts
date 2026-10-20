@@ -72,6 +72,10 @@ describe("mutating methods (POST, PUT, DELETE, PATCH)", () => {
     expect(apiCalls()[0][1].body).toBe(body);
   });
 
+  it("passes a path with a query string through unchanged", async () => {
+    await apiFetch("/api/items?page=2&q=a%20b");
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/items?page=2&q=a%20b");
+  });
   it("passes the URL through to fetch unchanged", async () => {
     await apiFetch("/api/resource", { method: "POST" });
     expect(apiCalls()[0][0]).toBe("/api/resource");
@@ -126,4 +130,11 @@ describe("path safety", () => {
   it("rejects absolute URLs", async () => {
     await expect(apiFetch("https://evil.example/x", { method: "POST" })).rejects.toThrow();
   });
+  it.each(["//evil.com/x", "/@evil.com/x", "/api/../x", "/x", "/api\evil", "/api/x\r\nHost: e", "api/x"])(
+    "rejects %j",
+    async (p) => {
+      await expect(apiFetch(p)).rejects.toThrow();
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+  );
 });
