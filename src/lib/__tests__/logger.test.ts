@@ -12,39 +12,48 @@ vi.mock("applicationinsights", () => ({
 
 import { logger } from "../logger";
 
-describe("logger console fallback", () => {
+describe("logger local fallback", () => {
   const spies = {
+    out: vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+    err: vi.spyOn(process.stderr, "write").mockImplementation(() => true),
     log: vi.spyOn(console, "log").mockImplementation(() => {}),
+    info: vi.spyOn(console, "info").mockImplementation(() => {}),
     warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
     error: vi.spyOn(console, "error").mockImplementation(() => {}),
   };
+  const text = (spy: typeof spies.warn) => String(spy.mock.calls[0][0]);
   beforeEach(() => {
     defaultClient = undefined;
     Object.values(spies).forEach((s) => s.mockClear());
   });
   afterEach(() => vi.clearAllMocks());
 
-  it("prints a single clean line for CRLF/ANSI injection", () => {
+  it("writes a single clean line for CRLF/ANSI injection", () => {
     logger.error("login failed\r\n[auth] forged \u001b[31mred", new Error("bad\nline"));
-    const line = spies.error.mock.calls[0][0] as string;
-    expect(spies.error.mock.calls[0]).toHaveLength(1);
+    const line = text(spies.error);
+    expect(spies.error.mock.calls).toHaveLength(1);
     expect(line).toMatch(/^[A-Za-z0-9 _.:\-[\]|]+$/);
     expect(line).not.toMatch(/[\r\n\u001b]/);
   });
 
   it("caps length and never prints stack text", () => {
-    const err = new Error("x".repeat(1000));
-    logger.error("m", err);
-    const line = spies.error.mock.calls[0][0] as string;
+    logger.error("m", new Error("x".repeat(1000)));
+    const line = text(spies.error);
     expect(line).not.toContain("at ");
     expect(line.length).toBeLessThan(500);
   });
 
-  it("routes info and warn to the right console methods", () => {
+  it("uses only console.warn/error with a level prefix", () => {
     logger.info("hello\nworld");
     logger.warn("careful");
-    expect(spies.log.mock.calls[0][0]).toBe("hello_world");
-    expect(spies.warn.mock.calls[0][0]).toBe("careful");
+    expect(spies.warn.mock.calls.map((c) => c[0])).toEqual([
+      "[info] hello_world",
+      "[warn] careful",
+    ]);
+    expect(spies.log).not.toHaveBeenCalled();
+    expect(spies.info).not.toHaveBeenCalled();
+    expect(spies.out).not.toHaveBeenCalled();
+    expect(spies.err).not.toHaveBeenCalled();
   });
 });
 

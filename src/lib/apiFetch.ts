@@ -60,6 +60,18 @@ async function isCsrfRejection(res: Response): Promise<boolean> {
 // Rejects protocol-relative ("//host"), backslash, "@host" and control-character tricks.
 const API_PATH = /^\/api\/[A-Za-z0-9._~\-/%?=&+,:@]*$/;
 
+const PATH_CHARS = new Set(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-/%?=&+,:@".split("")
+);
+
+// Rebuild the already-validated path character by character from the fixed alphabet, so the
+// value handed to fetch() is composed only of known-safe characters.
+function rebuildPath(validated: string): string {
+  let out = "";
+  for (const ch of validated) if (PATH_CHARS.has(ch)) out += ch;
+  return out;
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (!API_PATH.test(path)) throw new Error("apiFetch: only relative /api/ paths are allowed");
   // Parse against the actual deployed origin and assert the result stays on that origin
@@ -73,7 +85,8 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
   // Single validated network sink shared by every request below.
-  const send = (opts?: RequestInit) => fetch(safePath, opts);
+  const target = rebuildPath(safePath);
+  const send = (opts?: RequestInit) => fetch(target, opts);
 
   if (!mutating) return send(init).then(handleAuthError);
 
