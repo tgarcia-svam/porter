@@ -303,11 +303,12 @@ async function buildInstance(): Promise<AuthInstance> {
       // was MISSING or failed to DECRYPT inside error.cause — log it here so
       // prod failures are diagnosable via App Insights.
       error(error: Error & { cause?: unknown }) {
-        logger.error(
-          `[auth][error] ${error?.name} | ${error?.message}`,
-          error,
-          { cause: String(error?.cause ?? "(none)") }
-        );
+        // Constant message; request-influenced detail goes to App Insights properties only.
+        logger.error("[auth][error] Auth.js error", error, {
+          errorName: String(error?.name ?? "Error"),
+          errorMessage: String(error?.message ?? ""),
+          cause: String(error?.cause ?? "(none)"),
+        });
       },
     },
     events: {
@@ -337,6 +338,8 @@ export function preWarmAuth(): Promise<AuthInstance> {
   return getInstance();
 }
 
+const KNOWN_PROVIDERS = new Set(["google", "microsoft-entra-id", "credentials"]);
+
 // ── Proxy exports ─────────────────────────────────────────────────────────────
 
 export const handlers = {
@@ -350,11 +353,12 @@ export const handlers = {
     try {
       const url = new URL(req.url ?? "", "https://placeholder");
       if (url.pathname.includes("/api/auth/callback/") && url.searchParams.has("error")) {
-        const provider = url.pathname.split("/").pop() ?? "unknown";
+        const requested = url.pathname.split("/").pop() ?? "";
+        const provider = KNOWN_PROVIDERS.has(requested) ? requested : "unknown";
         logger.error(
-          `[auth][provider-error] OAuth callback error from provider "${provider}"`,
+          "[auth][provider-error] OAuth callback error",
           new Error(url.searchParams.get("error") ?? "unknown"),
-          { error_description: url.searchParams.get("error_description") ?? undefined }
+          { provider, error_description: url.searchParams.get("error_description") ?? undefined }
         );
       }
     } catch { /* URL parse failure — not actionable */ }

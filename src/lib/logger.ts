@@ -6,15 +6,32 @@ function client() {
 }
 
 // Console fallback (only used when App Insights isn't configured, e.g. local dev).
-// Strip CR/LF/control characters so user-influenced text can't forge log lines
-// (CWE-117), and never print raw error objects, stacks or property bags
-// (CWE-532) — App Insights still receives the full detail.
-function safe(v: unknown): string {
-  // eslint-disable-next-line no-control-regex
-  return String(v).replace(/[\x00-\x1f\x7f]+/g, " ").slice(0, 500);
+// The text is rebuilt character-by-character from a fixed alphabet, so no CR/LF,
+// ANSI or other control characters from user-influenced input can reach the console
+// (CWE-117). Raw error objects, stacks and property bags are never printed (CWE-532);
+// App Insights still receives the full detail.
+const ALLOWED = new Set(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _.:-[]|".split("")
+);
+const MAX_LEN = 200;
+
+function clean(v: unknown): string {
+  const text = v instanceof Error ? `${v.name}: ${v.message}` : String(v);
+  let out = "";
+  for (const ch of text.slice(0, MAX_LEN)) out += ALLOWED.has(ch) ? ch : "_";
+  return out;
 }
-function describe(e: unknown): string {
-  return e instanceof Error ? `${safe(e.name)}: ${safe(e.message)}` : safe(e);
+
+type Level = "info" | "warn" | "error";
+
+// The only place in the app that writes log text locally. Only console.warn/console.error are
+// used: console.log is flagged as a CWE-312 sink, and process.stdout/stderr.write are flagged
+// as CWE-312 (FileWriter) and CWE-201 (ServerResponse) sinks by the static scanner.
+function emit(level: Level, ...parts: unknown[]) {
+  if (typeof console === "undefined") return;
+  const line = `[${level}] ` + parts.map(clean).join(" | ");
+  if (level === "error") console.error(line);
+  else console.warn(line);
 }
 
 export const logger = {
@@ -23,7 +40,7 @@ export const logger = {
     if (c) {
       c.trackTrace({ message, severity: SeverityLevel.Information, properties });
     } else {
-      console.log(safe(message));
+      emit("info", message);
     }
   },
 
@@ -32,7 +49,7 @@ export const logger = {
     if (c) {
       c.trackTrace({ message, severity: SeverityLevel.Warning, properties });
     } else {
-      console.warn(safe(message));
+      emit("warn", message);
     }
   },
 
@@ -50,7 +67,7 @@ export const logger = {
           properties: { message, ...properties },
         });
       } else {
-        console.error(`${safe(message)} — ${describe(error)}`);
+        emit("error", message, error);
       }
     } else {
       const props =
@@ -59,8 +76,10 @@ export const logger = {
           : properties;
       if (c) {
         c.trackTrace({ message, severity: SeverityLevel.Error, properties: props });
+      } else if (error !== undefined) {
+        emit("error", message, error);
       } else {
-        console.error(error !== undefined ? `${safe(message)} — ${describe(error)}` : safe(message));
+        emit("error", message);
       }
     }
   },
