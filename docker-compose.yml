@@ -18,7 +18,10 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_APP_ORIGINS: http://localhost:3000
     restart: unless-stopped
     depends_on:
       db:
