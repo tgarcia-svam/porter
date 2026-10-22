@@ -50,12 +50,6 @@ async function isCsrfRejection(res: Response): Promise<boolean> {
   }
 }
 
-/**
- * Drop-in replacement for fetch() that automatically injects the CSRF token
- * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
- * to the login page on 401 (expired session / UA mismatch). A CSRF rejection
- * (session rotated since the token was cached) refreshes the token and retries once.
- */
 // ── Destination allowlist ─────────────────────────────────────────────────────
 // Requests may only go to an allow-listed protocol + host + port, supplied by the deployment
 // as NEXT_PUBLIC_APP_ORIGINS (comma-separated origins, set at build time from the environment's
@@ -139,14 +133,26 @@ function buildTarget(input: string): string {
   return target.href;
 }
 
+/** True only for an allow-listed protocol + host + port whose path is under /api/. */
+function isAllowedApiUrl(url: URL): boolean {
+  return allowedOrigins().some((o) => sameDestination(o, url)) && url.pathname.startsWith("/api/");
+}
+
+/**
+ * Drop-in replacement for fetch() that automatically injects the CSRF token
+ * header on state-changing requests (POST, PUT, DELETE, PATCH) and redirects
+ * to the login page on 401 (expired session / UA mismatch). A CSRF rejection
+ * (session rotated since the token was cached) refreshes the token and retries once.
+ */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const target = buildTarget(path);
+  const safeUrl = new URL(buildTarget(path));
+  if (!isAllowedApiUrl(safeUrl)) throw new Error("apiFetch: destination is not allowed");
 
   const method = (init?.method ?? "GET").toUpperCase();
   const mutating = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 
   // Single validated network sink shared by every request below.
-  const send = (opts?: RequestInit) => fetch(target, opts);
+  const send = (opts?: RequestInit) => fetch(safeUrl.href, opts);
 
   if (!mutating) return send(init).then(handleAuthError);
 
