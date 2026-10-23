@@ -149,7 +149,7 @@ computation on the server.
 ### 4.1 Session Tokens
 
 Porter uses signed JWT sessions issued by NextAuth.js. Tokens are stored as `HttpOnly`,
-`SameSite=Lax`, `Secure` cookies. The signing key is `NEXTAUTH_SECRET` (≥ 32 bytes,
+`SameSite=Strict`, `Secure` cookies (session cookie, no `Expires`: not written to disk). The signing key is `NEXTAUTH_SECRET` (≥ 32 bytes,
 stored in Azure Key Vault).
 
 | Parameter | Value |
@@ -157,7 +157,7 @@ stored in Azure Key Vault).
 | Idle timeout | 30 minutes — each authenticated request rolls the expiry forward |
 | Absolute timeout | 8 hours by default (configurable) — hard maximum regardless of activity |
 | Token refresh | On every authenticated request (`updateAge: 0`) |
-| Cookie flags | `HttpOnly`, `SameSite=Lax`, `Secure` (production) |
+| Cookie flags | `HttpOnly`, `SameSite=Strict`, `Secure` (production), no `Expires` (`src/lib/auth.ts`, `src/lib/strip-session-cookie-expiry.ts`) |
 
 **Absolute vs. idle timeout:** The idle timeout (`maxAge: 30 * 60` with `updateAge: 0`) resets on
 every request so an active user is not interrupted mid-work. The absolute timeout is enforced
@@ -686,8 +686,8 @@ cookie is now a session cookie, Trusted Types enforced (default policy in `publi
 client session payload trimmed.
 
 Accepted / false positives:
-- **csrf-token without HttpOnly** — double-submit design; JS must read it. `Secure; SameSite=Strict`.
-  The real session cookie is HttpOnly.
+- **csrf-token without HttpOnly** — superseded: the cookie is now HttpOnly (see "AppScan 2026-10-14
+  follow-up hardening"). `Secure; SameSite=Strict`. The real session cookie is HttpOnly.
 - **Session-token "permanent cookie"** — Expires comes from Auth.js maxAge; the server enforces a
   30-minute idle and 8-hour absolute timeout.
 - **Query parameter in SSL request** — `_rsc` params are Next.js prefetch internals; `page`/`pageSize`
@@ -752,6 +752,9 @@ New findings (issues 58-63) and the changes made:
 - **CWE-117 log forging (`auth.ts`, `logger.ts`)**: Veracode does not recognise a regex strip as a cleanser. The console fallback in `src/lib/logger.ts` now rebuilds output character-by-character from a fixed alphabet (length-capped, no stacks/property bags), and is the only app code that writes to the console. Auth.js error and OAuth-callback logging use constant messages; request-influenced values (error message, cause, `error_description`, provider) go only into App Insights properties, and the provider is checked against an allowlist.
 - **CWE-918 SSRF (`apiFetch.ts`)**: requests must match `^/api/[URL-safe chars]*$`, stay on the page origin and remain under `/api/` after normalisation; both fetch calls go through one validated sink.
 - **Local log fallback (scans 4-5)**: `console.log` was flagged CWE-312 (issue 65); replacing it with `process.stdout/stderr.write` was worse (CWE-312 FileWriter + CWE-201 ServerResponse, issues 66-69). `logger.ts` now uses only `console.warn`/`console.error` (not flagged), with the allowlist-rebuilt, length-capped text and a `[level]` prefix. App Insights still receives full detail.
-- **`apiFetch` SSRF (issue 64)**: still reported after the allowlist, origin check and fixed-alphabet rebuild. It is browser-only code that can only reach same-origin `/api/` paths, so it is accepted as a false positive (mitigation submitted in Veracode), like the FileUploader finding.
-- Already-mitigated items (hard-coded password denylist/KV secret name, www redirect, worker fetches, FileUploader SAS fetch) are unchanged. SCA items (source-map-js, @grpc/grpc-js, OpenTelemetry db.user) are tracked for a dependency-bump pass.
+- **`apiFetch` SSRF (issue 64)**: Veracode reviewed the first mitigation as "Deviates" (risk characters allowed; wanted a host/protocol/port allowlist and URL-encoded query params). `apiFetch` now builds the URL from an allow-listed origin supplied by the deployment (`NEXT_PUBLIC_APP_ORIGINS`, set at build time from `nextauthUrl`; plain http only for localhost), accepts only `/api/<[A-Za-z0-9_-]+>` path segments, rebuilds the query with `encodeURIComponent` (keys limited to `[A-Za-z0-9_]`), re-validates the final URL against the allowlist and calls `fetch(url.href)` (same pattern Veracode accepted for FileUploader, issue 26). A build without the variable fails; a production page on an unlisted host fails closed.
+- Already-mitigated items (hard-coded password denylist/KV secret name, www redirect, worker fetches, FileUploader SAS fetch) are unchanged. SCA items were fixed by a dependency pass (see below).
+- **`apiFetch` SSRF (issues 70, 71)**: Veracode's taint analysis does not recognise custom validators, so the finding is re-raised under a new ID whenever the `fetch` line moves. `apiFetch` parses the validated target into a `URL`, re-checks it with `isAllowedApiUrl()` (allowlisted protocol/host/port and `/api/` prefix) and calls `fetch(safeUrl.href)`, the same pattern as issue 26. It is handled by mitigation, not further code changes.
+- **SCA (2026-10-22)**: `applicationinsights` raised to 3.17 (pulls patched `@opentelemetry/instrumentation-pg` 0.73 / `-mysql` 0.67 and `sdk-node` 0.221); npm overrides force `@grpc/grpc-js` >=1.14.5 and `source-map-js` >=1.2.2. Porter uses Prisma (not `pg`/MySQL instrumentation), a client-only gRPC exporter and build-time-only `source-map-js`, so exposure was low.
+- **One-time tokens in URLs**: invite and password-reset emails carry a link `?token=...` (and `GET /api/account/reset?token=` validates it). The token is 256-bit random, stored only as a SHA-256 hash, single-use, and expires in 1 hour (reset) or 72 hours (invite); `Referrer-Policy: strict-origin-when-cross-origin`, HTTPS-only and `no-store` on `/api` limit leakage. Accepted by design.
 

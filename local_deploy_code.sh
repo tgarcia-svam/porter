@@ -67,7 +67,9 @@ cd ../..
 
 # ── 4. App container ───────────────────────────────────────────────────────────
 echo ">> Building and pushing app container..."
-docker build -t portercontainerregistry.azurecr.io/porter:latest .
+docker build \
+  --build-arg NEXT_PUBLIC_APP_ORIGINS="${NEXT_PUBLIC_APP_ORIGINS:?set NEXT_PUBLIC_APP_ORIGINS to the public URL, e.g. https://porterdata.com}" \
+  -t portercontainerregistry.azurecr.io/porter:latest .
 docker push portercontainerregistry.azurecr.io/porter:latest
 
 echo ">> Restarting app service..."

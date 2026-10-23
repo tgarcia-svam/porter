@@ -115,7 +115,10 @@ jobs:
         run: |
           ACR_NAME=$(grep "^param acrName" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
           az acr login --name $ACR_NAME
+          # The browser code may only call this environment's public origin (nextauthUrl).
+          APP_ORIGIN=$(grep "^param nextauthUrl" $PARAMS_FILE | sed "s/.*= '\\(.*\\)'/\\1/")
           docker build \
+            --build-arg NEXT_PUBLIC_APP_ORIGINS="$APP_ORIGIN" \
             -t $ACR_NAME.azurecr.io/porter:${{ github.sha }} \
             -t $ACR_NAME.azurecr.io/porter:latest \
             .

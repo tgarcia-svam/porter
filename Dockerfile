@@ -17,6 +17,12 @@ ENV DATABASE_URL=$DATABASE_URL
 ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
 ENV NEXTAUTH_URL=$NEXTAUTH_URL
 
+# Allow-listed origin(s) the browser code may call (inlined into the client bundle at build
+# time). Comma-separated, e.g. https://porterdata.com. No default: a build without it fails.
+ARG NEXT_PUBLIC_APP_ORIGINS
+ENV NEXT_PUBLIC_APP_ORIGINS=$NEXT_PUBLIC_APP_ORIGINS
+RUN test -n "$NEXT_PUBLIC_APP_ORIGINS" || (echo "NEXT_PUBLIC_APP_ORIGINS build arg is required" && exit 1)
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
