@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { apiFetch, resetCsrfCache } from "../apiFetch";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -19,7 +19,14 @@ function defaultImpl(url: string) {
 const apiCalls = () => mockFetch.mock.calls.filter(([u]) => u !== "/api/csrf");
 const csrfCalls = () => mockFetch.mock.calls.filter(([u]) => u === "/api/csrf");
 
+const ORIGIN = "http://localhost:3000";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", ORIGIN);
   tokenCounter = 0;
   resetCsrfCache();
   mockFetch.mockReset();
@@ -72,13 +79,25 @@ describe("mutating methods (POST, PUT, DELETE, PATCH)", () => {
     expect(apiCalls()[0][1].body).toBe(body);
   });
 
-  it("passes a path with a query string through unchanged", async () => {
+  it("sends an absolute URL on the allow-listed origin with the query percent-encoded", async () => {
     await apiFetch("/api/items?page=2&q=a%20b");
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/items?page=2&q=a%20b");
+    expect(mockFetch.mock.calls[0][0]).toBe(`${ORIGIN}/api/items?page=2&q=a%20b`);
   });
-  it("passes the URL through to fetch unchanged", async () => {
+  it("re-encodes query values (e.g. reserved characters)", async () => {
+    await apiFetch("/api/items?q=a%26b%3Dc");
+    expect(mockFetch.mock.calls[0][0]).toBe(`${ORIGIN}/api/items?q=a%26b%3Dc`);
+  });
+  it("sends the request to the allow-listed URL", async () => {
     await apiFetch("/api/resource", { method: "POST" });
-    expect(apiCalls()[0][0]).toBe("/api/resource");
+    expect(apiCalls()[0][0]).toBe(`${ORIGIN}/api/resource`);
+  });
+  it("accepts record IDs in path segments", async () => {
+    await apiFetch("/api/projects/cmabc123XYZ/organizations?organizationId=cmdef456", {
+      method: "DELETE",
+    });
+    expect(apiCalls()[0][0]).toBe(
+      `${ORIGIN}/api/projects/cmabc123XYZ/organizations?organizationId=cmdef456`
+    );
   });
 });
 
@@ -130,11 +149,56 @@ describe("path safety", () => {
   it("rejects absolute URLs", async () => {
     await expect(apiFetch("https://evil.example/x", { method: "POST" })).rejects.toThrow();
   });
-  it.each(["//evil.com/x", "/@evil.com/x", "/api/../x", "/x", "/api\evil", "/api/x\r\nHost: e", "api/x"])(
-    "rejects %j",
-    async (p) => {
-      await expect(apiFetch(p)).rejects.toThrow();
-      expect(mockFetch).not.toHaveBeenCalled();
-    }
-  );
+  it.each([
+    "//evil.com/x",
+    "/@evil.com/x",
+    "/api/../x",
+    "/api/%2e%2e/x",
+    "/api/a.b",
+    "/api/a:b",
+    "/api/a@b",
+    "/api/a~b",
+    "/api/a+b",
+    "/api/a,b",
+    "/api/",
+    "/api",
+    "/x",
+    "/api" + String.fromCharCode(92) + "evil",
+    "/api/x\r\nHost: e",
+    "api/x",
+    "/api/items?bad-key=1",
+    "/api/items?a.b=1",
+  ])("rejects %j", async (p) => {
+    await expect(apiFetch(p)).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ── Destination allowlist ─────────────────────────────────────────────────────
+
+describe("destination allowlist", () => {
+  it("rejects when the page host is not in NEXT_PUBLIC_APP_ORIGINS", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", "https://app.example.com");
+    await expect(apiFetch("/api/data")).rejects.toThrow(/not an allowed API origin/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+  it("rejects when the port differs", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", "http://localhost:4000");
+    await expect(apiFetch("/api/data")).rejects.toThrow();
+  });
+  it("ignores plain-http entries for non-local hosts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", "http://app.example.com");
+    await expect(apiFetch("/api/data")).rejects.toThrow(/not configured/);
+  });
+  it("accepts any listed origin that matches the page", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", "https://app.example.com, http://localhost:3000");
+    await apiFetch("/api/data");
+    expect(mockFetch.mock.calls[0][0]).toBe(`${ORIGIN}/api/data`);
+  });
+  it("fails closed in production when the variable is missing", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ORIGINS", "");
+    vi.stubEnv("NODE_ENV", "production");
+    await expect(apiFetch("/api/data")).rejects.toThrow(/not configured/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
