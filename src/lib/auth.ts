@@ -179,6 +179,24 @@ const callbacks: NextAuthConfig["callbacks"] = {
         return token;
       }
 
+      // Feature 2 — the expired flag was baked in at sign-in; once the user changes their
+      // password it must clear without forcing a re-login. Only re-check while flagged.
+      if (token["passwordExpired"] && token["id"]) {
+        const row = await prisma.user.findUnique({
+          where: { id: token["id"] as string },
+          select: { passwordChangedAt: true },
+        });
+        const expirySetting = await prisma.appSetting.findUnique({
+          where: { key: "PASSWORD_EXPIRY_DAYS" },
+        });
+        const expiryDays = parseInt(expirySetting?.value ?? "0");
+        const stillExpired =
+          expiryDays > 0 &&
+          !!row?.passwordChangedAt &&
+          (Date.now() - row.passwordChangedAt.getTime()) / 86_400_000 >= expiryDays;
+        token["passwordExpired"] = stillExpired;
+      }
+
       // Feature 3 — validate session on every subsequent request (updateAge: 0)
       const nonce = token["sessionNonce"] as string | undefined;
       if (nonce) {

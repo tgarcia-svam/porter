@@ -1,0 +1,13 @@
+order_date,customer_id,location_name,sku,product_category,units_sold,unit_price,net_revenue,region,contact_email
+2026-10-01,CUS-10021,Apex Boston Yard,FAS-1001,Fasteners,1200,0.45,540.00,Northeast,orders@apexcontractor.example
+2026-10-02,CUS-10021,Apex Boston Yard,PWR-2040,Power Tools,18,189.00,3402.00,Northeast,orders@apexcontractor.example
+2026-10-05,CUS-10021,Apex Hartford Branch,SAF-3110,Safety Equipment,240,12.75,3060.00,Northeast,orders@apexcontractor.example
+2026-10-07,CUS-10021,Apex Hartford Branch,ELE-4205,Electrical,95,24.50,2327.50,Northeast,orders@apexcontractor.example
+2026-10-09,CUS-10021,Apex Boston Yard,PLM-5022,Plumbing,60,38.20,2292.00,Northeast,orders@apexcontractor.example
+2026-10-12,CUS-10021,Apex Boston Yard,FAS-1007,Fasteners,3400,0.31,1054.00,Northeast,orders@apexcontractor.example
+2026-10-14,CUS-10021,Apex Hartford Branch,PWR-2051,Power Tools,9,259.99,2339.91,Northeast,orders@apexcontractor.example
+2026-10-16,CUS-10021,Apex Boston Yard,SAF-3125,Safety Equipment,410,8.90,3649.00,Northeast,orders@apexcontractor.example
+2026-10-19,CUS-10021,Apex Hartford Branch,ELE-4230,Electrical,150,17.25,2587.50,Northeast,orders@apexcontractor.example
+2026-10-22,CUS-10021,Apex Boston Yard,PLM-5044,Plumbing,32,64.10,2051.20,Northeast,orders@apexcontractor.example
+2026-10-27,CUS-10021,Apex Hartford Branch,FAS-1015,Fasteners,2100,0.52,1092.00,Northeast,orders@apexcontractor.example
+2026-10-30,CUS-10021,Apex Boston Yard,PWR-2077,Power Tools,14,142.50,1995.00,Northeast,orders@apexcontractor.example
