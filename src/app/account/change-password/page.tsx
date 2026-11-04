@@ -52,7 +52,7 @@ function ChangePasswordForm() {
       });
       if (res.ok) {
         setSuccess(true);
-        setTimeout(() => router.push("/upload"), 1500);
+        setTimeout(() => router.push("/"), 1500);
       } else {
         const data = await res.json();
         setErrors(Array.isArray(data.error) ? data.error : [data.error ?? "An error occurred."]);

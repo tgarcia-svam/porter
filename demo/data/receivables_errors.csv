@@ -1,0 +1,8 @@
+as_of_date,customer_id,invoice_number,invoice_date,due_date,invoice_amount,open_balance,aging_bucket,billing_contact,disputed
+2026-09-30,CUS-10063,INV-004501,2026-09-15,2026-10-15,12480.00,12480.00,Current,ap@lakeshorebp.example,false
+2026-09-30,CUS-10063,INV-004488,2026-08-28,2026-09-27,7250.00,9800.00,1-30,ap@lakeshorebp.example,false
+2026-09-30,CUS-10063,INV-004455,2026-08-10,2026-09-09,18900.50,9450.25,1-30,ap@lakeshorebp.example,false
+2026-09-30,CUS-10063,INV-4512,2026-07-22,2026-08-21,5310.00,5310.00,31-60,ap@lakeshorebp.example,false
+2026-09-30,CUS-10063,INV-004377,2026-07-14,2026-08-13,22640.75,22640.75,31-60,ap@lakeshorebp.example,true
+2026-09-30,CUS-10063,INV-004302,2026-06-20,2026-07-20,3890.00,3890.00,61-90,ap@lakeshorebp.example,false
+2026-09-30,CUS-10063,INV-004288,2026-06-05,2026-07-05,15200.00,7600.00,61-90,accounts-payable.lakeshore.com,false
